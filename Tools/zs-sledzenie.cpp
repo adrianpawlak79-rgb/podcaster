@@ -21,7 +21,10 @@
 
 #include "DSP/WordTracker.h"
 #include "DSP/PrompterLines.h"
+#include "DSP/SyllableClock.h"
+#include "Wav.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -74,14 +77,36 @@ static std::vector<double> alignTruth (const std::vector<std::string>& script, c
     return at;
 }
 
-struct Score { double w1, w2, line; int n; };
+struct Score { double w1, w2, line; int n; double medianDelay; };
+
+/** Kiedy slychac mowe — tym samym licznikiem sylab, ktory chodzi w
+    programie. Co 0,1 s: true = mowa, false = pauza. */
+static std::vector<bool> speechActivity (const char* wavPath)
+{
+    wavio::Audio a;
+    if (! wavio::read (wavPath, a).empty()) { std::fprintf (stderr, "nie moge czytac %s\n", wavPath); std::exit (1); }
+
+    const auto x = a.toMono();
+    tw::SyllableClock c;
+    c.prepare (a.sampleRate);
+
+    std::vector<bool> out;
+    const size_t step = (size_t) (a.sampleRate / 10);
+    for (size_t p = 0; p + step <= x.size(); p += step)
+    {
+        c.process (x.data() + p, (int) step);
+        out.push_back (c.pauseLength() <= 0.0);
+    }
+    return out;
+}
 
 static Score measure (const tw::PrompterText& text, const std::vector<Hyp>& hyps,
                       const std::vector<double>& truthAt, const std::vector<tw::LineSpan>& lines,
-                      double latency)
+                      double latency, const std::vector<bool>* activity = nullptr)
 {
     tw::WordTracker tr;
     tr.params.latencySec = latency;
+    if (const char* c = std::getenv ("ZS_JAZDA")) tr.params.maxCoastSec = std::atof (c);   // do badan
     tr.begin (&text);
 
     double first = 1e9, last = -1;
@@ -89,14 +114,25 @@ static Score measure (const tw::PrompterText& text, const std::vector<Hyp>& hyps
 
     int n = 0, in1 = 0, in2 = 0, inLine = 0;
     size_t h = 0;
+    std::vector<double> delays;     // oddanie przez Vosk - poczatek slowa we wzorcu
 
     for (double now = 0.0; now <= last; now += 0.1)
     {
         while (h < hyps.size() && hyps[h].t <= now)
         {
+            const int before = tr.hitCount();
             tr.hypothesis (hyps[h].t, hyps[h].words);
+            const int w = tr.lastHitWord();
+            if (tr.hitCount() > before && w >= 0 && truthAt[(size_t) w] >= 0)
+                delays.push_back (hyps[h].t - truthAt[(size_t) w]);
             if (hyps[h].final) tr.endUtterance();
             ++h;
+        }
+
+        if (activity != nullptr)
+        {
+            const size_t k = (size_t) std::lround (now * 10.0);
+            tr.speaking (now, k < activity->size() && (*activity)[k]);
         }
 
         if (now < first) continue;
@@ -108,13 +144,19 @@ static Score measure (const tw::PrompterText& text, const std::vector<Hyp>& hyps
         const int shown = tr.word (now);
         const int err = std::abs (shown - truth);
 
+        if (std::getenv ("ZS_SLAD") != nullptr && latency > 0.0)
+            std::printf ("slad %6.1f  wzorzec %3d  pokazane %3d  trafienie %3d  tempo %.2f\n",
+                         now, truth, shown, tr.lastHitWord(), tr.wordsPerSec());
+
         ++n;
         if (err <= 1) ++in1;
         if (err <= 2) ++in2;
         if (tw::lineOfWord (lines, shown) == tw::lineOfWord (lines, truth)) ++inLine;
     }
 
-    return { 100.0 * in1 / n, 100.0 * in2 / n, 100.0 * inLine / n, n };
+    std::sort (delays.begin(), delays.end());
+    const double med = delays.empty() ? 0.0 : delays[delays.size() / 2];
+    return { 100.0 * in1 / n, 100.0 * in2 / n, 100.0 * inLine / n, n, med };
 }
 
 int main (int argc, char** argv)
@@ -132,7 +174,7 @@ int main (int argc, char** argv)
     if (argc < 4)
     {
         std::fprintf (stderr, "zs-sledzenie --slownik skrypt.txt\n"
-                              "zs-sledzenie skrypt.txt wynik.hip wynik.czasy [opoznienie_s]\n");
+                              "zs-sledzenie skrypt.txt wynik.hip wynik.czasy [opoznienie_s] [nagranie-16k.wav]\n");
         return 2;
     }
 
@@ -183,9 +225,21 @@ int main (int argc, char** argv)
     const auto a = measure (text, hyps, truthAt, lines, latency);
     const auto b = measure (text, hyps, truthAt, lines, 0.0);
 
+    std::vector<bool> activity;
+    if (argc > 5) activity = speechActivity (argv[5]);
+
     std::printf ("  %-34s  <=1 slowo  <=2 slowa  wers\n", "");
     std::printf ("  %-34s  %7.1f%%  %8.1f%%  %5.1f%%\n", ("kompensacja " + std::to_string (latency).substr (0, 4) + " s").c_str(), a.w1, a.w2, a.line);
     std::printf ("  %-34s  %7.1f%%  %8.1f%%  %5.1f%%\n", "bez kompensacji", b.w1, b.w2, b.line);
-    std::printf ("\n  (%d chwil co 0,1 s)\n\n", a.n);
+
+    if (! activity.empty())
+    {
+        const auto c = measure (text, hyps, truthAt, lines, latency, &activity);
+        const auto d = measure (text, hyps, truthAt, lines, 0.0, &activity);
+        std::printf ("  %-34s  %7.1f%%  %8.1f%%  %5.1f%%\n", ("jazda tylko w mowie, komp. " + std::to_string (latency).substr (0, 4)).c_str(), c.w1, c.w2, c.line);
+        std::printf ("  %-34s  %7.1f%%  %8.1f%%  %5.1f%%\n", "jazda tylko w mowie, bez komp.", d.w1, d.w2, d.line);
+    }
+    std::printf ("\n  (%d chwil co 0,1 s; mediana opoznienia trafienia wzgledem poczatku slowa %.2f s)\n\n",
+                 a.n, b.medianDelay);
     return 0;
 }

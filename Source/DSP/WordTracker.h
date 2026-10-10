@@ -87,6 +87,8 @@ public:
         lastHitSec = 0.0;
         anchor = 0;
         coasting = false;
+        knowsActivity = false;
+        lastActivitySec = spokenSinceHit = 0.0;
         rate = params.startRate;
         pendingWide.clear();
         totalHits = 0;
@@ -145,6 +147,24 @@ public:
         pendingWide.clear();
     }
 
+    /** Czy czlowiek w tej chwili mowi (licznik sylab: pauseLength() == 0).
+        Wolac co krok. Odkad to wolano, jazda z tempem liczy tylko czas MOWY
+        od trafienia — w pauzie pozycja stoi.
+
+        Dlaczego: na nagraniu "Nic dwa razy" (Tools/zs-sledzenie) jazda z
+        tempem przez cale 1,5 s po trafieniu wypychala pozycje o ok. 6 slow
+        w kazdej pauzie miedzy wersami: <= 1 slowo w 46% chwil. Bez jazdy
+        w ogole 68%, bo pauzy sa tam dlugie. Jazda tylko w mowie ma zachowac
+        jedno i drugie — liczby w opisie zmiany. */
+    void speaking (double nowSec, bool isSpeaking)
+    {
+        if (knowsActivity && isSpeaking)
+            spokenSinceHit += std::clamp (nowSec - lastActivitySec, 0.0, 0.5);
+
+        knowsActivity = true;
+        lastActivitySec = nowSec;
+    }
+
     //==========================================================================
     /** Pozycja w slowach (ulamkowa). Przed pierwszym trafieniem 0. */
     double position (double nowSec) const
@@ -152,7 +172,9 @@ public:
         if (keys.empty()) return 0.0;
         if (! coasting) return anchor;
 
-        const double coast = std::clamp (nowSec - (lastHitSec - params.latencySec), 0.0, params.maxCoastSec);
+        const double since = knowsActivity ? params.latencySec + spokenSinceHit
+                                           : nowSec - (lastHitSec - params.latencySec);
+        const double coast = std::clamp (since, 0.0, params.maxCoastSec);
         return std::min ((double) keys.size() - 1.0, anchor + rate * coast);
     }
 
@@ -239,6 +261,7 @@ private:
 
         lastHit = at;
         anchor = at;
+        spokenSinceHit = 0.0;
         coasting = true;
         lastHitSec = nowSec;
         ++totalHits;
@@ -274,6 +297,8 @@ private:
     std::string pendingWide;
     int    lastHit = -1;
     int    anchor = 0;
+    bool   knowsActivity = false;
+    double lastActivitySec = 0.0, spokenSinceHit = 0.0;
     bool   coasting = false;
     double lastHitSec = 0.0;
     double rate = 2.5;

@@ -242,6 +242,21 @@ int main()
         std::snprintf (b, sizeof (b), "%.1f slow/s", f.wordsPerSec());
         check (f.wordsPerSec() <= 5.0, "tempo nie wyjdzie ponad 5 slow/s", b);
 
+        // w pauzie (licznik sylab mowi: cisza) pozycja stoi
+        {
+            tw::WordTracker q;
+            q.begin (&text);
+            std::vector<std::string> hh;
+            for (int i = 0; i < 6; ++i) { hh.push_back (tw::spokenKey (text.wordText (i))); q.speaking (0.1 + i * 0.4, true); q.hypothesis (0.1 + i * 0.4, hh); }
+            const double t0 = 0.1 + 5 * 0.4;
+            for (double t = t0; t < t0 + 3.0; t += 0.1) q.speaking (t, false);
+            const double still = q.position (t0 + 3.0);
+            for (double t = t0 + 3.0; t < t0 + 3.5; t += 0.1) q.speaking (t, true);
+            std::snprintf (b, sizeof (b), "po 3 s ciszy %.2f, po 0,5 s mowy %.2f (trafienie na 5)", still, q.position (t0 + 3.5));
+            check (q.position (t0 + 3.5) > still && still < 5.0 + q.wordsPerSec() * (q.params.latencySec + 0.11),
+                   "w pauzie jazda stoi, w mowie rusza", b);
+        }
+
         // jazda z tempem tylko przez 1,5 s
         const double p1 = f.position (0.1 + 9 * 0.06 + 1.5), p2 = f.position (0.1 + 9 * 0.06 + 10.0);
         std::snprintf (b, sizeof (b), "po 1,5 s %.1f, po 10 s %.1f", p1, p2);

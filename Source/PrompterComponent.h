@@ -339,6 +339,9 @@ private:
         // zamilknie, jedzie dalej od dobrego miejsca.
         if (listening && speech != nullptr)
         {
+            // w pauzie pozycja ze slow stoi — patrz WordTracker::speaking()
+            words.speaking (now, clock.pauseLength() <= 0.0);
+
             VoskEngine::Hypothesis h;
             while (speech->nextHypothesis (h))
             {
