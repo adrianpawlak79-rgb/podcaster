@@ -14,6 +14,8 @@
 */
 
 #include "../Source/DSP/WordTracker.h"
+#include "../Source/DSP/PrompterLines.h"
+#include "../Source/DSP/Follower.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -244,6 +246,27 @@ int main()
         const double p1 = f.position (0.1 + 9 * 0.06 + 1.5), p2 = f.position (0.1 + 9 * 0.06 + 10.0);
         std::snprintf (b, sizeof (b), "po 1,5 s %.1f, po 10 s %.1f", p1, p2);
         check (std::fabs (p1 - p2) < 1e-9, "po 1,5 s bez trafienia pozycja stoi", b);
+    }
+
+    // ---- 2b. przejscie do sylab i rezerwa ------------------------------------------
+    std::printf ("\n  2b. slowa -> sylaby, licznik sylab jako rezerwa\n");
+    {
+        const auto& w3 = text.all()[3];
+        std::snprintf (b, sizeof (b), "slowo 3,5 -> %.2f sylaby (slowo 3 zaczyna sie na %d, ma %d)",
+                       tw::syllableAtWord (text, 3.5), w3.beforeMe, w3.syllables);
+        check (std::fabs (tw::syllableAtWord (text, 3.5) - (w3.beforeMe + 0.5 * w3.syllables)) < 1e-9,
+               "pozycja w slowach przechodzi na sylaby liniowo", b);
+
+        // Follower dostaje pewna pozycje, potem jedzie sam dalej od niej
+        tw::Follower f;
+        f.begin (&text);
+        f.syncTo (text.all()[40].beforeMe);
+        std::snprintf (b, sizeof (b), "slowo %d", f.currentWord());
+        check (f.currentWord() == 40, "licznik sylab przejmuje pozycje ze slow", b);
+
+        f.syncTo (text.all()[20].beforeMe);
+        std::snprintf (b, sizeof (b), "slowo %d", f.currentWord());
+        check (f.currentWord() == 20, "i moze sie cofnac, gdy slowa tak mowia", b);
     }
 
     // ---- 3. czytanie calego tekstu ------------------------------------------------

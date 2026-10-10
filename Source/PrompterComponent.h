@@ -42,9 +42,11 @@
 #include "DSP/PrompterLines.h"
 #include "DSP/PrompterText.h"
 #include "DSP/SyllableClock.h"
+#include "DSP/WordTracker.h"
 #include "Recorder.h"
 #include "Settings.h"
 #include "Look.h"
+#include "VoskEngine.h"
 
 //==============================================================================
 class PrompterComponent : public juce::Component,
@@ -89,13 +91,22 @@ public:
         startTimerHz (30);
     }
 
-    ~PrompterComponent() override { recorder.attachSyllableClock (nullptr); }
+    ~PrompterComponent() override
+    {
+        recorder.attachSyllableClock (nullptr);
+        recorder.attachSpeechRing (nullptr);
+    }
+
+    /** Rozpoznawanie mowy. Bez niego (nullptr albo brak modelu) prompter
+        jedzie na liczniku sylab — tak jak w 0.4.0. */
+    void setSpeech (VoskEngine* engine) { speech = engine; }
 
     //==========================================================================
     void load (const juce::String& utf8)
     {
         script.set (utf8.toStdString());
         follower.begin (&script);
+        words.begin (&script);
         scrollNow = scrollTarget = 0.0f;
         shownLine = 0;
         layoutDirty = true;
@@ -123,6 +134,7 @@ public:
     {
         running = false;
         recorder.attachSyllableClock (nullptr);
+        stopSpeech();
     }
 
     //==========================================================================
@@ -192,13 +204,15 @@ public:
 
         const int from = tw::repeatLineStart (spans, follower.currentWord());
         follower.repeatFrom (from);
+        words.jumpTo (from, recorder.recordedSeconds());
         shownLine = tw::lineOfWord (spans, from);
         repaint();
     }
 
-    void nudge (int words)
+    void nudge (int by)
     {
-        follower.nudgeWords (words);
+        follower.nudgeWords (by);
+        words.jumpTo (follower.currentWord(), recorder.recordedSeconds());
         shownLine = lineToShow();
         repaint();
     }
@@ -298,8 +312,14 @@ private:
                 clock.reset();
                 recorder.attachSyllableClock(&clock);
                 follower.begin (&script);
+                words.begin (&script);
                 scrollNow = scrollTarget = 0.0f;
                 shownLine = 0;
+                startSpeech();
+            }
+            else
+            {
+                stopSpeech();
             }
         }
 
@@ -310,9 +330,43 @@ private:
             return;
         }
 
-        follower.advance (recorder.recordedSeconds(),
-                          clock.takeNewSyllables(), clock.pauseLength());
+        const double now = recorder.recordedSeconds();
+
+        follower.advance (now, clock.takeNewSyllables(), clock.pauseLength());
+
+        // Rozpoznane slowa maja pierwszenstwo. Licznik sylab jest rezerwa:
+        // dostaje pewna pozycje przy kazdym kroku, wiec gdy rozpoznawanie
+        // zamilknie, jedzie dalej od dobrego miejsca.
+        if (listening && speech != nullptr)
+        {
+            VoskEngine::Hypothesis h;
+            while (speech->nextHypothesis (h))
+            {
+                words.hypothesis (now, h.words);
+                if (h.final) words.endUtterance();
+            }
+
+            if (words.hasLock (now))
+                follower.syncTo (tw::syllableAtWord (script, words.position (now)));
+        }
+
         repaint();
+    }
+
+    void startSpeech()
+    {
+        if (speech == nullptr || speech->state() != VoskEngine::State::Ready || script.wordCount() == 0) return;
+
+        speech->startListening (recorder.currentSampleRate(), words.vocabulary());
+        recorder.attachSpeechRing (&speech->samples());
+        listening = true;
+    }
+
+    void stopSpeech()
+    {
+        recorder.attachSpeechRing (nullptr);
+        if (speech != nullptr) speech->stopListening();
+        listening = false;
     }
 
     //==========================================================================
@@ -491,6 +545,15 @@ private:
         }
 
         drawStateBadge (g, guide);
+
+        // Przed nagraniem: jedno zdanie, gdy rozpoznawania mowy nie ma.
+        if (! recorder.isRecording() && speech != nullptr && speech->whyNot().isNotEmpty())
+        {
+            g.setColour (Ink::textDim());
+            g.setFont (juce::Font (zs::type::small));
+            g.drawText (speech->whyNot(), guide.withY (guide.getBottom() + 4).withHeight (20).reduced (12, 0),
+                        juce::Justification::centredRight);
+        }
     }
 
     //==========================================================================
@@ -508,6 +571,11 @@ private:
         else if (follower.isLost())     { label = PL ("SZUKAM");       col = Ink::lostText(); }
         else if (clock.pauseLength() > 0.3) { label = PL ("PAUZA");    col = Ink::textNext(); }
         else                            { label = PL ("JEDZIE");       col = Ink::green(); }
+
+        // Skad prompter wie, gdzie jestes: ze slow czy z sylab. Male, ale
+        // widoczne — bez tego nie da sie ocenic, czy rozpoznawanie pomaga.
+        if (running && recorder.isRecording() && listening)
+            label << (words.hasLock (recorder.recordedSeconds()) ? PL ("  ·  SŁOWA") : PL ("  ·  SYLABY"));
 
         g.setFont (juce::Font (11.0f, juce::Font::bold));
 
@@ -700,6 +768,9 @@ private:
     tw::PrompterText script;
     tw::SyllableClock clock;
     tw::Follower follower;
+    tw::WordTracker words;           ///< pozycja z rozpoznanych slow (Vosk)
+    VoskEngine* speech = nullptr;
+    bool listening = false;
 
     std::vector<Line> lines;
     std::vector<tw::LineSpan> spans;     ///< te same wersy, same numery slow
