@@ -397,6 +397,7 @@ public:
         recorder.prepareDevice(48000,512,1);
         prompter=std::make_unique<PrompterComponent>(recorder,settings);
         prompter->onClose=[this]{showPrompter(false);};
+        prompter->setSpeech(&speech);
         prompter->onStopRequest=[this]{ if(recorder.isRecording()) toggleRecord(); };
         addAndMakeVisible(*prompter);
         prompter->load(PL("Dziś porozmawiamy o tym, co naprawdę warto usłyszeć.\nZatrzymaj się na chwilę. Weź spokojny oddech.\nTo jest Twoje miejsce i Twój głos.\nNie musisz się spieszyć. Dobra opowieść potrzebuje czasu."));
@@ -850,6 +851,12 @@ private:
 
     juce::AudioDeviceManager deviceManager;
     Recorder recorder;
+
+    /* Rozpoznawanie mowy dla promptera. Model wczytuje sie w tle od startu
+       programu (1-2 s), zeby nie czekac na niego przy pierwszym nagraniu.
+       Stoi przed prompterem, bo prompter trzyma do niego wskaznik i musi
+       zniknac pierwszy. */
+    VoskEngine speech;
     Settings settings;
 
     std::unique_ptr<juce::AudioDeviceSelectorComponent> selector;
@@ -994,6 +1001,7 @@ private:
         {
             prompter = std::make_unique<PrompterComponent> (recorder, settings);
             prompter->onClose = [this] { showPrompter (false); };
+            prompter->setSpeech (&speech);
             prompter->onStopRequest = [this] { if (recorder.isRecording()) toggleRecord(); };
             addAndMakeVisible (*prompter);
         }

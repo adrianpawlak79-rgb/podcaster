@@ -23,6 +23,7 @@
 #include "DSP/TakeWatchCore.h"
 #include "DSP/Setup.h"
 #include "DSP/SyllableClock.h"
+#include "DSP/SpeechFeed.h"
 #include "DSP/TakeReview.h"
 
 /** JUCE robi juce::String z const char* przez CharPointer_ASCII — bajt na znak.
@@ -113,6 +114,13 @@ public:
     void attachSyllableClock (tw::SyllableClock* c)
     {
         syllableSlot.set(c);
+    }
+
+    /** Probki dla rozpoznawania mowy (VoskEngine). Ten sam kanal co licznik
+        sylab; watek dzwieku tylko dopisuje do pierscienia. */
+    void attachSpeechRing (tw::SampleRing* r)
+    {
+        speechSlot.set(r);
     }
 
     float currentLevel() const noexcept { return level.load(); }
@@ -291,6 +299,10 @@ public:
                 zs::RealtimeSlot<tw::SyllableClock>::Read syllables(syllableSlot);
                 if (syllables) syllables->process (inputChannelData[ac], numSamples);
             }
+            {
+                zs::RealtimeSlot<tw::SampleRing>::Read speech(speechSlot);
+                if (speech) speech->push (inputChannelData[ac], numSamples);
+            }
         }
 
         publishedPhrases.store(watch.numPhrases());
@@ -440,6 +452,7 @@ private:
     zs::RealtimeSlot<Session> sessionSlot;
     zs::RealtimeSlot<tw::SetupWizard> wizardSlot;
     zs::RealtimeSlot<tw::SyllableClock> syllableSlot;
+    zs::RealtimeSlot<tw::SampleRing> speechSlot;
     zs::RealtimeSlot<zs::Audition> playerSlot;
     zs::RealtimeSlot<Calibration> calibrationSlot;
     zs::SpscQueue<TaggedEvent,2048> uiEvents;
