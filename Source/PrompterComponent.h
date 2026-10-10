@@ -553,8 +553,8 @@ private:
         switch (lampState)
         {
             case 3: c = Ink::clip(); title = PL("BŁĄD NAGRANIA");diag=lampMsg;break;
-            case 2: c = Ink::red();    title = PL ("POWTÓRZ");  diag = lampMsg; break;
-            case 1: c = Ink::yellow(); title = PL ("POPRAW");   diag = lampMsg; break;
+            case 2: c = Ink::yellow(); title = PL ("POPRAW");   diag = lampMsg; break;
+            case 1: c = Ink::yellow(); title = PL ("POWTÓRZ");  diag = lampMsg; break;
             default:
                 c = recorder.isRecording() ? Ink::green() : Ink::textNext();
                 title = recorder.isRecording() ? PL("NAGRYWASZ") : PL("GOTOWY");
