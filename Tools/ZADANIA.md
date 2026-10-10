@@ -2,6 +2,10 @@
 
 Każde zadanie da się wkleić w całości jako polecenie. Zasady pracy: `AGENTS.md`.
 
+Dwa sposoby:
+- **automat:** treść zadania jako zgłoszenie (issue) na GitHubie z etykietą `gemini` — Gemini zrobi je w GitHub Actions i otworzy PR (`.github/workflows/gemini.yml`). W automacie pomiń linijki o tworzeniu gałęzi, commitach i wypychaniu — to robi automat;
+- **ręcznie:** wklej do Gemini CLI na swoim komputerze (wtedy wszystko jak niżej).
+
 ---
 
 ## 1. Lampka w prompterze: zamienione napisy

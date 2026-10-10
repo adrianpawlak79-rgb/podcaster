@@ -1,0 +1,151 @@
+# Gemini robi zadanie ze zgloszenia (issue) i otwiera PR.
+#
+# Start: etykieta "gemini" na zgloszeniu, nadana przez wlasciciela repo.
+# Nikt inny nie uruchomi tego automatu — zgloszenie od obcej osoby nie wyda
+# naszego klucza API ani nie zmieni kodu.
+#
+# Gemini NIE dostaje zadnych uprawnien do GitHuba (checkout bez zapisanych
+# danych logowania, bez GITHUB_TOKEN w jego srodowisku). Zmienia tylko pliki
+# na maszynie. Commit, testy (Tests/ci.sh), wypchniecie galezi i PR robia
+# kroki ponizej, ktorymi Gemini nie steruje.
+#
+# Uwaga: PR otwarty przez GITHUB_TOKEN nie uruchamia innych workflow (zasada
+# GitHuba), wiec testy.yml sie na nim nie odpali — dlatego testy ida tutaj,
+# a ich tabela trafia do opisu PR.
+#
+# Wymaga sekretu repo GEMINI_API_KEY (Settings -> Secrets and variables ->
+# Actions) i etykiety "gemini".
+
+name: Gemini
+
+on:
+  issues:
+    types: [labeled]
+
+concurrency:
+  group: gemini-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  zadanie:
+    if: github.event.label.name == 'gemini' && github.event.sender.login == github.repository_owner
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Narzedzia (zeby Gemini mogl puscic testy)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q g++ espeak-ng ffmpeg python3-pip
+          pip install --break-system-packages -q soundfile pyloudnorm
+
+      # Tresc zgloszenia idzie do pliku przez zmienne srodowiska, nie przez
+      # wklejenie w skrypt — inaczej tekst zgloszenia moglby stac sie poleceniem.
+      - name: Zadanie do pliku
+        env:
+          TYTUL: ${{ github.event.issue.title }}
+          TRESC: ${{ github.event.issue.body }}
+          NUMER: ${{ github.event.issue.number }}
+        run: |
+          {
+            echo "# Zgloszenie #$NUMER: $TYTUL"
+            echo
+            printf '%s\n' "$TRESC"
+          } > "$RUNNER_TEMP/zadanie.md"
+          cp "$RUNNER_TEMP/zadanie.md" ZADANIE-GEMINI.md
+
+      - name: Gemini
+        uses: google-github-actions/run-gemini-cli@v0
+        env:
+          GEMINI_CLI_TRUST_WORKSPACE: 'true'
+        with:
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          gemini_model: ${{ vars.GEMINI_MODEL }}
+          workflow_name: gemini-zadanie
+          settings: |-
+            {
+              "model": { "maxSessionTurns": 60 }
+            }
+          prompt: |-
+            Jestes jednym z programistow tego repo. Najpierw przeczytaj AGENTS.md
+            i 0-PRZECZYTAJ-NAJPIERW.md — to sa zasady, ktore obowiazuja.
+
+            Twoje zadanie jest w pliku ZADANIE-GEMINI.md. Zrob dokladnie to,
+            o co prosi, i nic poza tym.
+
+            Zasady tego uruchomienia:
+            - Zmieniaj tylko pliki potrzebne do zadania. Zachowaj konce linii
+              (czesc plikow ma CRLF).
+            - NIE rob git commit, git push, git checkout ani git branch —
+              zrobi to automat po Tobie.
+            - NIE zmieniaj ZADANIE-GEMINI.md ani niczego w .github/.
+            - Uruchom testy: bash Tests/ci.sh. Jesli cos, co przechodzilo,
+              przestalo przechodzic — popraw albo cofnij swoja zmiane.
+            - Na koniec zapisz w pliku OPIS-GEMINI.md (po polsku, krotko):
+              co zmieniles i dlaczego, wynik testow, czego NIE sprawdziles.
+              Liczby tylko z pomiaru, nie z przypuszczenia.
+
+      - name: Commit, testy, PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMER: ${{ github.event.issue.number }}
+          TYTUL: ${{ github.event.issue.title }}
+          CI_PODSUMOWANIE: ${{ runner.temp }}/testy.md
+        run: |
+          opis=""
+          [ -f OPIS-GEMINI.md ] && opis=$(cat OPIS-GEMINI.md)
+          rm -f ZADANIE-GEMINI.md OPIS-GEMINI.md
+          rm -rf .gemini gemini-artifacts
+
+          git add -A
+          if git diff --cached --quiet && git diff --quiet origin/main HEAD; then
+            gh issue comment "$NUMER" --body "Gemini nie wprowadzil zadnych zmian.${opis:+
+
+          Jego opis:
+
+          $opis}"
+            exit 0
+          fi
+
+          galaz="gemini/zgloszenie-$NUMER"
+          git config user.name "Gemini (automat)"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$galaz"
+          git diff --cached --quiet || git commit -q -m "Gemini: $TYTUL
+
+          Zgloszenie #$NUMER. Zmiane zrobil Gemini CLI w GitHub Actions."
+
+          set +e
+          bash Tests/ci.sh > "$RUNNER_TEMP/testy.log" 2>&1
+          kod=$?
+          set -e
+          wynik=$([ $kod -eq 0 ] && echo "przechodza (nic, co dzialalo, sie nie zepsulo)" || echo "**NIE PRZECHODZA** — patrz tabela")
+
+          git push -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$galaz"
+
+          {
+            echo "Zmiane zrobil Gemini CLI na podstawie zgloszenia #$NUMER (automat .github/workflows/gemini.yml)."
+            echo
+            echo "## Opis od Gemini"
+            echo
+            echo "${opis:-_Gemini nie zostawil opisu._}"
+            echo
+            echo "## Testy (Tests/ci.sh, uruchomione przez automat po Gemini)"
+            echo
+            echo "Testy $wynik."
+            echo
+            cat "$CI_PODSUMOWANIE" 2>/dev/null
+            echo
+            echo "Do przegladu przed scaleniem."
+          } > "$RUNNER_TEMP/pr.md"
+
+          url=$(gh pr create --base main --head "$galaz" --title "Gemini: $TYTUL" --body-file "$RUNNER_TEMP/pr.md")
+          gh issue comment "$NUMER" --body "Gotowe: $url — testy $wynik"
