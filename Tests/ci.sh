@@ -97,7 +97,12 @@ for t in "${TESTY[@]}"; do
 done
 
 # glosnosc wzgledem niezaleznej implementacji
-./loudness-test /tmp/lufs > /tmp/lufs-nasze.txt 2>&1 || true
+# Swiezy katalog: stare pliki z poprzedniego przebiegu nie moga udawac
+# wyniku tego (tak ukrywal sie brak kompilacji loudness-test ponizej).
+rm -rf /tmp/lufs; : > /tmp/lufs-nasze.txt
+$CXX $FLAGS loudness-test.cpp -o loudness-test 2> /tmp/loudness-test.kompilacja \
+  || cat /tmp/loudness-test.kompilacja > /tmp/lufs-nasze.txt
+./loudness-test /tmp/lufs >> /tmp/lufs-nasze.txt 2>&1 || true
 if python3 loudness-check.py /tmp/lufs > /tmp/lufs.log 2>&1 && grep -q "^zgodne" /tmp/lufs.log; then
   echo "| loudness-check.py (pyloudnorm) | przechodzi | | |" >> "$OUT"
 else
