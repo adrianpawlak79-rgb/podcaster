@@ -79,6 +79,17 @@ target_compile_definitions(RuntimeTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=
 target_link_libraries(RuntimeTest PRIVATE juce::juce_audio_utils juce::juce_gui_extra
     PUBLIC juce::juce_recommended_config_flags)
 
+# Vosk cala droga (pierscien -> 16 kHz -> VoskEngine -> WordTracker). Potrzebuje
+# libvosk i modelu w czasie uruchomienia (ZS_VOSK_LIB, ZS_VOSK_MODEL), nie do
+# budowania — VoskEngine wczytuje je dopiero w trakcie.
+juce_add_console_app(VoskSilnikTest PRODUCT_NAME "vosk-silnik-test")
+target_sources(VoskSilnikTest PRIVATE Tests/vosk-silnik-test.cpp)
+target_include_directories(VoskSilnikTest PRIVATE Source)
+target_compile_definitions(VoskSilnikTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
+    JUCE_STANDALONE_APPLICATION=1)
+target_link_libraries(VoskSilnikTest PRIVATE juce::juce_core
+    PUBLIC juce::juce_recommended_config_flags)
+
 if(MSVC)
     target_compile_options(ZieloneSwiatlo PRIVATE /utf-8)
     target_compile_options(RuntimeTest PRIVATE /utf-8)

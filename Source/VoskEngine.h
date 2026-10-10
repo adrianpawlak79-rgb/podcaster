@@ -28,6 +28,7 @@
 
 #include <juce_core/juce_core.h>
 #include "DSP/SpeechFeed.h"
+#include "ModelWords.h"
 
 #include <atomic>
 #include <deque>
@@ -44,6 +45,7 @@ public:
     {
         bool final = false;
         std::vector<std::string> words;
+        double audioSec = 0.0;   ///< do ktorej chwili dzwieku (od startListening) siega hipoteza
     };
 
     static constexpr const char* modelFolder = "vosk-model-small-pl-0.22";
@@ -80,6 +82,14 @@ public:
                 "Model mowy nie dał się wczytać — prompter liczy sylaby."));
             default:               return {};
         }
+    }
+
+    /** Zamienniki dla slow, ktorych model nie zna (ModelWords.h). Puste,
+        dopoki model sie nie wczytal. */
+    std::vector<std::pair<std::string, std::string>> substitutesFor (const std::vector<std::string>& vocabulary) const
+    {
+        if (state() != State::Ready) return {};
+        return tw::substitutes (vocabulary, modelWords);    // modelWords nie zmienia sie po Ready
     }
 
     /** Dla watku dzwieku (przez Recorder::attachSpeechRing). */
@@ -160,6 +170,29 @@ private:
             && get (api.result, "vosk_recognizer_result") && get (api.setLogLevel, "vosk_set_log_level");
     }
 
+public:
+    /** Slownik dla Vosk jako JSON w czystym UTF-8.
+
+        NIE przez juce::JSON::toString: ten zapisuje polskie litery jako
+        kody szesnastkowe (ukosnik, u, 0105), a Vosk ich nie rozkodowuje — kazde slowo z ogonkiem
+        ("się", "świata", "choćbyśmy") po cichu wypadalo ze slownika. Na
+        "Nic dwa razy" dawalo to 54 trafienia zamiast 104
+        (Tests/vosk-silnik-test.cpp). Klucze slow (spokenKey) maja tylko
+        litery i cyfry, wiec cudzyslowow ani ukosnikow nie ma czego
+        uciekac — ale robimy to i tak. */
+    static std::string grammarJson (const std::vector<std::string>& vocabulary)
+    {
+        std::string j = "[";
+        for (const auto& w : vocabulary)
+        {
+            j += '"';
+            for (char c : w) { if (c == '"' || c == '\\') j += '\\'; j += c; }
+            j += "\",";
+        }
+        return j + "\"[unk]\"]";
+    }
+
+private:
     static std::vector<std::string> words (const char* json, const char* field)
     {
         std::vector<std::string> w;
@@ -173,7 +206,7 @@ private:
     {
         std::lock_guard<std::mutex> lock (out);
         if (results.size() > 200) results.pop_front();   // okno stanelo — nie roslij bez konca
-        results.push_back ({ final, std::move (w) });
+        results.push_back ({ final, std::move (w), fedSamples / tw::To16k::outRate });
     }
 
     //==========================================================================
@@ -190,6 +223,10 @@ private:
         api.setLogLevel (-1);
         model = api.modelNew (modelDir.toRawUTF8());
         if (model == nullptr) { status = State::Failed; return; }
+
+        // lista slow modelu — po to, by dobrac zamienniki slow, ktorych nie zna
+        modelWords = tw::readModelWords (juce::File (modelDir).getChildFile ("graph/Gr.fst")
+                                             .getFullPathName().toStdString());
 
         status = State::Ready;
 
@@ -210,14 +247,11 @@ private:
                     restart = false;
                     if (recognizer != nullptr) api.recognizerFree (recognizer);
 
-                    juce::Array<juce::var> list;
-                    for (auto& w : pendingVocab) list.add (juce::String (juce::CharPointer_UTF8 (w.c_str())));
-                    list.add ("[unk]");
-
                     recognizer = api.recognizerNewGrm (model, (float) tw::To16k::outRate,
-                                                       juce::JSON::toString (list, true).toRawUTF8());
+                                                       grammarJson (pendingVocab).c_str());
                     down.prepare (pendingRate);
                     lastPartial.clear();
+                    fedSamples = 0;
 
                     float drop[512];
                     while (ring.pop (drop, 512) > 0) {}      // to, co bylo przed nagraniem
@@ -230,6 +264,7 @@ private:
 
             pcm.clear();
             down.process (raw.data(), n, pcm);
+            fedSamples += (double) pcm.size();
 
             if (api.acceptWaveform (recognizer, reinterpret_cast<const char*> (pcm.data()), (int) (pcm.size() * 2)))
             {
@@ -247,6 +282,7 @@ private:
     juce::DynamicLibrary lib;
     Api api;
     void* model = nullptr;
+    std::vector<std::string> modelWords;
     void* recognizer = nullptr;
 
     std::atomic<State> status { State::Loading };
@@ -256,6 +292,7 @@ private:
     std::mutex control, out;
     std::vector<std::string> pendingVocab;
     double pendingRate = 48000.0;
+    double fedSamples = 0.0;           ///< tylko watek Vosk
     bool restart = false, listening = false;
     std::deque<Hypothesis> results;
 

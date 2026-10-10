@@ -360,6 +360,11 @@ private:
     {
         if (speech == nullptr || speech->state() != VoskEngine::State::Ready || script.wordCount() == 0) return;
 
+        // Slowa, ktorych model nie zna, dostaja najblizszy znany zamiennik
+        // (na "Nic dwa razy": 7 slow, z tego 6 potem uslyszanych).
+        for (auto& sb : speech->substitutesFor (words.vocabulary()))
+            words.addAlias (sb.second, sb.first);
+
         speech->startListening (recorder.currentSampleRate(), words.vocabulary());
         recorder.attachSpeechRing (&speech->samples());
         listening = true;

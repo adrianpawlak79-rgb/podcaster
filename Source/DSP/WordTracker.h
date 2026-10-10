@@ -66,8 +66,15 @@ public:
         double minRate        = 0.8;   ///< slow na sekunde
         double maxRate        = 5.0;
         double startRate      = 2.5;   ///< zanim sa trafienia do mediany
-        double maxCoastSec    = 1.5;
-        double latencySec     = 1.2;   ///< o tyle slowo padlo wczesniej, niz Vosk je oddal
+        /** Wnioski z pierwszego pomiaru mowily: kompensacja 1-1,5 s i jazda
+            do 1,5 s. Pomiar na "Nic dwa razy" (Tools/zs-sledzenie, offline)
+            dal przy tych wartosciach <= 1 slowo w 30% chwil i wers w 25%,
+            a przy pozycji stojacej na ostatnim trafieniu (0 i 0) — 68% i
+            70%. Opoznienie trafienia wzgledem poczatku slowa: mediana
+            0,60 s. Stad zera; na zywo dojdzie czas obliczen Vosk, wiec do
+            dostrojenia po tescie z prawdziwym czytaniem. */
+        double maxCoastSec    = 0.0;
+        double latencySec     = 0.0;   ///< o tyle slowo padlo wczesniej, niz Vosk je oddal
     };
 
     Params params;
@@ -82,6 +89,7 @@ public:
                 keys.push_back (spokenKey (t->wordText (i)));
 
         previous.clear();
+        aliases.clear();
         hits.clear();
         lastHit = -1;
         lastHitSec = 0.0;
@@ -95,7 +103,8 @@ public:
         resyncs = 0;
     }
 
-    /** Slowa do slownika Vosk: kazde slowo skryptu raz, bez liczb. */
+    /** Slowa do slownika Vosk: kazde slowo skryptu raz, bez liczb, plus
+        zamienniki (addAlias). */
     std::vector<std::string> vocabulary() const
     {
         std::vector<std::string> v;
@@ -104,7 +113,18 @@ public:
             if (! k.empty() && ! hasDigits (k) && std::find (v.begin(), v.end(), k) == v.end())
                 v.push_back (k);
 
+        for (const auto& a : aliases)
+            if (std::find (v.begin(), v.end(), a.first) == v.end())
+                v.push_back (a.first);
+
         return v;
+    }
+
+    /** "heard" uslyszane liczy sie jak slowo skryptu "textWord" — dla slow,
+        ktorych model nie zna (ModelWords.h). Obie strony to klucze. */
+    void addAlias (const std::string& heard, const std::string& textWord)
+    {
+        aliases.push_back ({ spokenKey (heard), spokenKey (textWord) });
     }
 
     //==========================================================================
@@ -200,6 +220,9 @@ private:
         if (k.empty() || heard.empty()) return false;
         if (k == heard) return true;
 
+        for (const auto& a : aliases)
+            if (a.first == heard && a.second == k) return true;
+
         return charCount (k) >= params.fuzzyMinChars && charCount (heard) >= params.fuzzyMinChars
             && similarity (k, heard) >= params.minSimilarity;
     }
@@ -293,6 +316,7 @@ private:
     struct Hit { double sec; int word; };
 
     std::vector<std::string> keys, previous;
+    std::vector<std::pair<std::string, std::string>> aliases;   ///< (uslyszane, slowo skryptu)
     std::deque<Hit> hits;
     std::string pendingWide;
     int    lastHit = -1;

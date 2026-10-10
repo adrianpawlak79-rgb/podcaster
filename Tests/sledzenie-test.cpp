@@ -16,6 +16,10 @@
 #include "../Source/DSP/WordTracker.h"
 #include "../Source/DSP/PrompterLines.h"
 #include "../Source/DSP/Follower.h"
+#include "../Source/ModelWords.h"
+
+#include <cstring>
+#include <fstream>
 
 #include <cstdint>
 #include <cstdio>
@@ -42,6 +46,15 @@ static const char* kScript =
     "Słuchacz nie widzi tekstu, słyszy tylko głos, dlatego każda pauza mówi mu, "
     "gdzie kończy się jedna myśl i zaczyna następna.\n"
     "Na koniec dziękuję za wysłuchanie i zapraszam na kolejny odcinek w przyszłym tygodniu.";
+
+/** Scenariusz testu: ciagla mowa i slowa oddawane 1,2 s po wypowiedzeniu —
+    tu sprawdzamy MECHANIZM jazdy i kompensacji. Domyslne wartosci programu
+    (0 i 0) pochodza z pomiaru na prawdziwym nagraniu, nie z tej symulacji. */
+static void ciaglaMowa (tw::WordTracker& t)
+{
+    t.params.latencySec = 1.2;
+    t.params.maxCoastSec = 1.5;
+}
 
 struct Rng
 {
@@ -201,6 +214,41 @@ int main()
     tw::PrompterText text;
     text.set (kScript);
 
+    // ---- 1b. slowa, ktorych model nie zna -----------------------------------------
+    std::printf ("\n  1b. zamienniki slow nieznanych modelowi\n");
+    {
+        // tablica symboli jak w graph/Gr.fst: nazwa, available, size, (dlugosc, slowo, klucz)...
+        std::string fst = "naglowek-fst exp/lgraph/words.txt";
+        const std::vector<std::string> w { "<eps>", "[unk]", "urodzilismy", "najlepszymi", "kot", "#0" };
+        auto i64 = [&] (int64_t v) { fst.append ((const char*) &v, 8); };
+        auto i32 = [&] (int32_t v) { fst.append ((const char*) &v, 4); };
+        i64 ((int64_t) w.size()); i64 ((int64_t) w.size());
+        for (size_t k = 0; k < w.size(); ++k) { i32 ((int32_t) w[k].size()); fst += w[k]; i64 ((int64_t) k); }
+        std::ofstream ("/tmp/zs-test-Gr.fst", std::ios::binary) << fst;
+
+        const auto model = tw::readModelWords ("/tmp/zs-test-Gr.fst");
+        std::snprintf (b, sizeof (b), "%zu slow (bez <eps>, [unk], #0)", model.size());
+        check (model.size() == 3, "lista slow modelu czytana z Gr.fst", b);
+
+        const auto subs = tw::substitutes ({ "kot", "urodzilysmy", "najtepszymi" }, model);
+        std::string got;
+        for (auto& sb : subs) got += sb.first + "->" + sb.second + " ";
+        check (subs.size() == 2 && subs[0].second == "urodzilismy" && subs[1].second == "najlepszymi",
+               "nieznane slowo dostaje najblizszy znany zamiennik", got);
+
+        tw::PrompterText t;
+        t.set ("Nie bedziemy repetowac zadnej zimy");
+        tw::WordTracker tr;
+        tr.begin (&t);
+        tr.addAlias ("reperowac", "repetowac");
+        tr.hypothesis (1.0, { "nie", "bedziemy" });
+        tr.hypothesis (1.4, { "nie", "bedziemy", "ratowac" });
+        const int before = tr.lastHitWord();
+        tr.hypothesis (1.8, { "nie", "bedziemy", "reperowac" });
+        std::snprintf (b, sizeof (b), "przed %d, po %d", before, tr.lastHitWord());
+        check (before == 1 && tr.lastHitWord() == 2, "uslyszany zamiennik trafia w oryginal", b);
+    }
+
     // ---- 2. zasady dopasowania ----------------------------------------------------
     std::printf ("\n  2. zasady\n");
     {
@@ -236,6 +284,7 @@ int main()
 
         // tempo: absurdalnie szybko -> 5 slow/s
         tw::WordTracker f;
+        ciaglaMowa (f);
         f.begin (&text);
         std::vector<std::string> hyp;
         for (int i = 0; i < 10; ++i) { hyp.push_back (tw::spokenKey (text.wordText (i))); f.hypothesis (0.1 + i * 0.06, hyp); }
@@ -245,6 +294,7 @@ int main()
         // w pauzie (licznik sylab mowi: cisza) pozycja stoi
         {
             tw::WordTracker q;
+            ciaglaMowa (q);
             q.begin (&text);
             std::vector<std::string> hh;
             for (int i = 0; i < 6; ++i) { hh.push_back (tw::spokenKey (text.wordText (i))); q.speaking (0.1 + i * 0.4, true); q.hypothesis (0.1 + i * 0.4, hh); }
@@ -294,6 +344,7 @@ int main()
     double clean2 = 0;
     {
         tw::WordTracker t;
+        ciaglaMowa (t);
         const auto r = run (text, t, sp, none, 1.2, 1);
         clean2 = r.within2;
         std::snprintf (b, sizeof (b), "<=1: %.0f%%   <=2: %.0f%%", r.within1, r.within2);
@@ -306,6 +357,7 @@ int main()
         for (uint32_t seed = 1; seed <= 20; ++seed)
         {
             tw::WordTracker t;
+            ciaglaMowa (t);
             const auto r = run (text, t, sp, noisy, 1.2, seed);
             s1 += r.within1; s2 += r.within2;
         }
@@ -319,6 +371,7 @@ int main()
         for (uint32_t seed = 1; seed <= 20; ++seed)
         {
             tw::WordTracker t;
+            ciaglaMowa (t);
             t.params.latencySec = 0.0;
             s2 += run (text, t, sp, noisy, 1.2, seed).within2;
         }
@@ -334,6 +387,7 @@ int main()
         const auto jumped = speak (text, 1.0, skipAt, skipTo);
 
         tw::WordTracker t;
+        ciaglaMowa (t);
         const auto r = run (text, t, jumped, none, 1.2, 3, skipAt);
 
         // Wiecej niz 4 s: w tym tekscie "oddech" stoi dwa razy (slowa 34 i 67),

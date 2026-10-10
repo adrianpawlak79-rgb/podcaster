@@ -22,6 +22,7 @@
 #include "DSP/WordTracker.h"
 #include "DSP/PrompterLines.h"
 #include "DSP/SyllableClock.h"
+#include "ModelWords.h"
 #include "Wav.h"
 
 #include <algorithm>
@@ -77,6 +78,9 @@ static std::vector<double> alignTruth (const std::vector<std::string>& script, c
     return at;
 }
 
+/** (slowo skryptu, zamiennik) — patrz ZS_GRFST w main(). */
+static std::vector<std::pair<std::string, std::string>> gSubs;
+
 struct Score { double w1, w2, line; int n; double medianDelay; };
 
 /** Kiedy slychac mowe — tym samym licznikiem sylab, ktory chodzi w
@@ -108,6 +112,7 @@ static Score measure (const tw::PrompterText& text, const std::vector<Hyp>& hyps
     tr.params.latencySec = latency;
     if (const char* c = std::getenv ("ZS_JAZDA")) tr.params.maxCoastSec = std::atof (c);   // do badan
     tr.begin (&text);
+    for (auto& sb : gSubs) tr.addAlias (sb.second, sb.first);
 
     double first = 1e9, last = -1;
     for (double s : truthAt) if (s >= 0) { first = std::min (first, s); last = std::max (last, s); }
@@ -154,6 +159,9 @@ static Score measure (const tw::PrompterText& text, const std::vector<Hyp>& hyps
         if (tw::lineOfWord (lines, shown) == tw::lineOfWord (lines, truth)) ++inLine;
     }
 
+    if (std::getenv ("ZS_SLAD") != nullptr)
+        std::printf ("slad-koniec trafien %d, ostatnie w slowie %d\n", tr.hitCount(), tr.lastHitWord());
+
     std::sort (delays.begin(), delays.end());
     const double med = delays.empty() ? 0.0 : delays[delays.size() / 2];
     return { 100.0 * in1 / n, 100.0 * in2 / n, 100.0 * inLine / n, n, med };
@@ -161,12 +169,27 @@ static Score measure (const tw::PrompterText& text, const std::vector<Hyp>& hyps
 
 int main (int argc, char** argv)
 {
+    // Zamienniki slow, ktorych model nie zna (ModelWords.h): ZS_GRFST=sciezka/graph/Gr.fst
+    auto prepareSubs = [&] (tw::WordTracker& tr)
+    {
+        if (const char* gr = std::getenv ("ZS_GRFST"))
+        {
+            if (gSubs.empty())
+            {
+                gSubs = tw::substitutes (tr.vocabulary(), tw::readModelWords (gr));
+                for (auto& sb : gSubs) std::fprintf (stderr, "  zamiennik: %s -> %s\n", sb.first.c_str(), sb.second.c_str());
+            }
+            for (auto& sb : gSubs) tr.addAlias (sb.second, sb.first);
+        }
+    };
+
     if (argc == 3 && std::string (argv[1]) == "--slownik")
     {
         tw::PrompterText t;
         t.set (readAll (argv[2]));
         tw::WordTracker tr;
         tr.begin (&t);
+        prepareSubs (tr);
         for (const auto& w : tr.vocabulary()) std::printf ("%s\n", w.c_str());
         return 0;
     }
@@ -209,6 +232,12 @@ int main (int argc, char** argv)
     {
         std::istringstream in (readAll (argv[3]));
         for (Timed w; in >> w.start >> w.end >> w.key;) heard.push_back ({ w.start, w.end, tw::spokenKey (w.key) });
+    }
+
+    {
+        tw::WordTracker probe;          // tylko po slownik dla zamiennikow
+        probe.begin (&text);
+        prepareSubs (probe);
     }
 
     const auto truthAt = alignTruth (keys, heard);
