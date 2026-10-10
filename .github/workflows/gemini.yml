@@ -45,7 +45,7 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q g++ espeak-ng ffmpeg python3-pip
-          pip install --break-system-packages -q soundfile pyloudnorm
+          python3 -m pip install --break-system-packages -q soundfile pyloudnorm
 
       # Tresc zgloszenia idzie do pliku przez zmienne srodowiska, nie przez
       # wklejenie w skrypt — inaczej tekst zgloszenia moglby stac sie poleceniem.

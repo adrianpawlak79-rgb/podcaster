@@ -23,7 +23,7 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q g++ espeak-ng ffmpeg python3-pip
-          pip install --break-system-packages -q soundfile pyloudnorm
+          python3 -m pip install --break-system-packages -q soundfile pyloudnorm
 
       - name: Tests/ci.sh
         env:
