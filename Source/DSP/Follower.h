@@ -75,6 +75,23 @@ public:
         double armMinGap     = 0.10;
         double armMaxGap     = 0.60;
 
+        /** Po jak dlugiej ciszy uzbroic licznik od nowa — z zachowaniem
+            miejsca w tekscie.
+
+            Bez tego licznik raz uzbrojony zostawal uzbrojony do konca
+            nagrania. Gdy po akapicie czlowiek siega po wode albo przeklada
+            kartke, kazdy taki dzwiek przesuwa tekst, bo dla uzbrojonego
+            licznika stuk szklanki to sylaba (Tests/powtorz-test.cpp: jeden
+            stuk w ciszy przesuwal pozycje o 1,5 sylaby).
+
+            Wiec po dluzszej ciszy prompter wraca do stanu "czekam na mowe":
+            stoi tam, gdzie byl, i rusza dopiero po trzech sylabach w ludzkim
+            rytmie — tak samo jak na poczatku nagrania, tylko nie od zera.
+            1,6 s to dluzej niz pauza na kropce (0,55 s, wtedy pozycja dosuwa
+            sie do znaku) i dluzej niz oddech miedzy akapitami, a krocej niz
+            siegniecie po cokolwiek. */
+        double rearmAfterSec = 1.6;
+
         double startRateSyll = 4.5;   ///< zanim cokolwiek zmierzy, sylab na sekunde
         double catchUp       = 0.25;  ///< jak mocno sylaba koryguje pozycje
         /** Jak daleko wolno szukac znaku interpunkcyjnego przy dosuwaniu.
@@ -153,6 +170,8 @@ public:
         manual = false;
 
         armed = false;
+        startedOnce = false;
+        resumeFrom = 0.0;
         armTicks.clear();
     }
 
@@ -196,15 +215,17 @@ public:
                     // Wszystko, co bylo przed nimi, bylo halasem i nie ma prawa
                     // przesunac tekstu.
                     armed = true;
-                    heard = params.armSyllables;
-                    position = params.armSyllables;
+                    startedOnce = true;
+                    position = std::min (resumeFrom + params.armSyllables,
+                                         (double) text->totalSyllables());
+                    heard = (int) std::llround (position);
                     lastTickSec = nowSec;
                 }
             }
 
             // Dopoki nie ruszylismy, tekst stoi. Zadnego jechania, zadnego
             // dosuwania — pierwsze slowo ma czekac, az czlowiek zacznie czytac.
-            position = armed ? position : 0.0;
+            position = armed ? position : resumeFrom;
             return;
         }
 
@@ -235,6 +256,32 @@ public:
         if (pauseSec <= 0.0) snappedThisPause = false;
 
         position = std::clamp (position, 0.0, (double) text->totalSyllables());
+
+        // ---- dluga cisza: czekamy na mowe od nowa, w tym samym miejscu ------
+        if (pauseSec >= params.rearmAfterSec)
+            disarmAt (position);
+    }
+
+    //==========================================================================
+    /** "Powtorz wers": wracamy na poczatek slowa i czekamy, az czlowiek
+        zacznie je czytac.
+
+        Nie jumpToWord, bo tamto uznaje, ze czlowiek juz czyta, i jedzie od
+        razu. Po nacisnieciu R czlowiek najpierw bierze oddech — gdyby tekst
+        w tym czasie jechal, pierwsze slowo powtorki bylo by juz za
+        celownikiem. */
+    void repeatFrom (int wordIndex)
+    {
+        if (text == nullptr || text->all().empty()) return;
+
+        const int i = std::clamp (wordIndex, 0, text->wordCount() - 1);
+
+        disarmAt (text->all()[(size_t) i].beforeMe);
+        shown = i;               // to cofniecie jest decyzja, nie drganiem
+        bigSnaps = 0;
+        lost = false;
+        manual = false;
+        gaps.clear();
     }
 
     //==========================================================================
@@ -253,6 +300,7 @@ public:
         bigSnaps = 0;
         lost = false;
         armed = true;             // skoro czlowiek poprawil recznie, to czyta
+        startedOnce = true;
         armTicks.clear();
         manual = false;
         gaps.clear();
@@ -286,8 +334,12 @@ public:
         return shown;
     }
 
-    /** Czy prompter uznal, ze czlowiek zaczal czytac. */
+    /** Czy prompter uznal, ze czlowiek czyta (i tekst jedzie). */
     bool   hasStarted()       const noexcept { return armed; }
+
+    /** Czytanie juz bylo, ale po dlugiej ciszy albo "powtorz wers" prompter
+        czeka na mowe w miejscu, w ktorym stoi. */
+    bool   waitingToResume()  const noexcept { return ! armed && startedOnce; }
 
     double syllablePosition() const noexcept { return position; }
     double syllablesPerSec()  const noexcept { return rate; }
@@ -297,6 +349,16 @@ public:
 
 private:
     //==========================================================================
+    void disarmAt (double syllablePos)
+    {
+        armed = false;
+        armTicks.clear();
+        resumeFrom = std::clamp (syllablePos, 0.0, (double) text->totalSyllables());
+        position = resumeFrom;
+        heard = (int) std::llround (position);
+        snappedThisPause = true;     // ta cisza juz swoje zrobila
+    }
+
     void snapToBreath()
     {
         const int here = text->wordAtSyllable (position);
@@ -369,7 +431,8 @@ private:
     int  snaps = 0;
     mutable int shown = 0;
     int  bigSnaps = 0;
-    bool armed = false;
+    bool armed = false, startedOnce = false;
+    double resumeFrom = 0.0;     ///< gdzie stac, dopoki licznik nie jest uzbrojony
     std::deque<double> armTicks;
     bool lost = false, manual = false, snappedThisPause = false;
 };
