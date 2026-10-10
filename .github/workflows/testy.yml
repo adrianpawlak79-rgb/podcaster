@@ -1,0 +1,36 @@
+# Testy przy kazdym PR i kazdym wypchnieciu na main.
+# Te same testy co Tests/wszystko.sh, przez Tests/ci.sh (kazdy osobno, z tabela).
+# Zadnego mikrofonu, karty ani JUCE — tylko g++ i nasz DSP w naglowkach.
+
+name: Testy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  testy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Narzedzia
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q g++ espeak-ng ffmpeg python3-pip
+          pip install --break-system-packages -q soundfile pyloudnorm
+
+      - name: Tests/ci.sh
+        env:
+          CI_PODSUMOWANIE: ${{ runner.temp }}/podsumowanie.md
+        run: |
+          set +e
+          bash Tests/ci.sh
+          kod=$?
+          cat "$CI_PODSUMOWANIE" >> "$GITHUB_STEP_SUMMARY"
+          exit $kod

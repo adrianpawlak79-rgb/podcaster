@@ -10,6 +10,7 @@ Zielone światło: Windows, C++17 + JUCE 7. Lampka nagrania, prompter, miks z g�
 - Program ma być jednym plikiem .exe, bez płatnych wtyczek.
 - Interfejs i komunikaty po polsku.
 - Każda zmiana w DSP ma test w `Tests/`. Przed wypchnięciem: `cd Tests && ./wszystko.sh` (bez mikrofonu i karty dźwiękowej).
+- GitHub Actions puszcza przy każdym PR `Tests/ci.sh`: te same testy, każdy osobno, z tabelą. Testy, które nie przechodzą na `main` od dawna, są w `Tests/znane-bledy.txt` — PR jest oblany, gdy psuje się coś spoza tej listy albo gdy test z listy zaczyna przechodzić (wtedy usuń go z listy).
 - Liczby w opisach zmian mają pochodzić z pomiaru (test, nagranie), nie z przypuszczenia.
 
 ## Jak nie wchodzić sobie w drogę
@@ -18,6 +19,9 @@ Zielone światło: Windows, C++17 + JUCE 7. Lampka nagrania, prompter, miks z g�
 - Przed rozpoczęciem: `git pull` na `main`. Nie zmieniaj tego samego pliku, który ma otwarty PR kogoś innego, bez uzgodnienia w PR.
 - Nie commituj: `.exe`, `.dll`, `.wav`, katalogów `build*`, modeli Vosk. Są w `.gitignore`.
 - Wersja jest w `CMakeLists.txt` i `Source/Main.cpp`. Podbija ją tylko ten, kto scala PR.
+
+## Zadania dla Gemini przez GitHub
+Zgłoszenie (issue) z etykietą `gemini`, nadaną przez właściciela repo, uruchamia `.github/workflows/gemini.yml`: Gemini robi zadanie na maszynie GitHuba, a automat robi commit na gałęzi `gemini/zgloszenie-<nr>`, puszcza `Tests/ci.sh` i otwiera PR z wynikiem. Wymaga sekretu `GEMINI_API_KEY`. Treść zgłoszenia ma być samowystarczalna (przykłady: `Tools/ZADANIA.md`).
 
 ## Budowanie
     cmake -B build -DZS_JUCE_PATH=/sciezka/do/JUCE-7.0.12
