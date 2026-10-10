@@ -21,6 +21,8 @@ $CXX $FLAGS prompter-test.cpp  -o prompter-test
 $CXX $FLAGS wersy-test.cpp     -o wersy-test
 $CXX $FLAGS start-test.cpp     -o start-test
 $CXX $FLAGS odsluch-test.cpp   -o odsluch-test
+$CXX $FLAGS powtorz-test.cpp   -o powtorz-test
+$CXX $FLAGS wyglad-test.cpp    -o wyglad-test
 
 ./lamp-test
 ./dynamics-test
@@ -35,10 +37,14 @@ espeak-ng -v pl -s 150 -w /tmp/mowa.wav \
 ./monitor-test /tmp/mowa.wav
 ./kanal-test /tmp/mowa.wav
 ./decide-test /tmp/mowa.wav
+# t2.wav nie jest w repo (*.wav w .gitignore) — syntezator robi go z t2.txt
+[ -f t2.wav ] || espeak-ng -v pl -s 150 -w t2.wav -f t2.txt
 ./prompter-test t2.txt t2.wav
 ./wersy-test
 ./start-test
 ./odsluch-test /tmp/mowa.wav
+./powtorz-test
+./wyglad-test
 
 # Pamietanie ustawien — jedyny test, ktory potrzebuje JUCE i prawdziwego pliku,
 # wiec idzie przez CMake i Wine. Gdy go nie zbudowano, mowimy to wprost zamiast

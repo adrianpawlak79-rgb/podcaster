@@ -15,6 +15,7 @@
 #include "WizardComponent.h"
 #include "ReviewComponent.h"
 #include "Settings.h"
+#include "StepBar.h"
 
 //==============================================================================
 namespace pl
@@ -133,10 +134,10 @@ public:
 
         switch (state)
         {
-            case 3:  c = juce::Colour (0xffa8402e); label = "STOP";     break;
-            case 2:  c = juce::Colour (0xffb57b16); label = "POPRAW";   break;
-            case 1:  c = juce::Colour (0xffb57b16); label = PL ("POWTÓRZ");  break;
-            default: c = juce::Colour (0xff2e7d52); label = PL ("MÓW");      break;
+            case 3:  c = zs::Ink::clip().darker (0.35f);   label = "STOP";         break;
+            case 2:  c = zs::Ink::yellow().darker (0.45f); label = "POPRAW";       break;
+            case 1:  c = zs::Ink::yellow().darker (0.45f); label = PL ("POWTÓRZ"); break;
+            default: c = zs::Ink::green().darker (0.55f);  label = PL ("MÓW");     break;
         }
 
         if(!recording && state==0) { label=PL("GOTOWY"); c=zs::Ink::textDim(); }
@@ -154,7 +155,7 @@ public:
         g.drawText (label, circle, juce::Justification::centred);
 
         g.setColour (zs::Ink::textNext());
-        g.setFont (juce::Font (15.0f));
+        g.setFont (juce::Font (zs::type::body));
         g.drawFittedText (message,
                           r.removeFromBottom (44).reduced (4, 0),
                           juce::Justification::centredTop, 2);
@@ -183,9 +184,9 @@ public:
         const float norm = juce::jlimit (0.0f, 1.0f, (db + 60.0f) / 60.0f);
 
         auto bar = r.withWidth (r.getWidth() * norm);
-        g.setColour (db > -1.5f ? juce::Colour (0xffa8402e)
-                   : db > -8.0f ? juce::Colour (0xffb57b16)
-                                : juce::Colour (0xff2e7d52));
+        g.setColour (db > -1.5f ? zs::Ink::clip()
+                   : db > -8.0f ? zs::Ink::yellow()
+                                : zs::Ink::green());
         g.fillRect (bar);
 
         // znacznik zalecanego szczytu: -12 dBFS
@@ -259,14 +260,31 @@ public:
                 });
         };
         addAndMakeVisible(openButton);
-        recButton.setColour(juce::TextButton::buttonColourId,zs::Ink::green());
-        recButton.setColour(juce::TextButton::textColourOffId,zs::Ink::bg());
+        zs::Look::setKind (recButton, zs::ui::ButtonKind::Primary);
         updatePrompterButton();
         addAndMakeVisible (meter);
 
         recButton.setButtonText ("Nagrywaj");
         recButton.onClick = [this] { toggleRecord(); };
         addAndMakeVisible (recButton);
+
+        // "Powtorz wers" istnieje tylko w trakcie nagrywania z tekstem — bez
+        // tekstu nie ma wersu, do ktorego mozna by wrocic.
+        repeatButton.setButtonText (PL ("Powtórz wers"));
+        zs::Look::setKey (repeatButton, "R");
+        repeatButton.onClick = [this] { repeatLine(); };
+        addChildComponent (repeatButton);
+
+        hints.setColour (juce::Label::textColourId, zs::Ink::textPast());
+        hints.setFont (juce::Font (zs::type::small));
+        hints.setJustificationType (juce::Justification::centredLeft);
+        hints.setInterceptsMouseClicks (false, false);
+        addAndMakeVisible (hints);
+
+        flow.setSteps ({ PL ("Przygotuj"), PL ("Nagraj"), PL ("Odsłuchaj"), PL ("Zapisz") });
+        addAndMakeVisible (flow);
+
+        setWantsKeyboardFocus (true);
 
         folderButton.setButtonText (PL ("Folder sesji…"));
         folderButton.onClick = [this] { chooseFolder(); };
@@ -378,7 +396,9 @@ public:
     void previewPrompter() {
         recorder.prepareDevice(48000,512,1);
         prompter=std::make_unique<PrompterComponent>(recorder,settings);
-        prompter->onClose=[this]{showPrompter(false);};addAndMakeVisible(*prompter);
+        prompter->onClose=[this]{showPrompter(false);};
+        prompter->onStopRequest=[this]{ if(recorder.isRecording()) toggleRecord(); };
+        addAndMakeVisible(*prompter);
         prompter->load(PL("Dziś porozmawiamy o tym, co naprawdę warto usłyszeć.\nZatrzymaj się na chwilę. Weź spokojny oddech.\nTo jest Twoje miejsce i Twój głos.\nNie musisz się spieszyć. Dobra opowieść potrzebuje czasu."));
         showPrompter(true);
     }
@@ -390,26 +410,30 @@ public:
         using I = zs::Ink;
         g.fillAll(I::bg());
         if(inWizard || inReview || inPrompter) return;
-        g.setColour(I::textNow()); g.setFont(juce::Font(25.0f,juce::Font::bold));
+
+        const bool rec = recorder.isRecording();
+
+        g.setColour(I::textNow()); g.setFont(juce::Font(zs::type::title,juce::Font::bold));
         g.drawText(PL("Zielone światło"),28,20,360,34,juce::Justification::centredLeft);
-        g.setColour(I::textNext());g.setFont(juce::Font(14.0f));
-        g.drawText(PL("Twoje miejsce na dobry podcast."),28,57,400,24,juce::Justification::centredLeft);
+        g.setColour(I::textNext());g.setFont(juce::Font(zs::type::small + 1.0f));
+        g.drawText(rec ? PL("Nagrywasz. Patrz na lampkę, nie na ekran.") : PL("Twoje miejsce na dobry podcast."),
+                   28,57,520,24,juce::Justification::centredLeft);
+
         auto card=homeCard();
-        g.setColour(I::panel());g.fillRoundedRectangle(card.toFloat(),16.0f);
+        g.setColour(I::panel());g.fillRoundedRectangle(card.toFloat(),14.0f);
+
+        if (rec) { paintRecording (g, card); return; }
+
         auto text=card.reduced(26);text.removeFromLeft(154);
-        g.setColour(I::textNow());g.setFont(juce::Font(27.0f,juce::Font::bold));
-        g.drawFittedText(recorder.isRecording()?PL("Nagrywasz. Mów spokojnie."):PL("Co dziś nagrywasz?"),
-                         text.removeFromTop(50),juce::Justification::centredLeft,2);
-        g.setColour(I::textNext());g.setFont(juce::Font(15.0f));
+        g.setColour(I::textNow());g.setFont(juce::Font(zs::type::title,juce::Font::bold));
+        g.drawFittedText(PL("Co dziś nagrywasz?"),text.removeFromTop(50),juce::Justification::centredLeft,2);
+        g.setColour(I::textNext());g.setFont(juce::Font(zs::type::body));
         g.drawFittedText(PL("Mów z głowy lub otwórz tekst w prompterze.\nPo zatrzymaniu odsłuchasz nagranie i zapiszesz miks."),
                          text.removeFromTop(66),juce::Justification::topLeft,3);
-        g.setColour(I::textNext());g.setFont(juce::Font(13.0f));
-        g.drawText(PL("1  Przygotuj     /     2  Nagraj     /     3  Odsłuchaj     /     4  Zapisz"),
-                   28,94,getWidth()-56,25,juce::Justification::centredLeft);
         if(settingsOpen) {
-            auto box=juce::Rectangle<int>(getWidth()-344,136,316,getHeight()-164);
-            g.setColour(I::panel());g.fillRoundedRectangle(box.toFloat(),12.0f);
-            g.setColour(I::textNow());g.setFont(juce::Font(18.0f,juce::Font::bold));
+            auto box=settingsBox();
+            g.setColour(I::panel());g.fillRoundedRectangle(box.toFloat(),14.0f);
+            g.setColour(I::textNow());g.setFont(juce::Font(zs::type::heading,juce::Font::bold));
             g.drawText(PL("Mikrofon i sprzęt"),box.reduced(18).removeFromTop(28),juce::Justification::centredLeft);
         }
     }
@@ -419,20 +443,53 @@ public:
         if(wizard) wizard->setBounds(getLocalBounds());
         if(inWizard) return;
         if(inReview && review) { review->setBounds(getLocalBounds());return; }
+
+        const bool rec = recorder.isRecording();
+        refreshHomeVisibility();
+
         if(inPrompter && prompter) {
             prompter->setBounds(getLocalBounds());
-            recButton.setBounds(getWidth()-224,getHeight()-46,208,36);
-            recButton.toFront(false);return;
+
+            // Pasek nagrywania lezy NA prompterze, w jego dolnym pasku: te
+            // same przyciski i te same klawisze co na ekranie nagrywania bez
+            // tekstu, zeby nie uczyc sie dwoch ekranow.
+            auto bar = getLocalBounds().removeFromBottom(PrompterComponent::barHeight).reduced(16,6);
+            recButton.setBounds(bar.removeFromRight(rec ? 250 : 208));
+            bar.removeFromRight(8);
+            repeatButton.setBounds(bar.removeFromRight(190));
+            hints.setBounds(getLocalBounds().removeFromBottom(PrompterComponent::barHeight + PrompterComponent::hintHeight)
+                                            .removeFromTop(PrompterComponent::hintHeight).reduced(64,0));
+            for (auto* c : std::initializer_list<juce::Component*> { &recButton, &repeatButton, &hints }) c->toFront(false);
+            return;
         }
-        settingsButton.setBounds(getWidth()-202,26,174,38);
+
+        flow.setBounds(28,94,juce::jmin(640,getWidth()-56),zs::StepBar::preferredHeight);
         auto card=homeCard();
+
+        if (rec)
+        {
+            // Ekran nagrywania: lampka, czas, poziom — i dwa klawisze.
+            const int d=juce::jlimit(180,320,card.getHeight()-60);
+            lamp.setBounds(card.getX()+28,card.getY()+(card.getHeight()-d-40)/2,d-20,d+40);
+            auto right=card.reduced(32);right.removeFromLeft(d+24);
+            right.removeFromTop(right.getHeight()/2+30);
+            meter.setBounds(right.removeFromTop(22));right.removeFromTop(14);
+            status.setBounds(right.removeFromTop(24));
+
+            auto bar=juce::Rectangle<int>(card.getX(),card.getBottom()+16,card.getWidth(),46);
+            recButton.setBounds(bar.removeFromRight(260));
+            hints.setBounds(bar);
+            return;
+        }
+
+        settingsButton.setBounds(getWidth()-202,26,174,38);
         lamp.setBounds(card.getX()+22,card.getY()+20,132,152);
         auto row=card.reduced(26);row.removeFromTop(156);
         meter.setBounds(row.removeFromTop(22));row.removeFromTop(20);
         recButton.setBounds(row.removeFromTop(54));row.removeFromTop(12);
         auto textRow=row.removeFromTop(40);
         if(settings.lastScript().existsAsFile()) {
-            otherTextButton.setBounds(textRow.removeFromRight(108));textRow.removeFromRight(8);
+            otherTextButton.setBounds(textRow.removeFromRight(120));textRow.removeFromRight(8);
         }
         prompterButton.setBounds(textRow);
         row.removeFromTop(12);status.setBounds(row.removeFromTop(24));
@@ -445,28 +502,109 @@ public:
             area.removeFromBottom(8);events.setBounds(area);
         }
         if(settingsOpen) {
-            auto panel=juce::Rectangle<int>(getWidth()-326,190,280,getHeight()-218);
+            auto panel=settingsBox().reduced(18);panel.removeFromTop(40);
             folderButton.setBounds(panel.removeFromBottom(38));panel.removeFromBottom(10);
             checkButton.setBounds(panel.removeFromBottom(38));panel.removeFromBottom(12);
             selector->setBounds(panel);
         }
-        refreshHomeVisibility();
+    }
+
+    /** Esc na ekranie nagrywania (bez promptera). Prompter ma swoje klawisze
+        i wola te same funkcje. */
+    bool keyPressed (const juce::KeyPress& k) override
+    {
+        const auto a = zs::ui::keyAction (k.getKeyCode() == juce::KeyPress::escapeKey,
+                                          (char32_t) k.getTextCharacter(),
+                                          recorder.isRecording(), false);
+
+        if (a == zs::ui::KeyAction::StopAndReview) { toggleRecord(); return true; }
+        return false;
+    }
+
+    void previewWizard()
+    {
+        enterWizard();
+        recorder.prepareDevice (48000, 512, 1);
+        wizard->begin (48000.0);
+        wizardStarted = true;
+    }
+
+    /** Zrzut ekranu nagrywania przy budowaniu: nagrywa naprawde, ale do
+        katalogu tymczasowego i bez urzadzenia — plik jest pusty i znika. */
+    void previewRecording (bool withPrompter)
+    {
+        recorder.prepareDevice (48000, 512, 1);
+
+        if (withPrompter) previewPrompter();
+
+        previewFolder = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                            .getChildFile ("zs-podglad-nagrania");
+        toggleRecord();
+        lamp.setRecording (true);
+        lamp.setState (0, PL ("Nagrywasz. Mów spokojnie."), false);
+        timerCallback();
+        resized();
+    }
+
+    void previewReview (const juce::File& wav)
+    {
+        if (wav.existsAsFile()) openReview (wav, true, true);
     }
 
 private:
     juce::Rectangle<int> homeCard() const {
-        return {28,136,getWidth()-(settingsOpen?400:56),366};
+        if (recorder.isRecording() && ! inPrompter)
+            return {28,94+zs::StepBar::preferredHeight+20,getWidth()-56,juce::jmax(220,getHeight()-(94+zs::StepBar::preferredHeight+20)-90)};
+        return {28,94+zs::StepBar::preferredHeight+20,getWidth()-(settingsOpen?400:56),366};
     }
+    juce::Rectangle<int> settingsBox() const {
+        return {getWidth()-344,94+zs::StepBar::preferredHeight+20,316,getHeight()-(94+zs::StepBar::preferredHeight+20)-28};
+    }
+
+    void paintRecording (juce::Graphics& g, juce::Rectangle<int> card)
+    {
+        using I = zs::Ink;
+        const int d=juce::jlimit(180,320,card.getHeight()-60);
+        auto right=card.reduced(32);right.removeFromLeft(d+24);
+
+        g.setColour(I::textNext());g.setFont(juce::Font(zs::type::tiny,juce::Font::bold));
+        g.drawText(PL("CZAS NAGRANIA"),right.removeFromTop(18),juce::Justification::bottomLeft);
+
+        const double t=recorder.recordedSeconds();
+        g.setColour(I::textNow());
+        g.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(),juce::jlimit(48.0f,96.0f,card.getHeight()*0.22f),juce::Font::bold));
+        g.drawText(juce::String::formatted("%02d:%02d",(int)t/60,(int)t%60),right.removeFromTop((int)juce::jlimit(60.0f,110.0f,card.getHeight()*0.26f)),
+                   juce::Justification::centredLeft);
+    }
+
     void refreshHomeVisibility() {
+        const bool rec=recorder.isRecording();
         const bool home=!inWizard && !inReview && !inPrompter;
-        settingsButton.setVisible(home);detailsButton.setVisible(home);openButton.setVisible(home);
+        const bool idleHome=home && !rec;
+        settingsButton.setVisible(idleHome);detailsButton.setVisible(idleHome);openButton.setVisible(idleHome);
         settingsButton.setButtonText(settingsOpen?PL("Zamknij ustawienia"):PL("Mikrofon i sprzęt"));
         detailsButton.setButtonText(detailsOpen?PL("Ukryj uwagi"):PL("Pokaż uwagi"));
-        selector->setVisible(home && settingsOpen);
-        folderButton.setVisible(home && settingsOpen);checkButton.setVisible(home && settingsOpen);
-        events.setVisible(home && detailsOpen);okButton.setVisible(home && detailsOpen);
-        const bool idle=!recorder.isRecording();
-        settingsButton.setEnabled(idle);openButton.setEnabled(idle);folderButton.setEnabled(idle);checkButton.setEnabled(idle);
+        selector->setVisible(idleHome && settingsOpen);
+        folderButton.setVisible(idleHome && settingsOpen);checkButton.setVisible(idleHome && settingsOpen);
+        events.setVisible(idleHome && detailsOpen);okButton.setVisible(idleHome && detailsOpen);
+        prompterButton.setVisible(idleHome);
+        otherTextButton.setVisible(idleHome && settings.lastScript().existsAsFile());
+        flow.setVisible(home);
+        flow.setCurrent(rec ? 1 : 0);
+
+        const bool hasScript = inPrompter && prompter != nullptr && prompter->hasText();
+        if (prompter != nullptr) prompter->refreshControls();
+        recButton.setVisible(!inWizard && !inReview);
+        repeatButton.setVisible(inPrompter && rec && hasScript);
+        hints.setVisible((inPrompter || rec) && !inWizard && !inReview);
+        hints.setText(PL(zs::ui::hintLine(rec, hasScript).c_str()), juce::dontSendNotification);
+        hints.setJustificationType(inPrompter ? juce::Justification::centred : juce::Justification::centredLeft);
+    }
+
+    void repeatLine()
+    {
+        if (prompter != nullptr && inPrompter && recorder.isRecording())
+            prompter->repeatLine();
     }
 
     void toggleRecord()
@@ -477,7 +615,7 @@ private:
 
             recorder.stop();
             recButton.setButtonText ("Nagrywaj");
-            recButton.setColour(juce::TextButton::buttonColourId,zs::Ink::green());
+            zs::Look::setKey (recButton, {});
             append ("--- zatrzymane: " + justRecorded.getFileName());
             logic.reset();
             lamp.setState (0, "Zatrzymane.", true);
@@ -492,7 +630,7 @@ private:
             return;
         }
 
-        const auto err = recorder.start (sessionFolder);
+        const auto err = recorder.start (previewFolder != juce::File() ? previewFolder : sessionFolder);
 
         if (err.isNotEmpty())
         {
@@ -501,10 +639,14 @@ private:
             return;
         }
 
+        // Ten sam przycisk, ten sam rodzaj (glowny) — zmienia sie tylko to, co
+        // robi. Czerwony "stop" z 0.4.0 krzyczal w polu widzenia przez cale
+        // nagranie, a czerwien jest u nas zarezerwowana dla "nagranie zepsute".
         settingsOpen=false;
-        recButton.setButtonText (PL("Zatrzymaj i odsłuchaj"));
-        recButton.setColour(juce::TextButton::buttonColourId,zs::Ink::red());
+        recButton.setButtonText (PL("Zatrzymaj i oceń"));
+        zs::Look::setKey (recButton, "Esc");
         resized();repaint();
+        if (! inPrompter && isShowing()) grabKeyboardFocus();
         peakHold = 0.0f;
         logic.reset();
         lastTime = -100.0;
@@ -580,6 +722,9 @@ private:
 
         const float lvNow = recorder.inputLevel();
         meter.setLevel (lvNow);
+
+        if (recorder.isRecording() && ! inPrompter)
+            repaint (homeCard());        // zegar nagrania
         if (recorder.isRecording() && lvNow > peakHold) peakHold = lvNow;
 
         // ---- zdarzenia z rdzenia -------------------------------------------
@@ -712,7 +857,10 @@ private:
 
     Lamp lamp;
     Meter meter;
-    juce::TextButton recButton, folderButton, okButton, settingsButton, detailsButton, openButton;
+    juce::TextButton recButton, repeatButton, folderButton, okButton, settingsButton, detailsButton, openButton;
+    juce::Label hints;
+    zs::StepBar flow;
+    juce::File previewFolder;   ///< tylko --preview-ui: nagrywanie do katalogu tymczasowego
     bool settingsOpen=false, detailsOpen=false;
     juce::SortedSet<int> mutedKinds;
     tw::Kind lastFlagged = tw::Kind::Clipping;
@@ -846,6 +994,7 @@ private:
         {
             prompter = std::make_unique<PrompterComponent> (recorder, settings);
             prompter->onClose = [this] { showPrompter (false); };
+            prompter->onStopRequest = [this] { if (recorder.isRecording()) toggleRecord(); };
             addAndMakeVisible (*prompter);
         }
 

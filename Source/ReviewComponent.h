@@ -44,7 +44,7 @@
 
 #include "DSP/TakeReview.h"
 #include "DSP/CutEdit.h"
-#include "Ink.h"
+#include "Look.h"
 #include "Recorder.h"
 #include "Wav.h"
 #include <limits>
@@ -116,11 +116,8 @@ public:
         backButton.onClick = [this] { if (onClose) onClose(); };
         addAndMakeVisible (backButton);
 
-        for (auto* b : { &playButton, &abButton, &saveButton, &backButton })
-        {
-            b->setColour (juce::TextButton::buttonColourId, Ink::panel());
-            b->setColour (juce::TextButton::textColourOffId, Ink::textNow());
-        }
+        // Jeden przycisk glowny: zapis. Reszta drugorzedna (Look.h).
+        zs::Look::setKind (saveButton, zs::ui::ButtonKind::Primary);
 
         // Zdania programu w polu tekstowym, a nie malowane recznie.
         //
@@ -148,8 +145,6 @@ public:
         nextButton.setButtonText(PL("Następne miejsce do poprawy"));
         nextButton.onClick=[this] { nextTrouble(); };
         for(auto* b:{&editToggle,&detailsToggle,&nextButton})addAndMakeVisible(b);
-        saveButton.setColour(juce::TextButton::buttonColourId,Ink::green());
-        saveButton.setColour(juce::TextButton::textColourOffId,Ink::bg());
         markStart.setButtonText(PL("Początek cięcia"));
         markEnd.setButtonText(PL("Koniec cięcia"));
         cutButton.setButtonText(PL("Wytnij zaznaczenie"));
@@ -354,12 +349,13 @@ public:
     //==========================================================================
     void resized() override
     {
-        auto r = getLocalBounds().reduced (sideMargin(), 22);
+        namespace L = zs::ui::review;
+        auto r = getLocalBounds().reduced (sideMargin(), L::marginY);
 
-        r.removeFromTop (66);                 // werdykt
-        r.removeFromTop (waveHeight() + 46);  // przebieg i os
+        r.removeFromTop (L::verdict);                 // werdykt
+        r.removeFromTop (waveHeight() + L::strip);  // przebieg i os
 
-        auto row = r.removeFromTop (38);
+        auto row = r.removeFromTop (L::buttons);
 
         const int bw=(row.getWidth()-30)/4;
         playButton.setBounds (row.removeFromLeft (bw));
@@ -370,14 +366,14 @@ public:
 
         backButton.setBounds (row.removeFromRight (bw));
 
-        r.removeFromTop(14);
-        auto tools=r.removeFromTop(36);
+        r.removeFromTop(L::gapA);
+        auto tools=r.removeFromTop(L::tools);
         editToggle.setBounds(tools.removeFromLeft(172));tools.removeFromLeft(10);
         detailsToggle.setBounds(tools.removeFromLeft(172));tools.removeFromLeft(10);
         nextButton.setBounds(tools.removeFromLeft(260));
         editToggle.setButtonText(editMode?PL("Zamknij edycję"):PL("Edytuj nagranie"));
         detailsToggle.setButtonText(detailsMode?PL("Ukryj szczegóły"):PL("Szczegóły miksu"));
-        r.removeFromTop(14);
+        r.removeFromTop(L::gapB);
         auto edits=r.removeFromTop(editMode?34:0);
         const int ew=(edits.getWidth()-24)/4;
         for(auto* b:{&markStart,&markEnd,&cutButton,&undoButton}) {
@@ -395,18 +391,19 @@ public:
     {
         g.fillAll (Ink::bg());
 
-        auto r = getLocalBounds().reduced (sideMargin(), 22);
+        namespace L = zs::ui::review;
+        auto r = getLocalBounds().reduced (sideMargin(), L::marginY);
 
-        drawVerdict (g, r.removeFromTop (66));
+        drawVerdict (g, r.removeFromTop (L::verdict));
 
         auto wave = r.removeFromTop (waveHeight());
         drawWave (g, wave);
 
-        drawStrip (g, r.removeFromTop (46));
+        drawStrip (g, r.removeFromTop (L::strip));
 
         // Przyciski i pole ze zdaniami ustawia resized(); tutaj tylko kreska,
         // ktora oddziela to, co program ZROBIL, od tego, co o tym MOWI.
-        r.removeFromTop (38 + 8);
+        r.removeFromTop (L::buttons + 8);
         g.setColour (Ink::edge());
         g.fillRect (r.removeFromTop (1));
         if(!detailsMode && review.stage()==zs::TakeReview::Stage::Ready) {
@@ -416,17 +413,17 @@ public:
             auto card=[&](const juce::String& title,const juce::String& value) {
                 auto cell=cards.removeFromLeft(width);cards.removeFromLeft(12);
                 g.setColour(Ink::panel());g.fillRoundedRectangle(cell.toFloat(),12);
-                cell=cell.reduced(18);g.setColour(Ink::textNext());g.setFont(juce::Font(14));
+                cell=cell.reduced(18);g.setColour(Ink::textNext());g.setFont(juce::Font(zs::type::small + 1.0f));
                 g.drawText(title,cell.removeFromTop(25),juce::Justification::centredLeft);
-                g.setColour(Ink::textNow());g.setFont(juce::Font(25,juce::Font::bold));
+                g.setColour(Ink::textNow());g.setFont(juce::Font(zs::type::title - 1.0f,juce::Font::bold));
                 g.drawText(value,cell,juce::Justification::centredLeft);
             };
             card(PL("Długość nagrania"),plr::clock(review.seconds()));
             card(PL("Fragmenty do powtórzenia"),juce::String((int)review.toRedo().size()));
             card(PL("Format zapisu"),PL("WAV · 24 bit"));
-            box.removeFromTop(22);g.setColour(Ink::textNow());g.setFont(juce::Font(18,juce::Font::bold));
+            box.removeFromTop(22);g.setColour(Ink::textNow());g.setFont(juce::Font(zs::type::heading,juce::Font::bold));
             g.drawText(PL("Posłuchaj, zanim zapiszesz"),box.removeFromTop(30),juce::Justification::centredLeft);
-            g.setColour(Ink::textNext());g.setFont(juce::Font(15));
+            g.setColour(Ink::textNext());g.setFont(juce::Font(zs::type::body));
             g.drawFittedText(PL("Kliknij na przebiegu, aby wybrać miejsce. Porównaj dźwięk przed i po miksie.\nJeśli chcesz usunąć pomyłkę lub skrócić przerwę, otwórz edycję nagrania."),box,juce::Justification::topLeft,3);
         }
     }
@@ -449,13 +446,15 @@ private:
     }
     //==========================================================================
     int sideMargin() const { return getWidth() >= 1400 ? 72 : 40; }
-    int waveHeight() const { return getHeight() >= 900 ? 190 : 140; }
+    /** Rosnie z oknem — liczby i uzasadnienie w zs::ui::review (UiRules.h). */
+    int waveHeight() const { return zs::ui::review::waveHeight (getHeight()); }
 
     juce::Rectangle<int> waveArea() const
     {
-        auto r = getLocalBounds().reduced (sideMargin(), 22);
-        r.removeFromTop (66);
-        return r.removeFromTop (waveHeight() + 46);
+        namespace L = zs::ui::review;
+        auto r = getLocalBounds().reduced (sideMargin(), L::marginY);
+        r.removeFromTop (L::verdict);
+        return r.removeFromTop (waveHeight() + L::strip);
     }
 
     //==========================================================================
@@ -526,8 +525,9 @@ private:
         abButton.setButtonText (player.showingAfter() ? PL ("słychać: PO miksie")
                                                       : PL ("słychać: PRZED miksem"));
 
-        abButton.setColour (juce::TextButton::textColourOffId,
-                            player.showingAfter() ? Ink::green() : Ink::yellow());
+        // Bez osobnego koloru napisu: zielony "PO" i zolty "PRZED" robily z
+        // jednego przycisku trzeci i czwarty rodzaj, a zielen i zolcien
+        // znacza u nas "dobrze" i "uwaga". Stan mowi napis.
     }
 
     void nextTrouble()

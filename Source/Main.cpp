@@ -42,6 +42,11 @@ countries: pl
             if(args.size()>2 && args[2]=="settings") { preview.setSize(960,640);preview.previewSettings(); }
             if(args.size()>2 && args[2]=="prompter")preview.previewPrompter();
             if(args.size()>2 && args[2]=="small") preview.setSize(960,640);
+            if(args.size()>2 && args[2]=="wizard") preview.previewWizard();
+            if(args.size()>2 && args[2]=="recording") preview.previewRecording(false);
+            if(args.size()>2 && args[2]=="prompter-rec") preview.previewRecording(true);
+            if(args.size()>2 && args[2]=="review") preview.previewReview(fixture);
+            if(args.size()>2 && args[2]=="review-big") { preview.setSize(1600,1200); preview.previewReview(fixture); }
             auto file=juce::File::getCurrentWorkingDirectory().getChildFile(args[1].unquoted());
             file.getParentDirectory().createDirectory();
             if(auto stream=file.createOutputStream()) {
@@ -76,7 +81,7 @@ countries: pl
         MainWindow (const juce::String& name, const juce::File& openForReview = {},
                     bool reviewNow = false)
             : DocumentWindow (name,
-                              juce::Colour (0xfff3f4f2),
+                              zs::Ink::bg(),
                               DocumentWindow::allButtons)
         {
             setUsingNativeTitleBar (true);
@@ -125,7 +130,7 @@ countries: pl
     };
 
 private:
-    zs::StudioLook look;
+    zs::Look look;
     std::unique_ptr<MainWindow> mainWindow;
 };
 

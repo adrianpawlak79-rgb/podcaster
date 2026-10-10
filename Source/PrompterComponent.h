@@ -39,11 +39,12 @@
 #pragma once
 
 #include "DSP/Follower.h"
+#include "DSP/PrompterLines.h"
 #include "DSP/PrompterText.h"
 #include "DSP/SyllableClock.h"
 #include "Recorder.h"
 #include "Settings.h"
-#include "Ink.h"
+#include "Look.h"
 
 //==============================================================================
 class PrompterComponent : public juce::Component,
@@ -60,6 +61,15 @@ public:
         Bez tego prompter byl pulapka: wchodzilo sie do niego przyciskiem, a
         wychodzilo zamknieciem programu. */
     std::function<void()> onClose;
+
+    /** Esc w trakcie nagrywania: zatrzymaj i ocen. Zatrzymanie robi ekran
+        glowny, bo to on trzyma nagranie i ocene. */
+    std::function<void()> onStopRequest;
+
+    /** Dolny pasek z przyciskami i pasek podpowiedzi nad nim. Przyciski
+        nagrywania stawia tu ekran glowny, wiec musi znac te liczby. */
+    static constexpr int barHeight  = 52;
+    static constexpr int hintHeight = 30;
 
     //==========================================================================
     PrompterComponent (Recorder& r, Settings& s) : recorder (r), settings (s)
@@ -124,15 +134,19 @@ public:
     {
         const int c = k.getKeyCode();
 
-        // Wyjscie. W trakcie nagrywania NIE wychodzimy — Escape w polowie wersu
-        // to najczesciej pomylka palca, a wyjscie zmienia caly ekran i gubi
-        // miejsce w tekscie. Nagranie zatrzymuje sie swoim przyciskiem.
-        if (c == juce::KeyPress::escapeKey)
+        // Esc i R — patrz zs::ui::keyAction. W 0.4.0 Esc w trakcie nagrywania
+        // nie robil nic, "bo to najczesciej pomylka palca", a nagranie
+        // zatrzymywal tylko przycisk w rogu ekranu — czyli trzeba bylo oderwac
+        // oczy od tekstu i siegnac po mysz. Teraz Esc zatrzymuje i od razu
+        // ocenia. Pomylka palca nic nie niszczy: plik zostaje na dysku, a
+        // "Nagrywaj dalej" wraca prosto do promptera.
+        switch (zs::ui::keyAction (c == juce::KeyPress::escapeKey, (char32_t) k.getTextCharacter(),
+                                   recorder.isRecording(), hasText()))
         {
-            if (! recorder.isRecording() && onClose)
-                onClose();
-
-            return true;
+            case zs::ui::KeyAction::StopAndReview: if (onStopRequest) onStopRequest(); return true;
+            case zs::ui::KeyAction::RepeatLine:    repeatLine(); return true;
+            case zs::ui::KeyAction::LeavePrompter: if (onClose) onClose(); return true;
+            case zs::ui::KeyAction::None:          break;
         }
 
         if (c == juce::KeyPress::upKey)    { nudge (-4); return true; }
@@ -159,6 +173,29 @@ public:
         return false;
     }
 
+    /** W trakcie nagrywania na dole zostaja tylko przyciski nagrywania.
+        Narzedzia (A-, A+, lustro) dzialaja dalej z klawiatury. */
+    void refreshControls()
+    {
+        const bool rec = recorder.isRecording();
+
+        for (auto* b : { &backButton, &smallerButton, &largerButton, &previousButton, &nextButton, &mirrorButton })
+            b->setVisible (! rec);
+    }
+
+    /** "Powtorz wers" (R albo przycisk): na poczatek wersu, ktory jest w
+        ustach, i czekamy na glos. Nagranie leci dalej — dogrywke wycina sie
+        potem na osi, a nie zaczyna caly plik od nowa. */
+    void repeatLine()
+    {
+        if (spans.empty()) return;
+
+        const int from = tw::repeatLineStart (spans, follower.currentWord());
+        follower.repeatFrom (from);
+        shownLine = tw::lineOfWord (spans, from);
+        repaint();
+    }
+
     void nudge (int words)
     {
         follower.nudgeWords (words);
@@ -177,7 +214,7 @@ public:
     //==========================================================================
     void resized() override {
         layoutDirty=true;
-        auto bar=getLocalBounds().removeFromBottom(46).reduced(16,5);bar.removeFromRight(224);
+        auto bar=getLocalBounds().removeFromBottom(barHeight).reduced(16,6);bar.removeFromRight(224);
         backButton.setBounds(bar.removeFromLeft(72));bar.removeFromLeft(8);
         smallerButton.setBounds(bar.removeFromLeft(48));bar.removeFromLeft(6);
         largerButton.setBounds(bar.removeFromLeft(48));bar.removeFromLeft(12);
@@ -204,18 +241,18 @@ public:
                                                  .translated ((float) getWidth(), 0.0f));
 
         auto r = getLocalBounds();
-        r.removeFromBottom(50);
+        r.removeFromBottom (barHeight);
         drawHud (g, r.removeFromTop (hudHeight()));
 
         // dolny pasek istnieje tylko wtedy, gdy program sie zgubil
         auto bottom = r.removeFromBottom (follower.isLost() ? bottomHeight() : 0);
 
-        // Spis klawiszy stoi na ekranie dokladnie wtedy, kiedy da sie go
-        // przeczytac: przed nagraniem. W trakcie mowienia nikt nie czyta
-        // podpowiedzi, a kazda linijka, ktora nie jest tekstem do przeczytania,
-        // zabiera miejsce wersowi.
-        if (! follower.isLost() && ! recorder.isRecording())
-            drawKeyHints (g, r.removeFromBottom (30));
+        // Pasek podpowiedzi (Esc, R, strzalki) rysuje ekran glowny w tym
+        // pasie — razem z przyciskami nagrywania, bo dotyczy tych samych
+        // klawiszy. W trakcie nagrywania jest krotszy: tylko to, co da sie
+        // zrobic jedna reka.
+        if (! follower.isLost())
+            r.removeFromBottom (hintHeight);
 
         drawScript (g, r);
 
@@ -249,7 +286,7 @@ private:
         if (! running) return;
 
         const bool rec = recorder.isRecording();
-        backButton.setEnabled(!rec);
+        refreshControls();
 
         if (rec != wasRecording)
         {
@@ -306,6 +343,7 @@ private:
     {
         layoutDirty = false;
         lines.clear();
+        spans.clear();
 
         if (script.wordCount() == 0) return;
 
@@ -360,51 +398,16 @@ private:
                 }
 
                 lines.push_back (line);
+                spans.push_back ({ line.firstWord, line.lastWord });
                 first = i + 1;
             }
         }
     }
 
-    /** Ktory wers podswietlic.
-
-        Nie "ten, w ktorym stoi biezace slowo". Wers zmienia sie wczesniej —
-        gdy usta doszly do ostatniej cwiartki wersu, bo oczy sa wtedy juz w
-        nastepnym. Prog jest ulamkiem DLUGOSCI WERSU, a nie stala liczba slow:
-        wers z dwoch slow i wers z osmiu potrzebuja innego wyprzedzenia.
-
-        Dzieki temu podswietlenie dochodzi do nowego wersu mniej wiecej wtedy,
-        kiedy czlowiek zaczyna go czytac oczami — a nie wtedy, kiedy konczy go
-        wymawiac.
-    */
-    int lineToShow() const
-    {
-        if (lines.empty()) return 0;
-
-        const double pos = follower.syllablePosition();
-
-        for (int i = 0; i < (int) lines.size(); ++i)
-        {
-            const auto& a = script.all()[(size_t) lines[(size_t) i].firstWord];
-            const auto& b = script.all()[(size_t) lines[(size_t) i].lastWord];
-
-            const double from = a.beforeMe;
-            const double to   = b.beforeMe + b.syllables;
-            const double lead = (to - from) * 0.25;
-
-            if (pos < to - lead) return i;
-        }
-
-        return (int) lines.size() - 1;
-    }
-
-    int lineOfWord (int word) const
-    {
-        for (size_t i = 0; i < lines.size(); ++i)
-            if (word >= lines[i].firstWord && word <= lines[i].lastWord)
-                return (int) i;
-
-        return 0;
-    }
+    /* Ktory wers podswietlic i w ktorym lezy slowo — DSP/PrompterLines.h,
+       zeby sprawdzal to test, a nie oko. */
+    int lineToShow() const { return tw::lineToShow (spans, script, follower.syllablePosition()); }
+    int lineOfWord (int word) const { return tw::lineOfWord (spans, word); }
 
     //==========================================================================
     void drawScript (juce::Graphics& g, juce::Rectangle<int> r)
@@ -498,6 +501,8 @@ private:
 
         if (! running || ! recorder.isRecording())
                                         { label = PL ("CZEKA");        col = Ink::textDim(); }
+        else if (follower.waitingToResume())
+                                        { label = PL ("CZEKAM NA GŁOS"); col = Ink::textNext(); }
         else if (! follower.hasStarted())
                                         { label = PL ("ZACZNIJ CZYTAĆ"); col = Ink::textNext(); }
         else if (follower.isLost())     { label = PL ("SZUKAM");       col = Ink::lostText(); }
@@ -517,17 +522,6 @@ private:
 
         g.setColour (col);
         g.drawText (label, box, juce::Justification::centred);
-    }
-
-    //==========================================================================
-    void drawKeyHints (juce::Graphics& g, juce::Rectangle<int> r)
-    {
-        g.setColour (Ink::textPast());
-        g.setFont (juce::Font (13.0f));
-        g.drawText (PL ("strzałki — popraw miejsce   ·   Home — na początek   ·   "
-                        "+ / −  — wielkość tekstu   ·   L — odbicie lustrzane   ·   "
-                        "Esc — wyjdź"),
-                    r, juce::Justification::centred);
     }
 
     //==========================================================================
@@ -708,6 +702,7 @@ private:
     tw::Follower follower;
 
     std::vector<Line> lines;
+    std::vector<tw::LineSpan> spans;     ///< te same wersy, same numery slow
     bool layoutDirty = true, running = false;
 
     /* Gdzie obraz JEST i gdzie ma dojechac, w numerach wersow. */

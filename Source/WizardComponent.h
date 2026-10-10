@@ -13,7 +13,8 @@
 #pragma once
 
 #include "Recorder.h"
-#include "Ink.h"
+#include "Look.h"
+#include "StepBar.h"
 #include "DSP/Setup.h"
 
 //==============================================================================
@@ -54,24 +55,33 @@ public:
 
     WizardComponent (Recorder& r) : recorder (r)
     {
-        title.setFont (juce::Font (23.0f, juce::Font::bold));
+        // Pasek krokow zamiast szesciu kropek na dole: kropki mialy 9 pikseli
+        // i nie mowily, co jest w kolejnym kroku — nazwa mowi.
+        steps.setSteps ({ PL ("Mikrofon"), PL ("Cisza w pokoju"), PL ("Poziom"),
+                          PL ("Głoski p i b"), PL ("Słuchawki"), PL ("Odsłuch") });
+        addAndMakeVisible (steps);
+
+        title.setFont (juce::Font (zs::type::title, juce::Font::bold));
         title.setColour (juce::Label::textColourId, zs::Ink::textNow());
+        title.setJustificationType (juce::Justification::topLeft);
         addAndMakeVisible (title);
 
-        counter.setFont (juce::Font (juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::plain));
-        counter.setColour (juce::Label::textColourId, zs::Ink::textNext());
+        counter.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
+        counter.setColour (juce::Label::textColourId, zs::Ink::accent());
         addAndMakeVisible (counter);
 
-        body.setFont (juce::Font (16.0f));
+        body.setFont (juce::Font (zs::type::body + 1.0f));
         body.setColour (juce::Label::textColourId, zs::Ink::textNext());
         body.setJustificationType (juce::Justification::topLeft);
         addAndMakeVisible (body);
 
         measured.setFont (juce::Font (juce::Font::getDefaultMonospacedFontName(), 12.5f, juce::Font::plain));
-        measured.setColour (juce::Label::textColourId, zs::Ink::textNext());
+        measured.setColour (juce::Label::textColourId, zs::Ink::textDim());
         addAndMakeVisible (measured);
 
         nextButton.setButtonText ("Dalej");
+        zs::Look::setKind (nextButton, zs::ui::ButtonKind::Primary);
+        zs::Look::setKey (nextButton, "Enter");
         nextButton.onClick = [this] { goNext(); };
         addAndMakeVisible (nextButton);
 
@@ -83,6 +93,7 @@ public:
         skipButton.onClick = [this] { if (onFinished) onFinished(); };
         addAndMakeVisible (skipButton);
 
+        setWantsKeyboardFocus (true);
         startTimerHz (20);
     }
 
@@ -99,6 +110,8 @@ public:
         judged = false;
         recorder.attachWizard (&wizard);
         updateTexts();
+
+        if (isShowing()) grabKeyboardFocus();
     }
 
     //==========================================================================
@@ -106,68 +119,95 @@ public:
     {
         g.fillAll (zs::Ink::bg());
 
-        auto r = getLocalBounds().reduced (28);
-        r.removeFromTop (150);
+        g.setColour (zs::Ink::textNow());
+        g.setFont (juce::Font (zs::type::heading, juce::Font::bold));
+        g.drawText (PL ("Sprawdzenie sprzętu"), header(), juce::Justification::centredLeft);
 
-        // ---- pasek postepu albo kropka werdyktu -----------------------------
-        auto bar = r.removeFromTop (10);
+        g.setColour (zs::Ink::panel());
+        g.fillRoundedRectangle (card().toFloat(), 14.0f);
+
+        // ---- pasek postepu pomiaru albo kreska werdyktu ---------------------
+        auto bar = progressBar();
 
         if (! judged)
         {
             g.setColour (zs::Ink::edge());
-            g.fillRect (bar);
+            g.fillRoundedRectangle (bar.toFloat(), 2.0f);
 
-            g.setColour (zs::Ink::green());
-            g.fillRect (bar.withWidth ((int) (bar.getWidth() * wizard.progress())));
+            g.setColour (zs::Ink::accent());
+            g.fillRoundedRectangle (bar.withWidth ((int) (bar.getWidth() * wizard.progress())).toFloat(), 2.0f);
         }
         else
         {
             g.setColour (finding.passed ? zs::Ink::green() : zs::Ink::yellow());
-            g.fillRect (bar.withHeight (3));
-        }
-
-        // ---- kroki na dole ---------------------------------------------------
-        auto dots = getLocalBounds().reduced (28).removeFromBottom (18);
-        const int total = 6;
-        const int done = (int) wizard.step();
-
-        for (int i = 0; i < total; ++i)
-        {
-            auto d = juce::Rectangle<int> (dots.getX() + i * 18, dots.getY() + 5, 9, 9);
-
-            g.setColour (i < done ? zs::Ink::green()
-                       : i == done ? zs::Ink::textNext()
-                                   : zs::Ink::edge());
-            g.fillEllipse (d.toFloat());
+            g.fillRoundedRectangle (bar.toFloat(), 2.0f);
         }
     }
 
     void resized() override
     {
-        auto r = getLocalBounds().reduced (28);
+        auto r = getLocalBounds().reduced (margin(), 24);
 
-        counter.setBounds (r.removeFromTop (18));
-        r.removeFromTop (6);
-        title.setBounds (r.removeFromTop (78));
-        r.removeFromTop (10);
-        r.removeFromTop (10);        // miejsce na pasek rysowany w paint()
-        r.removeFromTop (18);
+        r.removeFromTop (header().getHeight());
+        r.removeFromTop (14);
+        steps.setBounds (r.removeFromTop (zs::StepBar::preferredHeight));
 
-        body.setBounds (r.removeFromTop (110));
-        r.removeFromTop (8);
-        measured.setBounds (r.removeFromTop (20));
+        auto c = card().reduced (32, 28);
 
-        auto row = r.removeFromBottom (38);
-        row.removeFromBottom (4);
+        counter.setBounds (c.removeFromTop (18));
+        c.removeFromTop (6);
+        title.setBounds (c.removeFromTop (76));
+        c.removeFromTop (8 + 4 + 18);      // pasek postepu rysowany w paint()
 
-        nextButton.setBounds (row.removeFromLeft (140));
-        row.removeFromLeft (8);
-        againButton.setBounds (row.removeFromLeft (140));
-        skipButton.setBounds (row.removeFromRight (170));
+        auto row = c.removeFromBottom (44);
+        c.removeFromBottom (16);
+
+        measured.setBounds (c.removeFromBottom (20));
+        c.removeFromBottom (8);
+        body.setBounds (c);
+
+        nextButton.setBounds (row.removeFromLeft (juce::jmin (260, row.getWidth() / 3)));
+        row.removeFromLeft (10);
+        againButton.setBounds (row.removeFromLeft (150));
+        skipButton.setBounds (row.removeFromRight (190));
+    }
+
+    bool keyPressed (const juce::KeyPress& k) override
+    {
+        if (k.getKeyCode() == juce::KeyPress::returnKey && nextButton.isEnabled())
+        {
+            nextButton.triggerClick();
+            return true;
+        }
+
+        return false;
     }
 
 private:
     //==========================================================================
+    int margin() const { return getWidth() >= 1400 ? 72 : 40; }
+
+    juce::Rectangle<int> header() const
+    {
+        return getLocalBounds().reduced (margin(), 24).removeFromTop (30);
+    }
+
+    /** Karta z trescia kroku: szerokosc do czytania, nie do krawedzi okna —
+        wiersz na 1900 pikseli czyta sie jak tabele. */
+    juce::Rectangle<int> card() const
+    {
+        auto r = getLocalBounds().reduced (margin(), 24);
+        r.removeFromTop (30 + 14 + zs::StepBar::preferredHeight + 20);
+        return r.withWidth (juce::jmin (r.getWidth(), 980));
+    }
+
+    juce::Rectangle<int> progressBar() const
+    {
+        auto c = card().reduced (32, 28);
+        c.removeFromTop (18 + 6 + 76 + 8);
+        return c.removeFromTop (4);
+    }
+
     void timerCallback() override
     {
         if (wizard.step() == tw::SetupStep::Done)
@@ -236,6 +276,7 @@ private:
     {
         const int n = (int) wizard.step() + 1;
         counter.setText (PL ("KROK ") + juce::String (n) + PL (" Z 6"), juce::dontSendNotification);
+        steps.setCurrent (n - 1);
 
         if (! judged)
         {
@@ -291,6 +332,7 @@ private:
         const auto& rep = wizard.result();
 
         counter.setText (PL ("GOTOWE"), juce::dontSendNotification);
+        steps.setCurrent (6, true);
         title.setText (rep.ready ? PL ("Możesz nagrywać.")
                                  : PL ("Możesz nagrywać, ale nie wszystko jest w porządku."),
                        juce::dontSendNotification);
@@ -335,6 +377,7 @@ private:
     bool calibArmed = false;
     bool finishedProperly = false;
 
+    zs::StepBar steps;
     juce::Label title, counter, body, measured;
     juce::TextButton nextButton, againButton, skipButton;
 
