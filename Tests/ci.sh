@@ -107,6 +107,9 @@ fi
 cat "$OUT"
 
 if [ $zle -ne 0 ]; then
+  if ! grep -q "^zgodne" /tmp/lufs.log 2>/dev/null; then
+    echo; echo "== loudness-check.py"; tail -20 /tmp/lufs.log 2>/dev/null; tail -5 /tmp/lufs-nasze.txt 2>/dev/null
+  fi
   echo; echo "Wyniki logow: /tmp/<test>.log"
   for f in /tmp/*-test.log; do
     n=$(basename "$f" .log)
