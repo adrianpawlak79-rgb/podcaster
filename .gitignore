@@ -1,0 +1,10 @@
+build*/
+*.exe
+*.dll
+*.wav
+*.o
+*.zip
+/Tests/*-test
+/Tests/t2.wav
+vosk-model*/
+.vs/
