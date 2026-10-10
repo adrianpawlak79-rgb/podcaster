@@ -306,6 +306,24 @@ public:
         gaps.clear();
     }
 
+    /** Pozycja z innego zrodla (rozpoznane slowa, WordTracker). Nie zmienia
+        uzbrojenia: licznik sylab dalej decyduje, czy czlowiek mowi — ale gdy
+        rozpoznawanie zamilknie, jedzie dalej od miejsca, ktore bylo pewne,
+        a nie od swojego nazbieranego bledu. */
+    void syncTo (double syllablePos)
+    {
+        if (text == nullptr) return;
+
+        position = std::clamp (syllablePos, 0.0, (double) text->totalSyllables());
+        if (! armed) resumeFrom = position;
+        heard = (int) std::llround (position);
+
+        const int now = text->wordAtSyllable (position);
+        if (now < shown - 2) shown = now;    // pewne zrodlo moze cofnac o wiecej niz drganie
+        bigSnaps = 0;
+        lost = false;
+    }
+
     void nudgeWords (int delta)
     {
         if (text == nullptr) return;

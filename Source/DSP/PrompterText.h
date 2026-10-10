@@ -49,6 +49,8 @@
 
 #pragma once
 
+#include "ScriptNormalize.h"
+
 #include <algorithm>
 #include <cstdint>
 #include <string>
@@ -76,7 +78,10 @@ public:
     //==========================================================================
     void set (const std::string& source)
     {
-        text = source;
+        // Cyrylickie "е" udajace lacinskie "e", twarde spacje, znaki zerowej
+        // szerokosci — patrz ScriptNormalize.h. Bez tego slowo z cyrylica
+        // traci sylabe w liczniku i nie trafia w slownik rozpoznawania mowy.
+        text = foldLookalikes (source);
         words.clear();
         total = 0;
 

@@ -70,4 +70,17 @@ inline int repeatLineStart (const std::vector<LineSpan>& lines, int spokenWord)
     return lines[(size_t) lineOfWord (lines, spokenWord)].firstWord;
 }
 
+/** Pozycja w slowach (ulamkowa, z WordTracker) -> pozycja w sylabach, czyli
+    jednostka, w ktorej mysli reszta promptera. Wewnatrz slowa liniowo. */
+inline double syllableAtWord (const PrompterText& text, double wordPos)
+{
+    if (text.wordCount() == 0) return 0.0;
+
+    const int w = std::clamp ((int) wordPos, 0, text.wordCount() - 1);
+    const double frac = std::clamp (wordPos - w, 0.0, 1.0);
+    const auto& word = text.all()[(size_t) w];
+
+    return word.beforeMe + frac * word.syllables;
+}
+
 } // namespace tw
