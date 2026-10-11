@@ -123,49 +123,58 @@ Ekran zapisu według `ekran-5.png`: nazwa pliku, format, długość; „Zapisz m
 
 ---
 
-## 4. Lista podejść na ekranie Odsłuch
+## 4. Nagrywanie „punch and roll” — jedno ciągłe nagranie, bez składania
 
-Pomysł Adriana z przeglądu #16 (prototyp ma ją po lewej, `Docs/projekt/ekran-3.png`). Zacząć
-**po kroku 3.5**, bo wszystkie kroki 3.x zmieniają `ReviewComponent.h`.
+**Decyzja Adriana (11 października):** program nie pokazuje „podejść” ani plików do
+składania. Jest jedno nagranie. Dobrze — jedziesz dalej. Pomyłka — człowiek decyduje, że
+się cofa, a program sam robi resztę: cofa, odtwarza końcówkę, nagrywa dalej i nadpisuje
+błąd. Na końcu jest jeden czysty plik. Tak pracują lektorzy audiobooków (Reaper, Audition),
+tylko tam trzeba to ustawiać — tu ma działać od razu.
 
-Co jest: każde nagranie trafia do folderu sesji jako osobny `sesja_<data>.wav`; `TakeReview`
-umie ocenić każde z nich (werdykt 0/1/2, miejsca do posłuchania, miejsca do powtórki).
+Zastępuje dawne zadania „lista podejść” i „najlepsze wersy z kilku podejść” (oba zakładały
+składanie wielu plików, w którym użytkownik się gubi).
 
-Do zrobienia:
-- kolumna po lewej: podejścia z bieżącej sesji (ten sam tekst / ten sam dzień), każde z kropką
-  werdyktu, długością i liczbą miejsc;
-- przełączenie jednym kliknięciem, bez ponownego liczenia miksu (wynik trzymany w pamięci
-  albo obok pliku);
-- „Wybierz to podejście” — wybrane idzie do montażu i zapisu;
-- test bez JUCE: grupowanie plików w sesję i kolejność na liście.
+### Jak to wygląda dla człowieka
+1. Czyta z promptera. Lampka zielona — czyta dalej.
+2. Pomylił się (albo lampka mówi „powtórz”) — wciska **R** (albo pilot / przycisk).
+3. Program **zatrzymuje zapis**, prompter wraca na **początek bieżącego wersu**
+   (strzałka ↑ przed wznowieniem cofa o kolejny wers).
+4. W słuchawkach **2–3 s nagrania przed tym miejscem** (pre-roll), żeby złapać ton i tempo;
+   na ekranie odliczanie i podświetlony wers.
+5. **Od punktu cięcia program nagrywa dalej**; wszystko, co było po nim, znika z nagrania.
+6. Na końcu: jeden plik, szwy niesłyszalne. Nic do składania.
 
-## 5. Najlepsze wersy z kilku podejść (duży temat)
+### Kroki (każdy osobny PR z testem)
+1. **Czasy wersów w trakcie nagrania** — prompter zapisuje, kiedy zaczyna się każdy wers
+   (źródło: słowa Vosk / sylaby / strzałki). Potrzebne do wyznaczenia punktu cięcia.
+   Obok nagrania także `sesja_<data>.wersy.txt` (przyda się w Odsłuchu).
+2. **Punkt cięcia:** początek wersu dosunięty do **najbliższej ciszy przed nim** (śledzenie
+   myli się o 1–2 słowa, więc granica z samego śledzenia mogłaby ciąć w słowie).
+   Test bez JUCE: syntetyczna mowa z przerwami, punkt ma wypaść w ciszy, nigdy w środku słowa.
+3. **Zapis segmentami:** `Recorder` po R zamyka bieżący segment (na dysku, nic nie ginie),
+   zapamiętuje punkt cięcia i zaczyna nowy segment. Przy zatrzymaniu skleja segmenty w jeden
+   plik: segment 1 do punktu cięcia + segment 2 … Odrzucone końcówki zostają w ukrytym
+   podkatalogu (cofnięcie pomyłki, bezpieczeństwo), użytkownik ich nie widzi.
+4. **Szew:** krótkie przenikanie (10–30 ms) w ciszy, ten sam poziom tła po obu stronach.
+   Wykorzystać `MontageRender.h`, ale najpierw naprawić znany błąd z
+   `Tests/znane-bledy.txt` (`montage-test` 3 z 19 — cięcie w środku mowy).
+   Test: trzask i stopień tła na szwie jak dziś w `montage-test`.
+5. **Pre-roll w słuchawkach** + odliczanie. Bez słuchawek (kreator, krok „Słuchawki”
+   wykrył przesłuch) — pre-roll wyciszony, zostaje samo odliczanie, żeby głośnik nie wszedł
+   do mikrofonu.
+6. **Lampka po cięciu** zaczyna od nowa dla nowego segmentu; ocena po nagraniu
+   (`TakeReview`) liczy już z pliku sklejonego.
 
-Pomysł Adriana: program składa jedno nagranie z najlepszych wersów kilku podejść. Prompter wie
-w trakcie nagrania, który wers jest czytany — ale **dziś tego nigdzie nie zapisuje**.
+### Do ustalenia przy budowie
+- czy R zawsze robi punch-and-roll, czy zostaje też dzisiejsze „cofnij tekst, nagrywaj
+  dalej” (wtedy jako opcja w Ustawieniach → Prompter);
+- długość pre-rollu (domyślnie 2 s), w Ustawieniach.
 
-Kolejność, każdy krok osobny PR z testem:
-1. **Zapis wersów obok nagrania:** `sesja_<data>.wersy.txt` — numer wersu, czas początku
-   i końca w nagraniu, źródło (słowa z Vosk / sylaby / klawisz R / strzałki). Bez tego reszta
-   nie ma na czym stać. Trafność czasu zmierzyć na nagraniu Adriana (dziś śledzenie: ≤1 słowo
-   w 66% chwil, ≤2 w 88% — na granicę wersu może nie wystarczyć; wtedy dosunąć granicę do
-   najbliższej ciszy między frazami).
-2. **Ocena każdego wersu osobno:** problemy z `TakeReview` (przester, plozja, mlask, szum)
-   przypisane do wersów, do tego dukanie i powtórzenia (klawisz R w trakcie nagrania).
-3. **Wybór:** dla każdego wersu najlepsze podejście; człowiek widzi tabelę „wers × podejście”
-   i może zmienić wybór kliknięciem.
-4. **Sklejenie:** `MontageRender.h` (szwy na ciszy, ten sam poziom tła po obu stronach).
-   Najpierw naprawić znany błąd z `Tests/znane-bledy.txt`: `montage-test` 3 z 19 — stary
-   montaż nie odmawia cięcia w środku mowy. Sklejka z różnych podejść musi mieć to szczelne.
-5. **Wyrównanie barwy i poziomu między podejściami** przed sklejeniem — podejścia z różnych
-   godzin różnią się odległością od mikrofonu i tłem. Pomiary już są (`VoiceTone.h`,
-   tło z `Decide.h`).
+## 5. Poprawka wersu po nagraniu (później)
 
-Ryzyko: szew słyszalny na zmianie podejścia (inny oddech, inna intonacja końca zdania).
-Mierzalne w teście tak jak dziś w `montage-test` (trzask, stopień tła); intonacji test nie
-złapie — tu decyduje odsłuch.
-
----
+Gdy błąd wyjdzie dopiero w Odsłuchu: kliknięcie wersu → „Nagraj ten wers jeszcze raz” →
+pre-roll, nagranie jednego wersu, program wstawia go w miejsce starego (punch-in w środku
+nagrania). Ten sam szew co w zadaniu 4. Dopiero po zadaniu 4.
 
 ## 6. Ekran „Ustawienia” (zakładki)
 
