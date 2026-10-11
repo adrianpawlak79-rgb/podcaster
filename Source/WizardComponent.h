@@ -15,6 +15,7 @@
 #include "Recorder.h"
 #include "Look.h"
 #include "StepBar.h"
+#include "ScreenFrame.h"
 #include "DSP/Setup.h"
 
 //==============================================================================
@@ -60,6 +61,9 @@ public:
         steps.setSteps ({ PL ("Mikrofon"), PL ("Cisza w pokoju"), PL ("Poziom"),
                           PL ("Głoski p i b"), PL ("Słuchawki"), PL ("Odsłuch") });
         addAndMakeVisible (steps);
+        addAndMakeVisible (flow);
+        flow.setSteps ({ PL("Przygotowanie"), PL("Nagranie"), PL("Odsłuch"), PL("Montaż"), PL("Gotowe") });
+        flow.setCurrent (0);
 
         title.setFont (juce::Font (zs::type::title, juce::Font::bold));
         title.setColour (juce::Label::textColourId, zs::Ink::textNow());
@@ -119,13 +123,12 @@ public:
     {
         g.fillAll (zs::Ink::bg());
 
-        g.setColour (zs::Ink::textNow());
-        g.setFont (juce::Font (zs::type::heading, juce::Font::bold));
-        g.drawText (PL ("Sprawdzenie sprzętu"), header(), juce::Justification::centredLeft);
-
-        g.setColour (zs::Ink::panel());
-        g.fillRoundedRectangle (card().toFloat(), 14.0f);
-
+        zs::ScreenFrame::paint (g, getLocalBounds(), PL("Sprawdzenie sprzętu"), PL("Przygotuj mikrofon przed nagraniem"));
+        g.setColour (zs::Ink::bar()); g.fillRect(zs::ScreenFrame::sidebar(getLocalBounds()));
+        g.setColour (zs::Ink::textNow()); g.setFont(juce::Font(zs::type::title,juce::Font::bold));
+        g.drawText(PL("Sprawdzenie sprzętu"),header(),juce::Justification::centredLeft);
+        g.setColour (zs::Ink::panel()); g.fillRoundedRectangle(card().toFloat(),6.0f);
+        g.setColour (zs::Ink::edge()); g.drawRoundedRectangle(card().toFloat(),6.0f,1.0f);
         // ---- pasek postepu pomiaru albo kreska werdyktu ---------------------
         auto bar = progressBar();
 
@@ -146,12 +149,14 @@ public:
 
     void resized() override
     {
-        auto r = getLocalBounds().reduced (margin(), 24);
-
-        r.removeFromTop (header().getHeight());
-        r.removeFromTop (14);
-        steps.setBounds (r.removeFromTop (zs::StepBar::preferredHeight));
-
+        flow.setBounds(22,zs::ui::frame::header+8,getWidth()-44,zs::StepBar::preferredHeight);
+        auto side = zs::ScreenFrame::sidebar(getLocalBounds()).reduced(22,24);
+        auto stepArea = zs::ScreenFrame::mainArea(getLocalBounds());
+        stepArea.removeFromTop(48);
+        steps.setBounds(stepArea.removeFromTop(zs::StepBar::preferredHeight));
+        skipButton.setBounds(side.removeFromBottom(38)); side.removeFromBottom(10);
+        againButton.setBounds(side.removeFromBottom(38)); side.removeFromBottom(10);
+        nextButton.setBounds(side.removeFromBottom(56));
         auto c = card().reduced (32, 28);
 
         counter.setBounds (c.removeFromTop (18));
@@ -159,17 +164,11 @@ public:
         title.setBounds (c.removeFromTop (76));
         c.removeFromTop (8 + 4 + 18);      // pasek postepu rysowany w paint()
 
-        auto row = c.removeFromBottom (44);
         c.removeFromBottom (16);
 
         measured.setBounds (c.removeFromBottom (20));
         c.removeFromBottom (8);
         body.setBounds (c);
-
-        nextButton.setBounds (row.removeFromLeft (juce::jmin (260, row.getWidth() / 3)));
-        row.removeFromLeft (10);
-        againButton.setBounds (row.removeFromLeft (150));
-        skipButton.setBounds (row.removeFromRight (190));
     }
 
     bool keyPressed (const juce::KeyPress& k) override
@@ -185,20 +184,16 @@ public:
 
 private:
     //==========================================================================
-    int margin() const { return getWidth() >= 1400 ? 72 : 40; }
-
     juce::Rectangle<int> header() const
     {
-        return getLocalBounds().reduced (margin(), 24).removeFromTop (30);
+        return zs::ScreenFrame::mainArea(getLocalBounds()).removeFromTop(38);
     }
 
-    /** Karta z trescia kroku: szerokosc do czytania, nie do krawedzi okna —
-        wiersz na 1900 pikseli czyta sie jak tabele. */
     juce::Rectangle<int> card() const
     {
-        auto r = getLocalBounds().reduced (margin(), 24);
-        r.removeFromTop (30 + 14 + zs::StepBar::preferredHeight + 20);
-        return r.withWidth (juce::jmin (r.getWidth(), 980));
+        auto r = zs::ScreenFrame::mainArea(getLocalBounds());
+        r.removeFromTop(114);
+        return r;
     }
 
     juce::Rectangle<int> progressBar() const
@@ -377,7 +372,7 @@ private:
     bool calibArmed = false;
     bool finishedProperly = false;
 
-    zs::StepBar steps;
+    zs::StepBar steps, flow;
     juce::Label title, counter, body, measured;
     juce::TextButton nextButton, againButton, skipButton;
 

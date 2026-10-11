@@ -183,10 +183,12 @@ public:
         return false;
     }
 
-    /** Podczas nagrania zostaja narzedzia tekstu, ale wyjscie prowadzi przez ocene. */
+    /** Narzedzia wracaja po zatrzymaniu; klawisze dzialaja przez caly czas. */
     void refreshControls()
     {
-        backButton.setEnabled (! recorder.isRecording());
+        const bool visible = !recorder.isRecording();
+        for (auto* b : { &backButton, &smallerButton, &largerButton, &previousButton, &nextButton, &mirrorButton })
+            b->setVisible (visible);
     }
 
     /** "Powtorz wers" (R albo przycisk): na poczatek wersu, ktory jest w
@@ -240,7 +242,7 @@ public:
         g.setColour (Ink::edge());
         g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (0.5f), 6.0f, 1.0f);
         auto r = getLocalBounds();
-        r.removeFromBottom (barHeight);
+        if (!recorder.isRecording()) r.removeFromBottom (barHeight);
         auto bottom = r.removeFromBottom (follower.isLost() ? bottomHeight() : 0);
         // Lustro dotyczy czytanego tekstu; przyciski i lampka sa stale.
         juce::Graphics::ScopedSaveState keep (g);
