@@ -120,3 +120,47 @@ automat (`Decide.h`), zdaniem i liczbą.
 ### 3.5 Gotowe — `codex/wyglad-5-gotowe`
 Ekran zapisu według `ekran-5.png`: nazwa pliku, format, długość; „Zapisz miks”,
 „Wróć do montażu”, „Nagraj nowe podejście”.
+
+---
+
+## 4. Lista podejść na ekranie Odsłuch
+
+Pomysł Adriana z przeglądu #16 (prototyp ma ją po lewej, `Docs/projekt/ekran-3.png`). Zacząć
+**po kroku 3.5**, bo wszystkie kroki 3.x zmieniają `ReviewComponent.h`.
+
+Co jest: każde nagranie trafia do folderu sesji jako osobny `sesja_<data>.wav`; `TakeReview`
+umie ocenić każde z nich (werdykt 0/1/2, miejsca do posłuchania, miejsca do powtórki).
+
+Do zrobienia:
+- kolumna po lewej: podejścia z bieżącej sesji (ten sam tekst / ten sam dzień), każde z kropką
+  werdyktu, długością i liczbą miejsc;
+- przełączenie jednym kliknięciem, bez ponownego liczenia miksu (wynik trzymany w pamięci
+  albo obok pliku);
+- „Wybierz to podejście” — wybrane idzie do montażu i zapisu;
+- test bez JUCE: grupowanie plików w sesję i kolejność na liście.
+
+## 5. Najlepsze wersy z kilku podejść (duży temat)
+
+Pomysł Adriana: program składa jedno nagranie z najlepszych wersów kilku podejść. Prompter wie
+w trakcie nagrania, który wers jest czytany — ale **dziś tego nigdzie nie zapisuje**.
+
+Kolejność, każdy krok osobny PR z testem:
+1. **Zapis wersów obok nagrania:** `sesja_<data>.wersy.txt` — numer wersu, czas początku
+   i końca w nagraniu, źródło (słowa z Vosk / sylaby / klawisz R / strzałki). Bez tego reszta
+   nie ma na czym stać. Trafność czasu zmierzyć na nagraniu Adriana (dziś śledzenie: ≤1 słowo
+   w 66% chwil, ≤2 w 88% — na granicę wersu może nie wystarczyć; wtedy dosunąć granicę do
+   najbliższej ciszy między frazami).
+2. **Ocena każdego wersu osobno:** problemy z `TakeReview` (przester, plozja, mlask, szum)
+   przypisane do wersów, do tego dukanie i powtórzenia (klawisz R w trakcie nagrania).
+3. **Wybór:** dla każdego wersu najlepsze podejście; człowiek widzi tabelę „wers × podejście”
+   i może zmienić wybór kliknięciem.
+4. **Sklejenie:** `MontageRender.h` (szwy na ciszy, ten sam poziom tła po obu stronach).
+   Najpierw naprawić znany błąd z `Tests/znane-bledy.txt`: `montage-test` 3 z 19 — stary
+   montaż nie odmawia cięcia w środku mowy. Sklejka z różnych podejść musi mieć to szczelne.
+5. **Wyrównanie barwy i poziomu między podejściami** przed sklejeniem — podejścia z różnych
+   godzin różnią się odległością od mikrofonu i tłem. Pomiary już są (`VoiceTone.h`,
+   tło z `Decide.h`).
+
+Ryzyko: szew słyszalny na zmianie podejścia (inny oddech, inna intonacja końca zdania).
+Mierzalne w teście tak jak dziś w `montage-test` (trzask, stopień tła); intonacji test nie
+złapie — tu decyduje odsłuch.
