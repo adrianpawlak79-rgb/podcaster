@@ -25,6 +25,7 @@ $CXX $FLAGS powtorz-test.cpp   -o powtorz-test
 $CXX $FLAGS wyglad-test.cpp    -o wyglad-test
 $CXX $FLAGS sledzenie-test.cpp -o sledzenie-test
 $CXX $FLAGS mowa16k-test.cpp   -o mowa16k-test
+$CXX $FLAGS wejscie-test.cpp   -o wejscie-test
 
 ./lamp-test
 ./dynamics-test
@@ -49,6 +50,7 @@ espeak-ng -v pl -s 150 -w /tmp/mowa.wav \
 ./wyglad-test
 ./sledzenie-test
 ./mowa16k-test
+./wejscie-test
 
 # Pamietanie ustawien — jedyny test, ktory potrzebuje JUCE i prawdziwego pliku,
 # wiec idzie przez CMake i Wine. Gdy go nie zbudowano, mowimy to wprost zamiast
