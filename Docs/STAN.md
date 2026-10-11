@@ -25,6 +25,31 @@ Sprawdzenie na prawdziwym mikrofonie na Windowsie liczy się jako osobny, koniec
 3. **Instalator** z `libvosk.dll` i modelem (`Tools/ZADANIA.md`, zadanie 2).
 4. **Podpis cyfrowy** przed sprzedażą — bez niego Windows ostrzega przy każdym uruchomieniu.
 
+## Ustalenia z sesji Cowork (przekazanie z 11.10.2026)
+
+Dokument przekazania z wcześniejszej sesji (Cowork) — streszczenie tego, co nie było jeszcze w repo:
+
+- **Wersja 0.5.1 miała kilka szczegółów, których odtworzenie (#1) nie powtórzyło:**
+  R w pierwszych 1,5 sylaby wersu cofa o wers wcześniej; potwierdzenie „↺ wers od początku”
+  w pasku podpowiedzi; pasek podpowiedzi rysowany przed odbiciem lustrzanym;
+  wysokość fali `jlimit(140, 460, …)`. Do rozważenia przy kolejnych krokach wyglądu.
+- **Prompter — pomiar Cowork** (to samo nagranie „Nic dwa razy”, 153 s mowy, tekst bez zdublowanej
+  zwrotki: wiersze 1–24 i 33–36): ≤1 słowo 66%, ≤2 słowa 88%, mediana 1.
+  **Nasz pomiar tym samym narzędziem co program** (`Tools/zs-sledzenie.cpp`, przycięty tekst):
+  ≤1 słowo 66,6%, ≤2 słowa 74,0%, wers 68,6%. Zgodne przy ≤1, różnica przy ≤2 niewyjaśniona
+  (inny sposób liczenia wzorca czasów albo opóźnienia). Na pełnym pliku: 69,2% / 78,0% / 70,7%.
+- **Plik `Nic dwa razy się nie zdarza.txt`** ma zdublowaną zwrotkę „Wczoraj…” (wiersze 29–36)
+  i cyrylickie „е” w „Miniesz” i „twoje” — to drugie program już naprawia sam (`ScriptNormalize.h`).
+- **Metoda „klas głosek”** (0% na prawdziwym głosie) odrzucona — nie odtwarzamy.
+- **Pomysły jeszcze niesprawdzone:** gramatyka dynamiczna Vosk (tylko słowa tuż przed bieżącą pozycją,
+  przeładowywana w trakcie) — cel ≥85% przy ≤1 słowie, wtedy podświetlanie słów.
+- **Do zrobienia wg Cowork, a brak w planie wyżej:** drugie nagranie testowe (~2 min czytania
+  w realnym tempie) do niezależnej walidacji — nagrywa Adrian; kalibracja `proximityDb` na SM7B;
+  eksport MP3; podkład / intro-outro.
+- **Gałąź `scalenie`** (wcześniejsza praca Codexa) — nie ma jej na GitHubie; jeśli istnieje,
+  to tylko lokalnie.
+- Sprzęt Adriana: SM7B, SSL 2, Windows.
+
 ## Historia
 
 | data | co | całość |
