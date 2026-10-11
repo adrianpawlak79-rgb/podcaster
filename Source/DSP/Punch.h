@@ -160,7 +160,13 @@ public:
         {
             Seam s;
             s.at = remap (c.from, cuts);
-            s.levelDiffDb = rmsDb (c.to, c.to + 0.15) - rmsDb (c.from - 0.15, c.from);
+            // Po stronie wznowienia mierzymy 150 ms PRZED nim, nie po: wznowienie
+            // lezy 0,15 s przed mowa (CutFinder::leadInSec), wiec okno "po"
+            // konczylo sie dokladnie na pierwszej glosce i lapalo jej poczatek.
+            // Symulacja sesji (Docs/badania/SYMULACJA.md) dala przez to
+            // "slyszalny szew" przy idealnie stalym tle. Tuz przed wznowieniem
+            // jest ta sama cisza pokoju, ktora po nim zagra — bez mowy.
+            s.levelDiffDb = rmsDb (c.to - 0.15, c.to) - rmsDb (c.from - 0.15, c.from);
             s.audible = std::fabs (s.levelDiffDb) > 1.5;
             out.push_back (s);
         }
