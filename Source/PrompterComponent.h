@@ -41,6 +41,7 @@
 #include "DSP/Follower.h"
 #include "DSP/LineLog.h"
 #include "DSP/PreRoll.h"
+#include "DSP/LineGrade.h"
 #include "PunchFile.h"
 #include "DSP/PrompterLines.h"
 #include "DSP/PrompterText.h"
@@ -208,6 +209,8 @@ public:
         shownLine = tw::lineOfWord (spans, from);
         markRestart (shownLine, tw::LineSource::Retake);
         startPreRoll();
+        if (onRetake) onRetake();
+        regrade();
         repaint();
     }
 
@@ -232,12 +235,89 @@ public:
         countdownTotal = countdown.totalFor (sec);
     }
 
+public:
+    /** Zdarzenie lampki (MainComponent dostaje je z Recordera) — do znaczkow
+        przy wersach. Tylko w trakcie nagrania. */
+    void noteEvent (const tw::Event& e)
+    {
+        if (! recorder.isRecording()) return;
+        liveEvents.push_back (e);
+        regrade();
+    }
+
+    /** Tylko zrzut ekranu (--preview-ui): trzy przeczytane wersy, kazdy z
+        innym znaczkiem, i odliczanie. */
+    void previewMarks()
+    {
+        if (layoutDirty)                       // wersy powstaja przy pierwszym rysowaniu
+        {
+            juce::Image img (juce::Image::ARGB, juce::jmax (1, getWidth()), juce::jmax (1, getHeight()), true);
+            juce::Graphics tmp (img);
+            rebuildLines (tmp);
+        }
+        if (lines.empty()) return;
+
+        const tw::LineGrade g[] = { tw::LineGrade::Good, tw::LineGrade::Fixable, tw::LineGrade::Redo };
+        for (int i = 0; i < 3 && i < (int) lines.size(); ++i) grades[lines[(size_t) i].firstWord] = g[i];
+        shownLine = juce::jmin (3, (int) lines.size() - 1);
+        scrollNow = scrollTarget = (float) shownLine;
+        follower.nudgeWords (lines[(size_t) shownLine].firstWord - follower.currentWord());
+        countdownStart = juce::Time::getMillisecondCounterHiRes();
+        countdownTotal = 2.0;
+        repaint();
+    }
+
+    /** Po R: lampka nie trzyma koloru za wycieta pomylke. */
+    std::function<void()> onRetake;
+
+private:
+    /** Znaczki ✓ / ! / ✗ (DSP/LineGrade.h). Po zatrzymaniu zostaja na
+        ekranie do nastepnego nagrania; ostatni wers tez dostaje swoj. */
+    void regrade()
+    {
+        if (lineLog.marks().empty()) return;     // po finishTake: zostaja ostatnie znaczki
+        grades = tw::LineGrader().grade (lineLog.marks(), liveEvents, ! recorder.isRecording());
+    }
+
+    void drawGrade (juce::Graphics& g, tw::LineGrade grade, juce::Rectangle<float> box)
+    {
+        if (grade == tw::LineGrade::None) return;
+
+        // Rysowane, nie z czcionki: znaki ✓ i ✗ nie w kazdej czcionce systemu sa.
+        const auto c = box.getCentre();
+        const float h = juce::jmin (box.getWidth(), box.getHeight()) * 0.5f;
+        const auto col = grade == tw::LineGrade::Good ? Ink::green()
+                       : grade == tw::LineGrade::Fixable ? Ink::yellow() : Ink::red();
+        g.setColour (col);
+
+        juce::Path p;
+        if (grade == tw::LineGrade::Good)
+        {
+            p.startNewSubPath (c.x - h * 0.8f, c.y);
+            p.lineTo (c.x - h * 0.2f, c.y + h * 0.6f);
+            p.lineTo (c.x + h * 0.9f, c.y - h * 0.7f);
+            g.strokePath (p, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+        else if (grade == tw::LineGrade::Redo)
+        {
+            p.startNewSubPath (c.x - h * 0.7f, c.y - h * 0.7f); p.lineTo (c.x + h * 0.7f, c.y + h * 0.7f);
+            p.startNewSubPath (c.x + h * 0.7f, c.y - h * 0.7f); p.lineTo (c.x - h * 0.7f, c.y + h * 0.7f);
+            g.strokePath (p, juce::PathStrokeType (3.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+        else
+        {
+            g.fillRoundedRectangle (c.x - 2.0f, c.y - h, 4.0f, h * 1.3f, 2.0f);
+            g.fillEllipse (c.x - 2.5f, c.y + h * 0.55f, 5.0f, 5.0f);
+        }
+    }
+
     void stopPreRoll()
     {
         recorder.playPreRoll ({});
         countdownStart = -1.0;
     }
 
+public:
     void nudge (int by)
     {
         follower.nudgeWords (by);
@@ -329,12 +409,15 @@ private:
                 scrollNow = scrollTarget = 0.0f;
                 shownLine = 0;
                 lineLog.begin();
+                liveEvents.clear();
+                grades.clear();
                 startSpeech();
             }
             else
             {
                 stopSpeech();
                 stopPreRoll();
+                regrade();
             }
         }
 
@@ -512,14 +595,17 @@ private:
         if (label.empty()) { countdownStart = -1.0; return; }
 
         const bool go = label == "Czytaj";
-        auto box = r.withSizeKeepingCentre (juce::jmin (r.getWidth() - 40, 360), 150).toFloat();
+        // Pod celownikiem, nie na nim: wers do przeczytania ma byc widoczny
+        // przez cale odliczanie.
+        const int h = 120, w = juce::jmin (r.getWidth() - 40, 300);
+        auto box = juce::Rectangle<int> (r.getCentreX() - w / 2, r.getY() + (int) (r.getHeight() * 0.62f) - h / 2, w, h).toFloat();
         g.setColour (Ink::raised().withAlpha (0.94f));
         g.fillRoundedRectangle (box, 12.0f);
         g.setColour (go ? Ink::green() : Ink::edge());
         g.drawRoundedRectangle (box.reduced (1.0f), 12.0f, 2.0f);
 
         g.setColour (go ? Ink::green() : Ink::textNow());
-        g.setFont (juce::Font (go ? 64.0f : 96.0f, juce::Font::bold));
+        g.setFont (juce::Font (go ? 56.0f : 84.0f, juce::Font::bold));
         g.drawText (juce::String (label), box.toNearestInt(), juce::Justification::centred);
     }
 
@@ -537,6 +623,7 @@ public:
     zs::PunchResult finishTake (const juce::File& wav)
     {
         zs::PunchResult res;
+        regrade();                // znaczki z pelnego nagrania, zanim zapis wersow sie wyczysci
         if (lineLog.marks().empty() || wav == juce::File()) return res;
 
         auto marks = lineLog.marks();
@@ -644,6 +731,10 @@ private:
                         juce::Rectangle<float> ((float) sideMargin(), y,
                                                 (float) (getWidth() - 2 * sideMargin()), lineH),
                         juce::Justification::centredLeft, false);
+
+            const auto gr = grades.find (lines[(size_t) i].firstWord);
+            if (gr != grades.end())
+                drawGrade (g, gr->second, juce::Rectangle<float> (2.0f, y, (float) sideMargin() - 6.0f, lineH));
         }
 
         drawStateBadge (g, guide);
@@ -735,6 +826,8 @@ private:
     std::vector<Line> lines;
     std::vector<tw::LineSpan> spans;     ///< te same wersy, same numery slow
     tw::LineLog lineLog;                 ///< kiedy zaczal sie ktory wers (zapis obok nagrania)
+    std::vector<tw::Event> liveEvents;                 ///< zdarzenia lampki tego nagrania
+    std::map<int, tw::LineGrade> grades;               ///< firstWord -> znaczek
     tw::Countdown countdown;             ///< po R, razem z pre-rollem
     double countdownStart = -1.0, countdownTotal = 0.0;   ///< ms; -1 = nie odliczamy
     bool layoutDirty = true, running = false;

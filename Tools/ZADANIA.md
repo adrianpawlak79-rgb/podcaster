@@ -167,6 +167,9 @@ składanie wielu plików, w którym użytkownik się gubi).
    na ekranie odliczanie 2…1 i „Czytaj”. Recorder pamięta ostatnie 30 s nagrania.
 6. **Lampka po cięciu** zaczyna od nowa dla nowego segmentu; ocena po nagraniu
    (`TakeReview`) liczy już z pliku sklejonego.
+   *Zrobione:* po R lampka puszcza kolor za wyciętą pomyłkę (`LampLogic::afterCut`), a ocena
+   dostaje zdarzenia na czasie czystego pliku — te z wyciętych kawałków znikają
+   (`Punch::remapEvents`, test w `punch-test`).
 
 ### Znaczek przy każdym przeczytanym wersie (pomysł Adriana)
 W prompterze, przy wersach już przeczytanych, mały znak — żeby od razu było wiadomo,
@@ -187,6 +190,9 @@ przejęzyczenie) — dopiero po pomiarze, ile fałszywych „?” daje na nagran
 
 Test bez JUCE: zdarzenia lampki + czasy wersów → właściwy znak dla każdego wersu,
 także gdy zdarzenie wypada na granicy dwóch wersów.
+*Zrobione w prompterze (`DSP/LineGrade.h`, test `znaczki-test`).* Przester na granicy
+(±0,3 s) dostaje ✗ w obu wersach; pomyłka tuż przed R nie barwi powtórki. Znaczki zostają
+na ekranie po zatrzymaniu. Na ekranie Odsłuch — jeszcze nie (osobny krok).
 
 ### Do ustalenia przy budowie
 - czy R zawsze robi punch-and-roll, czy zostaje też dzisiejsze „cofnij tekst, nagrywaj

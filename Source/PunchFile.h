@@ -31,6 +31,7 @@ struct PunchResult
     int         cuts = 0;
     double      removedSec = 0.0;
     juce::File  rawCopy;            ///< gdzie trafilo surowe nagranie
+    std::vector<tw::Removal> plan;  ///< co wycieto (czas surowego nagrania)
     juce::String error;
 };
 
@@ -119,6 +120,7 @@ inline PunchResult applyPunch (const juce::File& wav, std::vector<tw::LineMark>&
     for (auto& m : marks) m.sec = punch.remap (m.sec, plan);
 
     res.applied = true;
+    res.plan = plan;
     res.cuts = (int) plan.size();
     for (const auto& p : plan) res.removedSec += p.to - p.from;
     return res;

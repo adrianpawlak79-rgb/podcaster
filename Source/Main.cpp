@@ -47,6 +47,7 @@ countries: pl
             if(mode=="wizard") preview.previewWizard();
             if(mode=="recording") preview.previewRecording(false);
             if(mode=="prompter-rec") preview.previewRecording(true);
+            if(mode=="prompter-znaczki") { preview.previewRecording(true); preview.previewMarks(); }
             if(mode=="review") preview.previewReview(fixture);
             if(mode=="edit") preview.previewReview(fixture,true);
             if(mode=="done") preview.previewReview(fixture,false,true);
