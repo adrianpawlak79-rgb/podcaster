@@ -285,10 +285,21 @@ i który pominięto w 3.2, bo program nic z nim nie robił. Teraz dostaje znacze
 4. Miks głos + podkład: ściszanie podkładu pod głosem (sidechain), głośność całości.
 5. Ekrany: Przygotowanie (podkład, suwak), Odsłuch (suwak podkładu na żywo) — dla Codexa.
 
-### Do ustalenia z Adrianem
-- czy podkład ściszać pod głosem automatycznie, i domyślnie o ile (np. −8 dB);
-- co, gdy podkład jest krótszy / dłuższy niż czytanie (wyciszenie na końcu?);
-- „Wiersz” bez podkładu = zwykły tryb podcastu?
+### Ustalone z Adrianem (11 października)
+- **Podkład ściszany pod głosem automatycznie, w miksie** (jak „auto-ducking” w Premiere Pro),
+  i ma to być „inteligentne”. Czyli nie stałe −8 dB, tylko: program mierzy głośność głosu
+  i podkładu, pod mową trzyma muzykę tyle niżej, żeby głos był wyraźny (cel do ustalenia
+  pomiarem, punkt wyjścia ok. 15 LU pod głosem), w dłuższych przerwach między strofami
+  muzyka wraca płynnie do góry, zmiany łagodne (narastanie/opadanie rzędu 0,3 s / 1 s),
+  krótkie pauzy między słowami jej nie ruszają. Suwak głośności podkładu dalej działa —
+  przesuwa całość. Test: syntetyczny głos + szum muzyczny → zmierzona różnica pod mową
+  i powrót w przerwie.
+- **Podkład ma być odpowiednio długi.** Program przed nagraniem porównuje długość podkładu
+  z przewidywanym czasem czytania (z tekstu, jak szacunek w prompterze) i ostrzega, gdy
+  jest za krótki. Gdy jest dłuższy — w miksie koniec podkładu płynnie wyciszony kilka
+  sekund po ostatnim słowie.
+- **„Wiersz” bez podkładu = zwykły tryb podcastu.** Wybór trybu sprowadza się do pytania
+  „czy jest podkład”.
 
 Uwaga do pomocy w programie: prawa do podkładu — przy publikacji potrzebna muzyka z licencją.
 
