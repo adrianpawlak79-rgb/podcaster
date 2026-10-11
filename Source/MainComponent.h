@@ -15,6 +15,7 @@
 #include "WizardComponent.h"
 #include "ReviewComponent.h"
 #include "Settings.h"
+#include "InputChoice.h"
 #include "StepBar.h"
 #include "ScreenFrame.h"
 
@@ -208,7 +209,8 @@ private:
 
 //==============================================================================
 class MainComponent : public juce::Component,
-                      private juce::Timer
+                      private juce::Timer,
+                      private juce::ChangeListener
 {
 public:
     /** @param openForReview  nagranie do oceny od razu po starcie, zamiast
@@ -220,10 +222,24 @@ public:
         obejrzenia wczorajszego nagrania bez nagrywania nowego. */
     explicit MainComponent (const juce::File& openForReview = {}, bool reviewNow = false, bool previewMode = false)
     {
+        noDevice = previewMode;
         if (!previewMode) {
-            deviceManager.initialiseWithDefaultDevices (2, 2);
+            // Karta i wejscie z poprzedniego uruchomienia; gdy jej nie ma —
+            // domyslna systemu (initialise sam wraca do domyslnej).
+            const auto saved = juce::parseXML (settings.audioState());
+            deviceManager.initialise (2, 2, saved.get(), true);
             deviceManager.addAudioCallback (&recorder);
+            deviceManager.addChangeListener (this);
         }
+
+        deviceBox.onChange = [this] { chooseDevice(); };
+        inputBox.onChange  = [this] { chooseInput(); };
+        heardLabel.setFont (juce::Font (zs::type::small));
+        heardLabel.setColour (juce::Label::textColourId, zs::Ink::accent());
+        heardLabel.setJustificationType (juce::Justification::centredRight);
+        for (auto* c : { (juce::Component*) &deviceBox, (juce::Component*) &inputBox, (juce::Component*) &heardLabel })
+            addChildComponent (*c);
+        refreshInputBoxes();
 
         selector = std::make_unique<juce::AudioDeviceSelectorComponent> (
                        deviceManager, 1, 2, 0, 2, false, false, true, false);
@@ -414,6 +430,8 @@ public:
 
     ~MainComponent() override
     {
+        deviceManager.removeChangeListener (this);
+        saveAudioState();
         deviceManager.removeAudioCallback (&recorder);
     }
 
@@ -646,9 +664,11 @@ private:
         nameInput.setVisible(prepare); scriptInput.setVisible(prepare && !detailsOpen);
         prepareButton.setVisible(prepare && !settingsOpen);
         preparationButton.setVisible(!preparation && !rec && !inWizard && !inReview);
+        for (auto* c : { (juce::Component*) &deviceBox, (juce::Component*) &inputBox, (juce::Component*) &heardLabel })
+            c->setVisible(prepare && !settingsOpen);
         if (prepare) {
             prompterButton.setVisible(!detailsOpen); otherTextButton.setVisible(false);
-            checkButton.setVisible(true); folderButton.setVisible(true);
+            checkButton.setVisible(true); folderButton.setVisible(settingsOpen);
         }
         lamp.setVisible(!inWizard && !inReview && (rec || inPrompter));
         meter.setVisible(!inWizard && !inReview && !settingsOpen);
@@ -687,11 +707,9 @@ private:
             side.removeFromTop(4);
             text (settings.hardwareChecked() ? PL("Sprzęt został sprawdzony") : PL("Mikrofon nie został sprawdzony"), side.removeFromTop(32), zs::type::body);
             side.removeFromTop(8);
-            text (PL("Mikrofon"), side.removeFromTop(20), zs::type::small);
-            auto* device = deviceManager.getCurrentAudioDevice();
-            text (device ? device->getName() : PL("Brak urządzenia — otwórz ustawienia"), side.removeFromTop(32), zs::type::body);
-            side.removeFromTop(8);
-            text (PL("Poziom wejścia"), side.removeFromTop(20), zs::type::small);
+            text (PL("Karta / urządzenie"), side.removeFromTop(18), zs::type::small);
+            side.removeFromTop(30 + 6);
+            text (PL("Wejście z mikrofonem"), side.removeFromTop(18), zs::type::small);
             text (PL("Nagranie rozpocznie się po naciśnięciu Nagraj."), settingsBox().reduced(22,12).removeFromBottom(40), zs::type::small);
         } else {
             g.setColour(zs::Ink::textNow()); g.setFont(juce::Font(zs::type::heading,juce::Font::bold));
@@ -725,12 +743,124 @@ private:
             checkButton.setBounds(side.removeFromBottom(36)); side.removeFromBottom(8);
             selector->setBounds(side);
         } else {
-            side.removeFromTop(156);
+            // Uklad musi sie zmiescic przy 960 x 640: folder sesji zostaje
+            // w "Mikrofon i sprzet", tu sa tylko rzeczy przed kazdym nagraniem.
+            side.removeFromTop(32 + 4 + 32 + 8 + 18);
+            deviceBox.setBounds(side.removeFromTop(30)); side.removeFromTop(6);
+            heardLabel.setBounds(side.removeFromTop(18));
+            inputBox.setBounds(side.removeFromTop(30)); side.removeFromTop(8);
             meter.setBounds(side.removeFromTop(20)); side.removeFromTop(8);
-            checkButton.setBounds(side.removeFromTop(34)); side.removeFromTop(8);
-            folderButton.setBounds(side.removeFromTop(28));
+            checkButton.setBounds(side.removeFromTop(34));
+            folderButton.setVisible(false);
             status.setVisible(false);
         }
+    }
+
+    //==========================================================================
+    // ---- karta i wejscie z mikrofonem (zasady: InputChoice.h) ------------------
+
+    /** Zmiana karty — z naszych list albo z okna "Mikrofon i sprzet". */
+    void changeListenerCallback (juce::ChangeBroadcaster*) override
+    {
+        refreshInputBoxes();
+        saveAudioState();
+    }
+
+    void saveAudioState()
+    {
+        if (noDevice) return;
+        if (auto x = deviceManager.createStateXml())
+            settings.setAudioState (x->toString());
+    }
+
+    /** Listy odtwarzane z tego, co karta ma teraz wlaczone. Bez onChange:
+        samo odswiezenie listy nie moze przestawiac karty. */
+    void refreshInputBoxes()
+    {
+        deviceBox.clear (juce::dontSendNotification);
+        inputBox.clear (juce::dontSendNotification);
+        deviceBox.setTextWhenNothingSelected (PL ("Brak urządzenia"));
+        inputBox.setTextWhenNothingSelected (PL ("Brak wejść"));
+
+        auto* type = noDevice ? nullptr : deviceManager.getCurrentDeviceTypeObject();
+        auto* device = noDevice ? nullptr : deviceManager.getCurrentAudioDevice();
+        deviceBox.setEnabled (type != nullptr);
+        inputBox.setEnabled (device != nullptr);
+        if (type == nullptr) return;
+
+        const auto names = type->getDeviceNames (true);
+        deviceBox.addItemList (names, 1);
+        deviceBox.setTextWhenNothingSelected (PL ("Wybierz kartę"));
+        deviceBox.setSelectedItemIndex (names.indexOf (deviceManager.getAudioDeviceSetup().inputDeviceName),
+                                        juce::dontSendNotification);
+        if (device == nullptr) return;
+
+        std::vector<std::string> driver;
+        for (const auto& n : device->getInputChannelNames()) driver.push_back (n.toStdString());
+
+        const auto items = zs::input::labels (driver);
+        for (size_t i = 0; i < items.size(); ++i)
+            inputBox.addItem (juce::String::fromUTF8 (items[i].c_str()), (int) i + 1);
+
+        const auto mask = (uint64_t) device->getActiveInputChannels().toInt64();
+        inputBox.setSelectedId (zs::input::choiceFromMask (mask) + 1, juce::dontSendNotification);
+        inputBox.setEnabled (driver.size() > 1);
+    }
+
+    void chooseDevice()
+    {
+        auto setup = deviceManager.getAudioDeviceSetup();
+        setup.inputDeviceName = deviceBox.getText();
+        setup.useDefaultInputChannels = true;       // inna karta: znow automatycznie
+        applySetup (setup);
+    }
+
+    void chooseInput()
+    {
+        auto* device = deviceManager.getCurrentAudioDevice();
+        if (device == nullptr) return;
+
+        const int n = device->getInputChannelNames().size();
+        const auto mask = zs::input::channelMask (inputBox.getSelectedId() - 1, n);
+
+        auto setup = deviceManager.getAudioDeviceSetup();
+        setup.useDefaultInputChannels = false;
+        setup.inputChannels.clear();
+        for (int b = 0; b < n && b < zs::input::maxChannels; ++b)
+            if (mask & (uint64_t (1) << b)) setup.inputChannels.setBit (b);
+
+        applySetup (setup);
+    }
+
+    void applySetup (const juce::AudioDeviceManager::AudioDeviceSetup& setup)
+    {
+        // W trakcie nagrania karta sie nie zmienia — plik mialby dwa zrodla.
+        if (noDevice || recorder.isRecording()) { refreshInputBoxes(); return; }
+
+        const auto err = deviceManager.setAudioDeviceSetup (setup, true);
+        if (err.isNotEmpty())
+            append (PL ("Nie mogę przełączyć karty: ") + err);
+
+        refreshInputBoxes();
+        saveAudioState();
+    }
+
+    /** "slysze wejscie 2" — zeby bylo widac, gdzie jest mikrofon, zanim
+        czlowiek wybierze wejscie recznie. Prog ok. -50 dBFS: cos wiecej niz
+        szum wejscia. */
+    void updateHeard (float level)
+    {
+        juce::String s;
+
+        if (auto* d = deviceManager.getCurrentAudioDevice())
+            if (level > 0.003f)
+            {
+                const auto mask = (uint64_t) d->getActiveInputChannels().toInt64();
+                const int n = zs::input::physicalInput (mask, recorder.analysisCh());
+                if (n > 0) s = PL ("słyszę wejście ") + juce::String (n);
+            }
+
+        if (heardLabel.getText() != s) heardLabel.setText (s, juce::dontSendNotification);
     }
 
     void repeatLine()
@@ -854,6 +984,7 @@ private:
 
         const float lvNow = recorder.inputLevel();
         meter.setLevel (lvNow);
+        if (preparation && heardLabel.isVisible()) updateHeard (lvNow);
 
         if (recorder.isRecording())
             repaint();        // zegar i nazwa nagrania we wspolnym szkielecie
@@ -989,6 +1120,9 @@ private:
     juce::TextButton recButton, repeatButton, folderButton, okButton, settingsButton, detailsButton, openButton;
     juce::Label hints;
     juce::TextEditor nameInput, scriptInput;
+    juce::ComboBox deviceBox, inputBox;   ///< karta i wejscie z mikrofonem
+    bool noDevice = false;                ///< --preview-ui: karty nie otwieramy
+    juce::Label heardLabel;               ///< "slysze wejscie 2"
     juce::TextButton prepareButton, preparationButton;
     bool preparation = true;
     zs::StepBar flow;
