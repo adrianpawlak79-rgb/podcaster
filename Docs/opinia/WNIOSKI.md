@@ -35,3 +35,8 @@ Odpowiedzi: `odpowiedz-gemini.md`, `odpowiedz-chatgpt.md`. Brief: `BRIEF-DLA-AI.
 3. Prompter: zostawić, jak jest; bez dalszego strojenia Vosk, dopóki test z ludźmi nie pokaże, że jest potrzebny.
 4. Najbliższy krok: Adrian nagrywa 10–20 min na żywym mikrofonie; mierzymy trafność lampki.
    Potem 5–15 osób z grupy (lektorzy, poeci, autorzy kursów) — wersja testowa z instalatorem.
+
+## Decyzja Adriana (11 października)
+**Kierunek zostaje bez zmian:** kreator, lampka, prompter idący za głosem i automatyczny miks —
+wszystkie cztery funkcje zostają. Z opinii bierzemy tylko to, co da się sprawdzić: trafność
+lampki na żywym mikrofonie jako najbliższy pomiar i test z ludźmi, gdy będzie instalator.
