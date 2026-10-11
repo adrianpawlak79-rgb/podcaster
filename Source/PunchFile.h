@@ -32,6 +32,7 @@ struct PunchResult
     double      removedSec = 0.0;
     int         audibleSeams = 0;   ///< szwy, przy ktorych tlo rozni sie o > 1,5 dB
     juce::File  rawCopy;            ///< gdzie trafilo surowe nagranie
+    std::vector<tw::Removal> plan;  ///< co wycieto (czas surowego nagrania)
     juce::String error;
 };
 
@@ -123,6 +124,7 @@ inline PunchResult applyPunch (const juce::File& wav, std::vector<tw::LineMark>&
         if (sm.audible) ++res.audibleSeams;
 
     res.applied = true;
+    res.plan = plan;
     res.cuts = (int) plan.size();
     for (const auto& p : plan) res.removedSec += p.to - p.from;
     return res;

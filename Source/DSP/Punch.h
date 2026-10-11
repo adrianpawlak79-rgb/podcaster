@@ -33,6 +33,7 @@
 
 #include "CutPoint.h"
 #include "LineLog.h"
+#include "TakeWatchCore.h"
 
 #include <algorithm>
 #include <cmath>
@@ -178,6 +179,24 @@ public:
             else break;
         }
         return std::max (0.0, sec - removed);
+    }
+
+    /** Zdarzenia lampki na czas czystego pliku. Te z wycietych kawalkow
+        znikaja — ocena po nagraniu nie moze kazac powtarzac pomylki, ktorej
+        w pliku juz nie ma. */
+    std::vector<Event> remapEvents (const std::vector<Event>& events, const std::vector<Removal>& cuts) const
+    {
+        std::vector<Event> out;
+        for (auto e : events)
+        {
+            const bool gone = std::any_of (cuts.begin(), cuts.end(),
+                                           [&] (const Removal& c) { return e.timeSec >= c.from && e.timeSec < c.to; });
+            if (gone) continue;
+            e.timeSec  = remap (e.timeSec, cuts);
+            e.redoFrom = remap (e.redoFrom, cuts);
+            out.push_back (e);
+        }
+        return out;
     }
 };
 

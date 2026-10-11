@@ -68,6 +68,16 @@ public:
         clippedInSession = false;
     }
 
+    /** Po R: to, co zapalilo lampke, wlasnie zostalo wyciete (punch and roll)
+        — lampka nie trzyma juz koloru za pomylke. Profil glosu, poziomy i to,
+        ze w sesji byl przester (rada o wzmocnieniu), zostaja. */
+    void afterCut() noexcept
+    {
+        holdUntil = -1.0;
+        heldState = 0;
+        heldMsg   = "";
+    }
+
     /** Zdarzenie z TakeWatcha. @p advice ma przezyc wywolanie (staly napis). */
     void event (tw::Kind kind, int severity, const char* advice) noexcept
     {

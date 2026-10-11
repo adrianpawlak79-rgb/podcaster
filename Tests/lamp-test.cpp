@@ -321,6 +321,18 @@ int main (int argc, char** argv)
                "po awarii melduje brak sygnalu");
     }
 
+    {
+        std::printf ("\n  8. po R (punch and roll) lampka zaczyna od nowa\n");
+        zs::LampLogic l;
+        l.reset();
+        l.event (tw::Kind::Plosive, 1, "Plozja.");
+        const auto before = l.tick (1.0 / 30.0, true, 20.0, 0.1f, true, 1.0f);
+        l.afterCut();
+        const auto after = l.tick (1.0 / 30.0, true, 20.0, 0.1f, true, 1.0f);
+        check (before.state == 1, "przed R: pali sie za plozje");
+        check (after.state == 0, "po R: nie trzyma koloru za wycieta pomylke");
+    }
+
     std::printf ("\n==========================================\n");
     std::printf ("%s\n\n", failures == 0 ? "wszystko przeszlo"
                                          : (std::to_string (failures) + " nieprzeszlych").c_str());

@@ -172,6 +172,19 @@ int main()
         check (punch.plan (m, cuts).empty(), "R zanim jakikolwiek wers sie zaczal: nic nie tniemy");
     }
 
+    // ---- zdarzenia lampki po wycieciu ------------------------------------------------
+    {
+        const std::vector<tw::Removal> cutsAt { { 5.0, 8.0 } };
+        tw::Event a; a.timeSec = 3.0; a.redoFrom = 2.5;
+        tw::Event b; b.timeSec = 6.0; b.redoFrom = 5.5;      // w pomylce
+        tw::Event c; c.timeSec = 10.0; c.redoFrom = 9.0;
+        const auto out = punch.remapEvents ({ a, b, c }, cutsAt);
+        check (out.size() == 2, "zdarzenie z wycietej pomylki znika", std::to_string (out.size()));
+        check (out.size() == 2 && out[0].timeSec == 3.0 && std::fabs (out[1].timeSec - (10.0 - 3.0 - punch.crossfadeSec)) < 1e-9
+               && std::fabs (out[1].redoFrom - (9.0 - 3.0 - punch.crossfadeSec)) < 1e-9,
+               "reszta na czasie czystego pliku");
+    }
+
     std::printf ("\n%s\n\n", fails == 0 ? "wszystko przeszlo" : "SA BLEDY");
     return fails;
 }

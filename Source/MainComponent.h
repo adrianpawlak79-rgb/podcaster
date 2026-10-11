@@ -445,6 +445,7 @@ public:
         prompter->onClose=[this]{showPrompter(false);};
         prompter->setSpeech(&speech);
         prompter->onStopRequest=[this]{ if(recorder.isRecording()) toggleRecord(); };
+        prompter->onRetake=[this]{ logic.afterCut(); };
         addAndMakeVisible(*prompter);
         prompter->load(PL("Dziś porozmawiamy o tym, co naprawdę warto usłyszeć.\nZatrzymaj się na chwilę. Weź spokojny oddech.\nTo jest Twoje miejsce i Twój głos.\nNie musisz się spieszyć. Dobra opowieść potrzebuje czasu."));
         showPrompter(true);
@@ -582,6 +583,9 @@ public:
         timerCallback();
         resized();
     }
+
+    /** --preview-ui ... prompter-znaczki: znaczki przy wersach i odliczanie po R. */
+    void previewMarks() { if (prompter != nullptr) prompter->previewMarks(); }
 
     void previewReview (const juce::File& wav, bool edit = false, bool done = false)
     {
@@ -901,12 +905,16 @@ private:
             {
                 const auto punched = prompter->finishTake (justRecorded);
                 if (punched.applied)
+                {
+                    // ocena czyta czysty plik — zdarzenia na jego czas, bez wycietych
+                    takeEvents = tw::Punch().remapEvents (takeEvents, punched.plan);
                     append (PL ("--- wycięte pomyłki (R): ") + juce::String (punched.cuts) + ", "
                             + juce::String (punched.removedSec, 1) + PL (" s; pełne nagranie w folderze „surowe”")
                             + (punched.audibleSeams > 0
                                  ? PL ("; uwaga: przy ") + juce::String (punched.audibleSeams)
                                    + PL (" szwie tło się zmieniło (np. wentylator) — posłuchaj tych miejsc")
                                  : juce::String()));
+                }
                 else if (punched.error.isNotEmpty())
                     append (PL ("--- nie wycięłem pomyłek: ") + punched.error + PL (" (nagranie zostaje w całości)"));
             }
@@ -1040,7 +1048,10 @@ private:
             // dotyczy przerywania w trakcie mowienia, nie tego, czy zdarzenie
             // bylo. Przester wyciszony nadal niszczy probki.
             if (recorder.isRecording())
+            {
                 takeEvents.push_back (e);
+                if (prompter != nullptr) prompter->noteEvent (e);   // znaczki przy wersach
+            }
 
             // ---- scalanie -----------------------------------------------------
             // Minuta prawdziwego mowienia dala jedenascie wpisow, w tym cztery

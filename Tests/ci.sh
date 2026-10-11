@@ -56,6 +56,7 @@ TESTY=(
   "punkt-ciecia-test"
   "punch-test"
   "preroll-test"
+  "znaczki-test"
 )
 
 ZNANE=$(grep -v '^#' znane-bledy.txt 2>/dev/null | awk '{print $1}')
