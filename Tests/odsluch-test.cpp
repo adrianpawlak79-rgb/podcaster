@@ -152,6 +152,13 @@ int main (int argc, char** argv)
                "osiem rzeczy naprawialnych = zero do powtorzenia",
                std::to_string (r.toRedo().size()) + " fragmentow");
         check (r.verdict() <= 1, "werdykt: nadaje sie");
+        // Trzy miejsca: plozja, mlask i przydzwiek (Setup) — oddech, sybilant
+        // i reszta sa ponizej progu "warto posluchac".
+        // Werdykt "nadaje sie, ale posluchaj" ma mowic ILE i GDZIE — inaczej
+        // przeczy panelowi, ktory mowi "nie ma fragmentow do powtorzenia".
+        check (r.verdict() != 1 || (r.verdictLine().find ("3 miejsc") != std::string::npos
+                                    && r.verdictLine().find ("0:05") != std::string::npos),
+               "werdykt podaje liczbe i czas miejsc", r.verdictLine());
 
         zs::TakeReview c;
         c.setTake (speech (src, sr, 20.0), sr,
