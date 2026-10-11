@@ -298,6 +298,10 @@ i który pominięto w 3.2, bo program nic z nim nie robił. Teraz dostaje znacze
   z przewidywanym czasem czytania (z tekstu, jak szacunek w prompterze) i ostrzega, gdy
   jest za krótki. Gdy jest dłuższy — w miksie koniec podkładu płynnie wyciszony kilka
   sekund po ostatnim słowie.
+- **Pogłos tylko w trybie z podkładem** (podcast zostaje suchy — pogłos oddala głos
+  i obniża zrozumiałość): krótki „plate”/„room”, cichy, z odcięciem dołu, żeby głos osiadł
+  w muzyce. Domyślnie lekki, suwak i możliwość wyłączenia. Własny moduł w `DSP/Mix`,
+  jak reszta miksu (bez cudzych wtyczek).
 - **„Wiersz” bez podkładu = zwykły tryb podcastu.** Wybór trybu sprowadza się do pytania
   „czy jest podkład”.
 
