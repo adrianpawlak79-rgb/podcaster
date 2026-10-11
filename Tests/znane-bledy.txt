@@ -3,4 +3,3 @@
 # Wyniki z mowa z syntezatora (/tmp/mowa/mowa-czysta.wav robi ci.sh).
 #
 # nazwa         dlaczego
-restore-test    usuwanie trzaskow znajduje 6 z 12 (README-NOWA-WERSJA.md: 9 z 12 na innej probce; wymog >= 10)
