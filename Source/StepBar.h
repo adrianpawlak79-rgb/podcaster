@@ -1,16 +1,4 @@
-/*
-    StepBar.h — pasek krokow.
-
-    Kreator mial szesc kropek na dole ekranu, a ekran glowny napis
-    "1 Przygotuj / 2 Nagraj / 3 Odsluchaj / 4 Zapisz" malym szarym drukiem.
-    Ani jedno, ani drugie nie mowilo, gdzie czlowiek JEST: kropki mialy 9
-    pikseli i nie mialy nazw, a napis nie zmienial sie wcale.
-
-    Teraz jedno i to samo na obu ekranach: kreska nad kazdym krokiem i nazwa
-    pod nia. Biezacy krok ma akcent i jasny napis, zrobione sa przygaszone,
-    przyszle ledwo widoczne. Stany liczy ui::stepState (UiRules.h), wiec test
-    widzi dokladnie to, co ekran.
-*/
+/* Pasek krokow ze strzalkami i ptaszkami z prototypu. */
 
 #pragma once
 
@@ -33,39 +21,59 @@ public:
 
     int currentStep() const noexcept { return current; }
 
-    static constexpr int preferredHeight = 34;
+    static constexpr int preferredHeight = 46;
 
     void paint (juce::Graphics& g) override
     {
         if (steps.isEmpty()) return;
 
-        const int gap = 8;
+        const int gap = 6;
         const auto widths = ui::stepWidths (getWidth(), steps.size(), gap);
-
         int x = 0;
         for (int i = 0; i < steps.size(); ++i)
         {
-            auto cell = juce::Rectangle<int> (x, 0, widths[(size_t) i], getHeight());
+            const auto cell = juce::Rectangle<int> (x, 0, widths[(size_t) i], getHeight());
             x += widths[(size_t) i] + gap;
-
-            const auto s = ui::stepState (i, current, allDone);
-
-            const juce::Colour bar = s == ui::StepState::Current ? Ink::accent()
-                                   : s == ui::StepState::Done    ? Ink::accent().withAlpha (0.45f)
-                                                                 : Ink::edge();
-            const juce::Colour txt = s == ui::StepState::Current ? Ink::textNow()
-                                   : s == ui::StepState::Done    ? Ink::textNext()
-                                                                 : Ink::textPast();
-
-            g.setColour (bar);
-            g.fillRoundedRectangle (cell.removeFromTop (3).toFloat(), 1.5f);
-            cell.removeFromTop (8);
-
-            g.setColour (txt);
-            g.setFont (juce::Font (type::small, s == ui::StepState::Current ? juce::Font::bold
-                                                                          : juce::Font::plain));
-            g.drawFittedText (juce::String (i + 1) + "  " + steps[i], cell,
-                              juce::Justification::topLeft, 1, 0.9f);
+            const auto state = ui::stepState (i, current, allDone);
+            const bool active = state == ui::StepState::Current;
+            const bool done = state == ui::StepState::Done;
+            const float left = (float) cell.getX(), right = (float) cell.getRight();
+            const float h = (float) cell.getHeight(), arrow = 14.0f;
+            juce::Path shape;
+            shape.startNewSubPath (left, 0.0f);
+            shape.lineTo (right - (i + 1 < steps.size() ? arrow : 0.0f), 0.0f);
+            if (i + 1 < steps.size()) shape.lineTo (right, h / 2);
+            shape.lineTo (right - (i + 1 < steps.size() ? arrow : 0.0f), h);
+            shape.lineTo (left, h);
+            if (i > 0) shape.lineTo (left + arrow, h / 2);
+            shape.closeSubPath();
+            g.setColour (active ? Ink::accent() : done ? Ink::accent().interpolatedWith (Ink::bar(), 0.80f)
+                                                        : Ink::panel());
+            g.fillPath (shape);
+            const juce::Font font (type::small, juce::Font::bold);
+            const int labelWidth = font.getStringWidth (steps[i]);
+            const int start = cell.getCentreX() - (22 + 9 + labelWidth) / 2;
+            const auto badge = juce::Rectangle<float> ((float) start, h / 2 - 11, 22, 22);
+            g.setColour (done ? Ink::accent() : Ink::bg().withAlpha (0.7f));
+            g.fillEllipse (badge);
+            g.setColour (done ? Ink::onAccent() : active ? Ink::textNow() : Ink::textDim());
+            if (done)
+            {
+                juce::Path tick;
+                tick.startNewSubPath (badge.getX() + 6, badge.getY() + 11);
+                tick.lineTo (badge.getX() + 10, badge.getY() + 15);
+                tick.lineTo (badge.getX() + 16, badge.getY() + 7);
+                g.strokePath (tick, juce::PathStrokeType (1.8f));
+            }
+            else
+            {
+                g.setFont (juce::Font (type::tiny, juce::Font::bold));
+                g.drawText (juce::String (i + 1), badge, juce::Justification::centred);
+            }
+            g.setColour (active ? Ink::onAccent() : done ? Ink::accent() : Ink::textDim());
+            g.setFont (font);
+            g.drawFittedText (steps[i], cell.withX (start + 31).withWidth (
+                juce::jmax (0, cell.getRight() - 14 - start - 31)), juce::Justification::centredLeft, 1);
         }
     }
 

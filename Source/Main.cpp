@@ -39,14 +39,16 @@ countries: pl
         if(args.size()>=2 && args[0]=="--preview-ui") {
             const auto fixture=args.size()>3?juce::File::getCurrentWorkingDirectory().getChildFile(args[3].unquoted()):juce::File();
             MainComponent preview(fixture,true,true);
-            if(args.size()>2 && args[2]=="settings") { preview.setSize(960,640);preview.previewSettings(); }
-            if(args.size()>2 && args[2]=="prompter")preview.previewPrompter();
-            if(args.size()>2 && args[2]=="small") preview.setSize(960,640);
-            if(args.size()>2 && args[2]=="wizard") preview.previewWizard();
-            if(args.size()>2 && args[2]=="recording") preview.previewRecording(false);
-            if(args.size()>2 && args[2]=="prompter-rec") preview.previewRecording(true);
-            if(args.size()>2 && args[2]=="review") preview.previewReview(fixture);
-            if(args.size()>2 && args[2]=="review-big") { preview.setSize(1600,1200); preview.previewReview(fixture); }
+            auto mode = args.size() > 2 ? args[2] : juce::String();
+            if (mode.endsWith ("-small")) { preview.setSize (960, 640); mode = mode.dropLastCharacters (6); }
+            if(mode=="settings") { preview.setSize(960,640);preview.previewSettings(); }
+            if(mode=="prompter")preview.previewPrompter();
+            if(mode=="small") preview.setSize(960,640);
+            if(mode=="wizard") preview.previewWizard();
+            if(mode=="recording") preview.previewRecording(false);
+            if(mode=="prompter-rec") preview.previewRecording(true);
+            if(mode=="review") preview.previewReview(fixture);
+            if(mode=="review-big") { preview.setSize(1600,1200); preview.previewReview(fixture); }
             auto file=juce::File::getCurrentWorkingDirectory().getChildFile(args[1].unquoted());
             file.getParentDirectory().createDirectory();
             if(auto stream=file.createOutputStream()) {

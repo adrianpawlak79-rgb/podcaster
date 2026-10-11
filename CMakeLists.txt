@@ -26,11 +26,6 @@ juce_add_gui_app(ZieloneSwiatlo
 
 target_sources(ZieloneSwiatlo PRIVATE Source/Main.cpp)
 
-# Kroj Inter wszyty w .exe (Fonts.h). Licencja: Resources/Fonts/OFL.txt.
-juce_add_binary_data(ZsFonts SOURCES
-    Resources/Fonts/Inter-Regular.ttf
-    Resources/Fonts/Inter-SemiBold.ttf)
-target_link_libraries(ZieloneSwiatlo PRIVATE ZsFonts)
 target_include_directories(ZieloneSwiatlo PRIVATE Source)
 
 target_compile_definitions(ZieloneSwiatlo PUBLIC
