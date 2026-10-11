@@ -100,6 +100,10 @@ public:
         measured.setFont (juce::Font (juce::Font::getDefaultMonospacedFontName(), 12.5f, juce::Font::plain));
         measured.setColour (juce::Label::textColourId, zs::Ink::textDim());
         addAndMakeVisible (measured);
+        cumulative.setFont (juce::Font (zs::type::body));
+        cumulative.setColour (juce::Label::textColourId, zs::Ink::textNext());
+        cumulative.setJustificationType (juce::Justification::topLeft);
+        addAndMakeVisible (cumulative);
 
         nextButton.setButtonText ("Dalej");
         zs::Look::setKind (nextButton, zs::ui::ButtonKind::Primary);
@@ -147,6 +151,10 @@ public:
         g.drawText(PL("Sprawdzenie sprzętu"),header(),juce::Justification::centredLeft);
         g.setColour (zs::Ink::panel()); g.fillRoundedRectangle(card().toFloat(),6.0f);
         g.setColour (zs::Ink::edge()); g.drawRoundedRectangle(card().toFloat(),6.0f,1.0f);
+        auto side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24);
+        g.setColour (zs::Ink::textNow()); g.setFont (juce::Font (zs::type::heading, juce::Font::bold));
+        g.drawText (PL("Dotychczasowe pomiary"), side.removeFromTop (32), juce::Justification::centredLeft);
+
         // ---- pasek postepu pomiaru albo kreska werdyktu ---------------------
         auto bar = progressBar();
 
@@ -169,6 +177,9 @@ public:
     {
         flow.setBounds(22,zs::ui::frame::header+8,getWidth()-44,zs::StepBar::preferredHeight);
         auto side = zs::ScreenFrame::sidebar(getLocalBounds()).reduced(22,24);
+        auto results = side.withTrimmedBottom (170);
+        results.removeFromTop (32);
+        cumulative.setBounds (results);
         auto stepArea = zs::ScreenFrame::mainArea(getLocalBounds());
         stepArea.removeFromTop(48);
         steps.setBounds(stepArea.removeFromTop(zs::StepBar::preferredHeight));
@@ -202,6 +213,27 @@ public:
 
 private:
     //==========================================================================
+    juce::String measuredSummary() const
+    {
+        const auto& result = wizard.result();
+        const int step = (int) wizard.step();
+        // Nie wyswietlamy wartosci domyslnych jako pomiaru. Wynik z biezacego
+        // kroku jest gotowy dopiero po evaluate(), poprzednie juz sa zapisane.
+        const auto measuredStep = [step, this] (tw::SetupStep s) {
+            return step > (int) s || (step == (int) s && judged);
+        };
+        juce::String summary;
+        if (measuredStep (tw::SetupStep::Room)) {
+            summary << PL("Tło pokoju\n") << juce::String (result.noiseFloorDb, 1) << " dBFS\n\n";
+            if (result.humHz > 0.0) summary << PL("Przydźwięk\n") << juce::String ((int) result.humHz) << " Hz\n\n";
+        }
+        if (measuredStep (tw::SetupStep::Level))
+            summary << PL("Szczyty mowy\n") << juce::String (result.speechPeakDb, 1) << " dBFS\n\n";
+        if (measuredStep (tw::SetupStep::Bleed))
+            summary << PL("Przesłuch słuchawek\n") << juce::String (result.bleedPercent, 1) << "%\n\n";
+        return summary.isEmpty() ? PL("Tutaj pojawią się wyniki zakończonych pomiarów tła pokoju i głosu.") : summary.trimEnd();
+    }
+
     juce::Rectangle<int> header() const
     {
         return zs::ScreenFrame::mainArea(getLocalBounds()).removeFromTop(38);
@@ -287,6 +319,7 @@ private:
     //==========================================================================
     void updateTexts()
     {
+        cumulative.setText (measuredSummary(), juce::dontSendNotification);
         const int n = (int) wizard.step() + 1;
         counter.setText (PL ("KROK ") + juce::String (n) + PL (" Z 6"), juce::dontSendNotification);
         steps.setCurrent (n - 1);
@@ -344,6 +377,7 @@ private:
     {
         const auto& rep = wizard.result();
 
+        cumulative.setText (measuredSummary(), juce::dontSendNotification);
         counter.setText (PL ("GOTOWE"), juce::dontSendNotification);
         steps.setCurrent (6, true);
         title.setText (rep.ready ? PL ("Możesz nagrywać.")
@@ -391,7 +425,7 @@ private:
     bool finishedProperly = false;
 
     zs::StepBar steps, flow;
-    juce::Label title, counter, body, measured;
+    juce::Label title, counter, body, measured, cumulative;
     juce::TextButton nextButton, againButton, skipButton;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WizardComponent)

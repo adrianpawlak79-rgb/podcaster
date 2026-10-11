@@ -365,7 +365,7 @@ public:
         addAndMakeVisible (prepareButton);
         preparationButton.setButtonText (PL("← Przygotowanie"));
         preparationButton.onClick = [this] {
-            preparation = true; if (inPrompter) showPrompter (false); resized(); repaint();
+            preparation = true; settingsOpen = false; if (inPrompter) showPrompter (false); resized(); repaint();
         };
         addAndMakeVisible (preparationButton);
         sessionFolder = settings.sessionFolder();
@@ -464,6 +464,7 @@ public:
         auto side = zs::ScreenFrame::sidebar (getLocalBounds());
         g.setColour (I::bar()); g.fillRect (side);
         g.setColour (I::edge()); g.drawVerticalLine (side.getX(), (float) side.getY(), (float) side.getBottom());
+        if (settingsOpen) { paintHardwareSettings (g); return; }
         if (preparation) { paintPreparation (g); return; }
         auto main = zs::ScreenFrame::mainArea (getLocalBounds());
         g.setFont (juce::Font (zs::type::tiny, juce::Font::bold)); g.setColour (I::textDim());
@@ -485,13 +486,6 @@ public:
             g.drawText (PL ("Naciśnij Nagraj, kiedy będziesz gotowy."),
                         card.withY (card.getBottom() - 74).withHeight (24), juce::Justification::centred);
         }
-        if (settingsOpen)
-        {
-            auto box = settingsBox();
-            g.setColour (I::bar()); g.fillRect (box);
-            g.setColour (I::textNow()); g.setFont (juce::Font (zs::type::heading, juce::Font::bold));
-            g.drawText (PL ("Mikrofon i sprzęt"), box.reduced (22).removeFromTop (30), juce::Justification::centredLeft);
-        }
     }
 
     void resized() override
@@ -503,6 +497,7 @@ public:
         refreshHomeVisibility();
         settingsButton.setBounds (getWidth() - 196, 14, 174, 36);
         flow.setBounds (22, zs::ui::frame::header + 8, getWidth() - 44, zs::StepBar::preferredHeight);
+        if (settingsOpen) { layoutHardwareSettings(); return; }
         if (preparation) { layoutPreparation(); return; }
         preparationButton.setBounds (getWidth() - 380, 14, 174, 36);
         auto card = homeCard();
@@ -543,13 +538,6 @@ public:
             auto area = card.reduced (18);
             okButton.setBounds (area.removeFromBottom (34).removeFromRight (206));
             area.removeFromBottom (8); events.setBounds (area);
-        }
-        if (settingsOpen)
-        {
-            auto panel = settingsBox().reduced (18); panel.removeFromTop (44);
-            folderButton.setBounds (panel.removeFromBottom (38)); panel.removeFromBottom (10);
-            checkButton.setBounds (panel.removeFromBottom (38)); panel.removeFromBottom (12);
-            selector->setBounds (panel);
         }
         if (inPrompter && prompter)
             for (auto* c : std::initializer_list<juce::Component*> { &lamp, &recButton, &repeatButton, &hints, &flow })
@@ -655,19 +643,19 @@ private:
         detailsButton.setButtonText(detailsOpen?PL("Ukryj uwagi"):PL("Pokaż uwagi"));
         selector->setVisible(idleHome && settingsOpen);
         folderButton.setVisible(idleHome && settingsOpen);checkButton.setVisible(idleHome && settingsOpen);
-        events.setVisible(idleHome && detailsOpen);okButton.setVisible(idleHome && detailsOpen);
+        events.setVisible(idleHome && detailsOpen && !settingsOpen);okButton.setVisible(idleHome && detailsOpen && !settingsOpen);
         prompterButton.setVisible(idleHome && !settingsOpen);
         otherTextButton.setVisible(idleHome && !settingsOpen && settings.lastScript().existsAsFile());
         flow.setVisible(!inWizard && !inReview);
-        flow.setCurrent(preparation ? 0 : 1);
+        flow.setCurrent(preparation || settingsOpen ? 0 : 1);
         const bool prepare = idleHome && preparation;
-        nameInput.setVisible(prepare); scriptInput.setVisible(prepare && !detailsOpen);
+        nameInput.setVisible(prepare && !settingsOpen); scriptInput.setVisible(prepare && !detailsOpen && !settingsOpen);
         prepareButton.setVisible(prepare && !settingsOpen);
         preparationButton.setVisible(!preparation && !rec && !inWizard && !inReview);
         for (auto* c : { (juce::Component*) &deviceBox, (juce::Component*) &inputBox, (juce::Component*) &heardLabel })
             c->setVisible(prepare && !settingsOpen);
         if (prepare) {
-            prompterButton.setVisible(!detailsOpen); otherTextButton.setVisible(false);
+            prompterButton.setVisible(!detailsOpen && !settingsOpen); otherTextButton.setVisible(false);
             checkButton.setVisible(true); folderButton.setVisible(settingsOpen);
         }
         lamp.setVisible(!inWizard && !inReview && (rec || inPrompter));
@@ -678,11 +666,46 @@ private:
         const bool hasScript = inPrompter && prompter != nullptr && prompter->hasText();
         if (!preparation) updatePrompterButton();
         if (prompter != nullptr) prompter->refreshControls();
-        recButton.setVisible(!inWizard && !inReview && !preparation);
+        recButton.setVisible(!inWizard && !inReview && !preparation && !settingsOpen);
         repeatButton.setVisible(inPrompter && rec && hasScript);
         hints.setVisible((inPrompter || rec) && !inWizard && !inReview);
         hints.setText(PL(zs::ui::hintLine(rec, hasScript).c_str()), juce::dontSendNotification);
         hints.setJustificationType(inPrompter ? juce::Justification::centred : juce::Justification::centredLeft);
+    }
+
+    void layoutHardwareSettings()
+    {
+        // JUCE oddaje tylko 60% szerokosci listom i rezerwuje miejsce na Test.
+        // W panelu 260 px nie zostawalo miejsca nawet na "Brak urzadzenia".
+        auto main = zs::ScreenFrame::mainArea (getLocalBounds());
+        main.removeFromTop (78);
+        selector->setBounds (main);
+        auto side = settingsBox().reduced (22, 24);
+        folderButton.setBounds (side.removeFromBottom (36)); side.removeFromBottom (8);
+        checkButton.setBounds (side.removeFromBottom (38));
+    }
+
+    void paintHardwareSettings (juce::Graphics& g)
+    {
+        auto main = zs::ScreenFrame::mainArea (getLocalBounds());
+        g.setColour (zs::Ink::textDim()); g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
+        g.drawText (PL("01 / PRZYGOTOWANIE"), main.removeFromTop (18), juce::Justification::centredLeft);
+        g.setColour (zs::Ink::textNow()); g.setFont (juce::Font (zs::type::title, juce::Font::bold));
+        g.drawText (PL("Mikrofon i sprzęt"), main.removeFromTop (36), juce::Justification::centredLeft);
+        g.setColour (zs::Ink::textNext()); g.setFont (juce::Font (zs::type::body));
+        g.drawText (PL("Wybierz mikrofon i słuchawki, potem sprawdź sprzęt."), main.removeFromTop (24), juce::Justification::centredLeft);
+        auto side = settingsBox().reduced (22, 24);
+        juce::AudioDeviceManager::AudioDeviceSetup setup;
+        deviceManager.getAudioDeviceSetup (setup);
+        auto device = [&] (const juce::String& label, const juce::String& name) {
+            g.setColour (zs::Ink::textDim()); g.setFont (juce::Font (zs::type::small));
+            g.drawText (label, side.removeFromTop (24), juce::Justification::centredLeft);
+            g.setColour (zs::Ink::textNow()); g.setFont (juce::Font (zs::type::body));
+            g.drawFittedText (name.isEmpty() ? PL("Brak urządzenia") : name, side.removeFromTop (72), juce::Justification::topLeft, 3);
+            side.removeFromTop (12);
+        };
+        device (PL("MIKROFON"), setup.inputDeviceName);
+        device (PL("SŁUCHAWKI"), setup.outputDeviceName);
     }
 
     void paintPreparation (juce::Graphics& g)
@@ -711,9 +734,6 @@ private:
             side.removeFromTop(30 + 6);
             text (PL("Wejście z mikrofonem"), side.removeFromTop(18), zs::type::small);
             text (PL("Nagranie rozpocznie się po naciśnięciu Nagraj."), settingsBox().reduced(22,12).removeFromBottom(40), zs::type::small);
-        } else {
-            g.setColour(zs::Ink::textNow()); g.setFont(juce::Font(zs::type::heading,juce::Font::bold));
-            g.drawText(PL("Mikrofon i sprzęt"),settingsBox().reduced(22).removeFromTop(30),juce::Justification::centredLeft);
         }
     }
 
@@ -732,28 +752,22 @@ private:
             main.removeFromBottom(8); events.setBounds(main);
         }
         auto side = settingsBox().reduced(22,24);
-        auto bottom = side.removeFromBottom(settingsOpen ? 0 : 168);
+        auto bottom = side.removeFromBottom(168);
         bottom.removeFromBottom(36);
         prepareButton.setBounds(bottom.removeFromBottom(42)); bottom.removeFromBottom(8);
         openButton.setBounds(bottom.removeFromBottom(32)); bottom.removeFromBottom(8);
         detailsButton.setBounds(bottom.removeFromBottom(32));
-        if (settingsOpen) {
-            side.removeFromTop(44);
-            folderButton.setBounds(side.removeFromBottom(36)); side.removeFromBottom(8);
-            checkButton.setBounds(side.removeFromBottom(36)); side.removeFromBottom(8);
-            selector->setBounds(side);
-        } else {
-            // Uklad musi sie zmiescic przy 960 x 640: folder sesji zostaje
-            // w "Mikrofon i sprzet", tu sa tylko rzeczy przed kazdym nagraniem.
-            side.removeFromTop(32 + 4 + 32 + 8 + 18);
-            deviceBox.setBounds(side.removeFromTop(30)); side.removeFromTop(6);
-            heardLabel.setBounds(side.removeFromTop(18));
-            inputBox.setBounds(side.removeFromTop(30)); side.removeFromTop(8);
-            meter.setBounds(side.removeFromTop(20)); side.removeFromTop(8);
-            checkButton.setBounds(side.removeFromTop(34));
-            folderButton.setVisible(false);
-            status.setVisible(false);
-        }
+
+        // Uklad musi sie zmiescic przy 960 x 640: folder sesji zostaje
+        // w "Mikrofon i sprzet", tu sa tylko rzeczy przed kazdym nagraniem.
+        side.removeFromTop(32 + 4 + 32 + 8 + 18);
+        deviceBox.setBounds(side.removeFromTop(30)); side.removeFromTop(6);
+        heardLabel.setBounds(side.removeFromTop(18));
+        inputBox.setBounds(side.removeFromTop(30)); side.removeFromTop(8);
+        meter.setBounds(side.removeFromTop(20)); side.removeFromTop(8);
+        checkButton.setBounds(side.removeFromTop(34));
+        folderButton.setVisible(false);
+        status.setVisible(false);
     }
 
     //==========================================================================
@@ -764,6 +778,7 @@ private:
     {
         refreshInputBoxes();
         saveAudioState();
+        if (settingsOpen) repaint();
     }
 
     void saveAudioState()
