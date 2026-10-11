@@ -53,6 +53,25 @@ int main(int argc,char** argv) {
     p.play();p.pull(output,512);p.seekSec(.05);p.pull(output,512);
     check(std::abs(p.positionSec()-(2400+512)/48000.)<1e-6,"seek command applied before next block");
     p.stop();check(p.positionSec()==0,"stop position reports zero immediately");
+    // Pre-roll after R: recent audio is aligned with the take, plays once, then silence.
+    check(r.start(folder).isEmpty(),"pre-roll session starts");
+    for(int k=0;k<40;++k) {
+        for(int i=0;i<512;++i)input[i]=float(k*512+i)*1e-6f;
+        block();
+    }
+    double startSec=-1;auto recent=r.recentAudio(30.0,startSec);
+    check(recent.size()==40*512 && startSec==0,"recent audio covers the whole short take");
+    check(!recent.empty() && recent.back()==float(40*512-1)*1e-6f,"recent audio ends with the newest sample");
+    recent=r.recentAudio(0.1,startSec);
+    check(recent.size()==4800 && std::abs(startSec-(40*512-4800)/48000.)<1e-9,"recent audio start is take time");
+    r.playPreRoll(std::vector<float>(700,.3f));
+    for(int i=0;i<512;++i)input[i]=0;
+    block();const bool first=output[0]==.3f&&output[511]==.3f;
+    block();const bool tail=output[187]==.3f&&output[188]==0&&output[511]==0;
+    block();const bool after=output[0]==0;
+    check(first&&tail&&after,"pre-roll plays once into the output");
+    r.stop();
+    check(r.recentAudio(30.0,startSec).empty(),"no recent audio when not recording");
     // Queue never overwrites unread data.
     zs::SpscQueue<int,4> q;int value=0;
     check(q.push(1)&&q.push(2)&&q.push(3)&&!q.push(4)&&q.pop(value)&&value==1,"full event queue preserves oldest unread record");

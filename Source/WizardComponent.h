@@ -52,6 +52,8 @@ public:
         r.humExcessDb      = rep.humExcessDb;
         r.proximityDb      = rep.proximityDb;
         r.proximityLimitDb = wizard.limits.proximityDb;
+        r.bleedPercent     = rep.bleedPercent;
+        r.bleedLimit       = wizard.limits.bleedPercent;
         r.daysAgo          = 0;
         return r;
     }

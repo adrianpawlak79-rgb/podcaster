@@ -162,6 +162,9 @@ składanie wielu plików, w którym użytkownik się gubi).
 5. **Pre-roll w słuchawkach** + odliczanie. Bez słuchawek (kreator, krok „Słuchawki”
    wykrył przesłuch) — pre-roll wyciszony, zostaje samo odliczanie, żeby głośnik nie wszedł
    do mikrofonu.
+   *Zrobione (`DSP/PreRoll.h`, test `preroll-test`):* po R gra dokładnie 2 s, które w czystym
+   pliku będą przed szwem (ten sam punkt co `Punch.h`), z wyciszeniem 30 ms na brzegach;
+   na ekranie odliczanie 2…1 i „Czytaj”. Recorder pamięta ostatnie 30 s nagrania.
 6. **Lampka po cięciu** zaczyna od nowa dla nowego segmentu; ocena po nagraniu
    (`TakeReview`) liczy już z pliku sklejonego.
 

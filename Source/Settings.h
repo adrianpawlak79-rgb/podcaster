@@ -84,6 +84,8 @@ public:
         f.setValue ("roomHumExcessDb",    r.humExcessDb);
         f.setValue ("roomProximityDb",    r.proximityDb);
         f.setValue ("roomProximityLimit", r.proximityLimitDb);
+        f.setValue ("roomBleedPercent",   r.bleedPercent);
+        f.setValue ("roomBleedLimit",     r.bleedLimit);
         props.saveIfNeeded();
     }
 
@@ -97,6 +99,8 @@ public:
         r.humExcessDb      = f.getDoubleValue ("roomHumExcessDb", 0.0);
         r.proximityDb      = f.getDoubleValue ("roomProximityDb", 0.0);
         r.proximityLimitDb = f.getDoubleValue ("roomProximityLimit", -5.0);
+        r.bleedPercent     = f.getDoubleValue ("roomBleedPercent", 0.0);
+        r.bleedLimit       = f.getDoubleValue ("roomBleedLimit", 4.0);
         r.daysAgo          = r.known ? daysSinceCheck() : -1;
         return r;
     }
