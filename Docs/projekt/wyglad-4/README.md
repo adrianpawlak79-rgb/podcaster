@@ -35,13 +35,15 @@ Natywna aplikacja JUCE na Linuksie pod Xvfb, `/tmp/mowa.wav` z `Tests/ci.sh`:
 
 - Natywny build Release aplikacji: poprawny.
 - `bash Tests/ci.sh`: kod 0; [tabela](testy.md). `wejscie-test`: 18/18,
-  `odsluch-test`: 49/49. Znane błędy restore/montage pozostają jak na main.
+  `odsluch-test`: 50/50. Znane błędy restore/montage pozostają jak na main.
 - [Dodatkowy test komponentu JUCE](ui-test.txt): 19 sprawdzeń, 0 błędów;
   uchwyty i suwaki, kroki
   strzałek, przeciąganie, nieprzekraczanie granic, przyciemnienie, podsumowanie
   automatu, przed/po, kliknięcie przebiegu, długość wyeksportowanego fragmentu,
   porównanie oryginału bajt po bajcie, wycięcie ze środka i oba cofnięcia,
   kontrolki przy minimalnym rozmiarze, powrót do Odsłuchu.
+- `bash Tests/wszystko.sh` zatrzymuje się na dwóch znanych błędach
+  `restore-test`. Skrypt CI uruchamia pozostałe testy osobno.
 - Bez zmian w DSP, `VoskEngine.h`, `Recorder.h` i wersji programu. Zachowano
   CRLF oraz `setRoom()`, `wish` i oba `review.run(wish)`.
 

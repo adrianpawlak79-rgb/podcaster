@@ -14,7 +14,7 @@
 | prompter-test | przechodzi | 4 | 0 |
 | wersy-test | przechodzi | 4 | 0 |
 | start-test | przechodzi | 7 | 0 |
-| odsluch-test | przechodzi | 49 | 0 |
+| odsluch-test | przechodzi | 50 | 0 |
 | powtorz-test | przechodzi | 14 | 0 |
 | wyglad-test | przechodzi | 29 | 0 |
 | sledzenie-test | przechodzi | 26 | 0 |
