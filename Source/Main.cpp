@@ -27,7 +27,7 @@ countries: pl
 "Sample rate:" = "Częstotliwość:"
 "Audio buffer size:" = "Bufor dźwięku:"
 "Test" = "Test"
-"<< none >>" = "Brak urządzenia"
+"none" = "brak urządzenia"
 "Control Panel" = "Panel urządzenia"
 "Show this device's control panel" = "Otwórz ustawienia urządzenia"
 )"),false));

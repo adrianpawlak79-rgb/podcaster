@@ -2,12 +2,12 @@
     ReviewComponent.h — ekran po nagraniu.
 
     ---------------------------------------------------------------------------
-    CO JEST NA GORZE
+    CO JEST W PANELU BOCZNYM
 
     Jedno zdanie: czy to sie nadaje. Nie liczby, nie wykres — zdanie. Czlowiek,
     ktory wlasnie skonczyl mowic, potrzebuje najpierw wiedziec, czy moze
     odejsc od mikrofonu. Wszystko inne jest uzasadnieniem tej jednej
-    odpowiedzi i stoi nizej.
+    odpowiedzi i stoi nizej w przewijanym panelu.
 
     ---------------------------------------------------------------------------
     OS CZASU
@@ -45,6 +45,8 @@
 #include "DSP/TakeReview.h"
 #include "DSP/CutEdit.h"
 #include "Look.h"
+#include "ScreenFrame.h"
+#include "StepBar.h"
 #include "Recorder.h"
 #include "Wav.h"
 #include <limits>
@@ -116,7 +118,7 @@ public:
         saveButton.onClick = [this] { save(); };
         addAndMakeVisible (saveButton);
 
-        backButton.setButtonText (PL ("Nagrywaj dalej"));
+        backButton.setButtonText (PL ("Wróć do nagrywania"));
         backButton.onClick = [this] { if (onClose) onClose(); };
         addAndMakeVisible (backButton);
 
@@ -141,6 +143,18 @@ public:
         words.setColour (juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
         words.setColour (juce::TextEditor::highlightColourId,  Ink::edge());
         addAndMakeVisible (words);
+        assessment.setMultiLine (true);
+        assessment.setReadOnly (true);
+        assessment.setCaretVisible (false);
+        assessment.setScrollbarsShown (true);
+        assessment.setFont (juce::Font (zs::type::small));
+        assessment.setColour (juce::TextEditor::backgroundColourId, Ink::bar());
+        assessment.setColour (juce::TextEditor::textColourId, Ink::textNext());
+        assessment.setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+        assessment.setColour (juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
+        addAndMakeVisible (assessment);
+        flow.setSteps ({ PL("Przygotowanie"), PL("Nagranie"), PL("Odsłuch"), PL("Montaż"), PL("Gotowe") });
+        addAndMakeVisible (flow);
 
         editToggle.setButtonText(PL("Edytuj nagranie"));
         editToggle.onClick=[this] { editMode=!editMode;resized();repaint(); };
@@ -219,6 +233,9 @@ public:
         recorder.attachPlayer (nullptr);
 
         undoAudio.clear();cutFrom=cutTo=-1;editMode=detailsMode=false;
+        words.clear(); assessment.clear(); resized();
+        for (auto* b : { &playButton, &abButton, &saveButton, &editToggle, &nextButton,
+                         &markStart, &markEnd, &cutButton, &undoButton }) b->setEnabled (false);
         file  = wavFile;
         saved = juce::File();
         note.clear();
@@ -354,81 +371,76 @@ public:
     void resized() override
     {
         namespace L = zs::ui::review;
-        auto r = getLocalBounds().reduced (sideMargin(), L::marginY);
+        flow.setBounds (22, zs::ui::frame::header + 8, getWidth() - 44, zs::StepBar::preferredHeight);
+        flow.setCurrent (editMode ? 3 : 2);
+        auto main = zs::ScreenFrame::mainArea (getLocalBounds());
+        main.removeFromTop (78 + waveHeight() + L::strip + 8);
+        auto row = main.removeFromTop (L::buttons);
+        playButton.setBounds (row.removeFromLeft (132)); row.removeFromLeft (10);
+        abButton.setBounds (row.removeFromLeft (juce::jmin (240, row.getWidth())));
+        main.removeFromTop (8);
+        auto tools = main.removeFromTop (L::tools);
+        detailsToggle.setBounds (tools.removeFromLeft (172));
+        tools.removeFromLeft (12); feedbackArea = tools;
+        main.removeFromTop (8);
+        summaryArea = main;
+        words.setVisible (detailsMode);
+        words.setBounds (main);
+        detailsToggle.setButtonText (detailsMode ? PL("Ukryj szczegóły") : PL("Szczegóły miksu"));
 
-        r.removeFromTop (L::verdict);                 // werdykt
-        r.removeFromTop (waveHeight() + L::strip);  // przebieg i os
-
-        auto row = r.removeFromTop (L::buttons);
-
-        const int bw=(row.getWidth()-30)/4;
-        playButton.setBounds (row.removeFromLeft (bw));
-        row.removeFromLeft (10);
-        abButton  .setBounds (row.removeFromLeft (bw));
-        row.removeFromLeft (10);
-        saveButton.setBounds (row.removeFromLeft (bw));
-
-        backButton.setBounds (row.removeFromRight (bw));
-
-        r.removeFromTop(L::gapA);
-        auto tools=r.removeFromTop(L::tools);
-        editToggle.setBounds(tools.removeFromLeft(172));tools.removeFromLeft(10);
-        detailsToggle.setBounds(tools.removeFromLeft(172));tools.removeFromLeft(10);
-        nextButton.setBounds(tools.removeFromLeft(260));
-        editToggle.setButtonText(editMode?PL("Zamknij edycję"):PL("Edytuj nagranie"));
-        detailsToggle.setButtonText(detailsMode?PL("Ukryj szczegóły"):PL("Szczegóły miksu"));
-        r.removeFromTop(L::gapB);
-        auto edits=r.removeFromTop(editMode?34:0);
-        const int ew=(edits.getWidth()-24)/4;
-        for(auto* b:{&markStart,&markEnd,&cutButton,&undoButton}) {
-            b->setVisible(editMode);b->setBounds(edits.removeFromLeft(ew));edits.removeFromLeft(8);
+        auto side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24);
+        side.removeFromTop (32 + 84 + 8);
+        auto actions = side.removeFromBottom (168);
+        backButton.setBounds (actions.removeFromBottom (36)); actions.removeFromBottom (8);
+        saveButton.setBounds (actions.removeFromBottom (36)); actions.removeFromBottom (8);
+        editToggle.setBounds (actions.removeFromBottom (36)); actions.removeFromBottom (8);
+        nextButton.setBounds (actions.removeFromBottom (36));
+        editToggle.setButtonText (editMode ? PL("Wróć do odsłuchu") : PL("Przejdź do montażu →"));
+        nextButton.setButtonText (PL("Następne miejsce do powtórki"));
+        assessment.setVisible (!editMode);
+        assessment.setBounds (side);
+        for (auto* b : { &markStart, &markEnd, &cutButton, &undoButton }) b->setVisible (editMode);
+        selection.setVisible (editMode);
+        if (editMode)
+        {
+            // Granice i cofanie pozostaja dostepne takze przy 960 x 640.
+            auto first = side.removeFromTop (32);
+            auto second = side.removeFromTop (32);
+            const int width = (side.getWidth() - 6) / 2;
+            markStart.setBounds (first.removeFromLeft (width)); first.removeFromLeft (6); markEnd.setBounds (first);
+            cutButton.setBounds (second.removeFromLeft (width)); second.removeFromLeft (6); undoButton.setBounds (second);
+            selection.setBounds (side);
         }
-        selection.setVisible(editMode);
-        if(editMode) { r.removeFromTop(4);selection.setBounds(r.removeFromTop(30));r.removeFromTop(10); }
-        summaryArea=r;
-        words.setVisible(detailsMode);
-        words.setBounds(r);
-
     }
 
     void paint (juce::Graphics& g) override
     {
         g.fillAll (Ink::bg());
-
-        namespace L = zs::ui::review;
-        auto r = getLocalBounds().reduced (sideMargin(), L::marginY);
-
-        drawVerdict (g, r.removeFromTop (L::verdict));
-
-        auto wave = r.removeFromTop (waveHeight());
-        drawWave (g, wave);
-
-        drawStrip (g, r.removeFromTop (L::strip));
-
-        // Przyciski i pole ze zdaniami ustawia resized(); tutaj tylko kreska,
-        // ktora oddziela to, co program ZROBIL, od tego, co o tym MOWI.
-        r.removeFromTop (L::buttons + 8);
-        g.setColour (Ink::edge());
-        g.fillRect (r.removeFromTop (1));
-        if(!detailsMode && review.stage()==zs::TakeReview::Stage::Ready) {
-            auto box=summaryArea;
-            auto cards=box.removeFromTop(104);
-            const int width=(cards.getWidth()-24)/3;
-            auto card=[&](const juce::String& title,const juce::String& value) {
-                auto cell=cards.removeFromLeft(width);cards.removeFromLeft(12);
-                g.setColour(Ink::panel());g.fillRoundedRectangle(cell.toFloat(),12);
-                cell=cell.reduced(18);g.setColour(Ink::textNext());g.setFont(juce::Font(zs::type::small + 1.0f));
-                g.drawText(title,cell.removeFromTop(25),juce::Justification::centredLeft);
-                g.setColour(Ink::textNow());g.setFont(juce::Font(zs::type::title - 1.0f,juce::Font::bold));
-                g.drawText(value,cell,juce::Justification::centredLeft);
-            };
-            card(PL("Długość nagrania"),plr::clock(review.seconds()));
-            card(PL("Fragmenty do powtórzenia"),juce::String((int)review.toRedo().size()));
-            card(PL("Format zapisu"),PL("WAV · 24 bit"));
-            box.removeFromTop(22);g.setColour(Ink::textNow());g.setFont(juce::Font(zs::type::heading,juce::Font::bold));
-            g.drawText(PL("Posłuchaj, zanim zapiszesz"),box.removeFromTop(30),juce::Justification::centredLeft);
-            g.setColour(Ink::textNext());g.setFont(juce::Font(zs::type::body));
-            g.drawFittedText(PL("Kliknij na przebiegu, aby wybrać miejsce. Porównaj dźwięk przed i po miksie.\nJeśli chcesz usunąć pomyłkę lub skrócić przerwę, otwórz edycję nagrania."),box,juce::Justification::topLeft,3);
+        zs::ScreenFrame::paint (g, getLocalBounds(), file.getFileNameWithoutExtension(),
+            PL("Spacja — odtwarzanie · Tab — przed / po · Esc — wróć"));
+        auto side = zs::ScreenFrame::sidebar (getLocalBounds());
+        g.setColour (Ink::bar()); g.fillRect (side);
+        g.setColour (Ink::edge()); g.drawVerticalLine (side.getX(), (float) side.getY(), (float) side.getBottom());
+        auto main = zs::ScreenFrame::mainArea (getLocalBounds());
+        g.setColour (Ink::textDim()); g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
+        g.drawText (editMode ? PL("04 / MONTAŻ") : PL("03 / ODSŁUCH"), main.removeFromTop (18), juce::Justification::centredLeft);
+        g.setColour (Ink::textNow()); g.setFont (juce::Font (zs::type::title, juce::Font::bold));
+        g.drawText (editMode ? PL("Edytuj nagranie") : PL("Posłuchaj nagrania"), main.removeFromTop (36), juce::Justification::centredLeft);
+        g.setColour (Ink::textNext()); g.setFont (juce::Font (zs::type::body));
+        g.drawText (PL("Kliknij przebieg, aby posłuchać miejsca. Porównaj dźwięk przed i po miksie."), main.removeFromTop (24), juce::Justification::centredLeft);
+        drawWave (g, main.removeFromTop (waveHeight()));
+        drawStrip (g, main.removeFromTop (zs::ui::review::strip));
+        side = side.reduced (22, 24);
+        g.setColour (Ink::textNow()); g.setFont (juce::Font (zs::type::heading, juce::Font::bold));
+        g.drawText (PL("Ocena podejścia"), side.removeFromTop (32), juce::Justification::centredLeft);
+        drawVerdict (g, side.removeFromTop (84));
+        g.setColour (Ink::textNext()); g.setFont (juce::Font (zs::type::small));
+        if (note.isNotEmpty()) g.drawFittedText (note, feedbackArea, juce::Justification::centredLeft, 2);
+        if (!detailsMode && review.stage() == zs::TakeReview::Stage::Ready)
+        {
+            g.setColour (Ink::textNext()); g.setFont (juce::Font (zs::type::small));
+            g.drawFittedText (PL("Miks został dobrany automatycznie. Odsłuchaj, zanim zapiszesz."),
+                              summaryArea, juce::Justification::topLeft, 3);
         }
     }
 
@@ -445,19 +457,18 @@ private:
         beforeEnv.build(review.rawAudio(),sr,1400);afterEnv={};
         cutFrom=cutTo=-1;
         selection.setText(PL("Zmiana zastosowana. Miks liczy się ponownie; odsłuchaj miejsce cięcia."),juce::dontSendNotification);
-        words.clear();saved=juce::File();note=PL("Montaż zmienia kopię w pamięci. Zapisz miks, aby zachować wynik.");
+        words.clear();assessment.clear();saved=juce::File();note=PL("Montaż zmienia kopię w pamięci. Zapisz miks, aby zachować wynik.");
         startThread();repaint();
     }
     //==========================================================================
-    int sideMargin() const { return getWidth() >= 1400 ? 72 : 40; }
     /** Rosnie z oknem — liczby i uzasadnienie w zs::ui::review (UiRules.h). */
     int waveHeight() const { return zs::ui::review::waveHeight (getHeight()); }
 
     juce::Rectangle<int> waveArea() const
     {
         namespace L = zs::ui::review;
-        auto r = getLocalBounds().reduced (sideMargin(), L::marginY);
-        r.removeFromTop (L::verdict);
+        auto r = zs::ScreenFrame::mainArea (getLocalBounds());
+        r.removeFromTop (78);
         return r.removeFromTop (waveHeight() + L::strip);
     }
 
@@ -498,6 +509,20 @@ private:
             all << PL (line.c_str()) << "\n\n";
 
         words.setText (all.trimEnd(), false);
+        juce::String summary;
+        if (!review.says().empty()) summary << PL(review.says().front().c_str()) << "\n\n";
+        summary << PL("MIEJSCA DO POWTÓRKI\n");
+        if (review.toRedo().empty()) summary << PL("Nie ma fragmentów do powtórzenia.\n\n");
+        for (const auto& redo : review.toRedo())
+            summary << plr::clock (redo.fromSec) << PL("–") << plr::clock (redo.toSec)
+                    << "  " << plr::kind (redo.kind) << "\n";
+        summary << PL("\nUZASADNIENIE\n");
+        for (size_t i = 1; i < review.says().size(); ++i)
+            summary << PL(review.says()[i].c_str()) << "\n\n";
+        assessment.setText (summary, false);
+        playButton.setEnabled (true); abButton.setEnabled (true);
+        editToggle.setEnabled (true); saveButton.setEnabled (true);
+        nextButton.setEnabled (!review.toRedo().empty());
 
         updateAbText();
         resized();
@@ -615,8 +640,8 @@ private:
         {
             g.setColour (Ink::textDim());
             g.setFont (juce::Font (20.0f));
-            g.drawText (note.isNotEmpty() ? note : PL ("Nie ma czego oceniać."),
-                        r, juce::Justification::centredLeft);
+            g.drawFittedText (note.isNotEmpty() ? note : PL ("Nie ma czego oceniać."),
+                             r, juce::Justification::topLeft, 4);
             return;
         }
 
@@ -652,23 +677,17 @@ private:
         auto txt = r.withTrimmedLeft (34);
 
         g.setColour (c);
-        g.setFont (juce::Font (21.0f, juce::Font::bold));
+        g.setFont (juce::Font (17.0f, juce::Font::bold));
         g.drawFittedText ((damagedRecording ? PL("Podczas zapisu utracono dane. Nagraj materiał ponownie.") : PL(review.verdictLine().c_str())),
-                          txt.removeFromTop (46), juce::Justification::topLeft, 2);
-
-        if (note.isNotEmpty())
-        {
-            g.setColour (Ink::textNext());
-            g.setFont (juce::Font (13.0f));
-            g.drawText (note, txt, juce::Justification::topLeft);
-        }
+                          txt.removeFromTop (84), juce::Justification::topLeft, 5);
     }
 
     //==========================================================================
     void drawWave (juce::Graphics& g, juce::Rectangle<int> r)
     {
         g.setColour (Ink::panel());
-        g.fillRect (r);
+        g.fillRoundedRectangle (r.toFloat(), 6.0f);
+        g.setColour (Ink::edge()); g.drawRoundedRectangle (r.toFloat().reduced (0.5f), 6.0f, 1.0f);
 
         const bool after = player.showingAfter() && ! afterEnv.peakDb.empty();
         const auto& env  = after ? afterEnv : beforeEnv;
@@ -687,7 +706,7 @@ private:
 
         const int cols = r.getWidth();
 
-        for (int x = 0; x < cols; ++x)
+        for (int x = 0; x < cols; x += 3)
         {
             const size_t i = (size_t) ((double) x / juce::jmax (1, cols) * env.peakDb.size());
 
@@ -698,7 +717,7 @@ private:
 
             if (norm <= 0.0f) continue;
 
-            g.fillRect ((float) (r.getX() + x), mid - half * norm, 1.0f, half * norm * 2.0f);
+            g.fillRect ((float) (r.getX() + x), mid - half * norm, 2.0f, half * norm * 2.0f);
         }
 
         // Sufit i cel: dwie linie, ktore program obiecal
@@ -806,6 +825,8 @@ private:
 
         if (review.stage() != zs::TakeReview::Stage::Ready)
         {
+            playButton.setEnabled (false); abButton.setEnabled (false);
+            saveButton.setEnabled (false); editToggle.setEnabled (false); nextButton.setEnabled (false);
             repaint();   // pasek postepu
             return;
         }
@@ -846,10 +867,11 @@ private:
     bool wasPlaying = false;
 
     juce::TextButton playButton, abButton, saveButton, backButton;
-    juce::TextEditor words;
+    juce::TextEditor words, assessment;
+    zs::StepBar flow;
     juce::TextButton markStart,markEnd,cutButton,undoButton,editToggle,detailsToggle,nextButton;
     bool editMode=false,detailsMode=false;
-    juce::Rectangle<int> summaryArea;
+    juce::Rectangle<int> summaryArea, feedbackArea;
     juce::Label selection;
     double cutFrom=-1,cutTo=-1;
     std::vector<float> undoAudio;
