@@ -405,7 +405,31 @@ public:
                 return b;
 
             case 1:
-                return "Miks jest gotowy. Odsłuchaj zaznaczone miejsca przed publikacją.";
+            {
+                // Dawniej: "Odsluchaj zaznaczone miejsca" — bez liczby i bez
+                // czasu, a panel obok mowil "nie ma fragmentow do powtorzenia"
+                // (to inna lista: rzeczy, ktorych miks NIE naprawi). Czlowiek
+                // widzial dwa zdania, ktore sobie przecza.
+                int n = 0;
+                double first = -1.0;
+
+                for (const auto& t : troubles)
+                    if (t.severity >= (int) tw::Severity::Redo)
+                    {
+                        ++n;
+                        if (first < 0.0 || t.fromSec < first) first = t.fromSec;
+                    }
+
+                if (n == 1)
+                    std::snprintf (b, sizeof (b),
+                        "Miks jest gotowy. Posłuchaj jednego miejsca na osi (%s) — "
+                        "nie trzeba go nagrywać od nowa.", atTime (first).c_str());
+                else
+                    std::snprintf (b, sizeof (b),
+                        "Miks jest gotowy. Posłuchaj %d miejsc na osi (pierwsze %s) — "
+                        "nie trzeba ich nagrywać od nowa.", n, atTime (first).c_str());
+                return b;
+            }
 
             default:
                 return "Nie wykryłem przesteru ani braków sygnału wymagających powtórzenia.";

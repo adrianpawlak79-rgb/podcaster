@@ -20,6 +20,7 @@
 
 #include "../Source/UiRules.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -175,6 +176,27 @@ int main()
     check (fits, "przyciski i podsumowanie mieszcza sie od 640 do 1600 px", "");
     check (review::waveHeight (640) >= 140 && review::waveHeight (1200) >= 300,
            "male okno nie gorsze niz bylo, duze wyraznie wieksze", "");
+
+    // ---- 5b. montaz myszka i czas miksu ----------------------------------------------
+    std::printf ("\n  5b. zaznaczenie myszka i czas miksu\n");
+
+    check (! review::dragRange (100.0f, 103.0f, 0, 1000, 60.0).isDrag(),
+           "drgniecie reki (3 px) to klikniecie, nie zaznaczenie", "");
+    {
+        const auto r = review::dragRange (600.0f, 200.0f, 100, 1000, 60.0);
+        std::snprintf (b, sizeof (b), "%.1f-%.1f s", r.from, r.to);
+        check (r.isDrag() && std::fabs (r.from - 6.0) < 1e-9 && std::fabs (r.to - 30.0) < 1e-9,
+               "przeciagniecie w lewo daje ten sam zakres, w sekundach", b);
+    }
+    {
+        const auto r = review::dragRange (-50.0f, 2000.0f, 0, 1000, 60.0);
+        check (r.from == 0.0 && r.to == 60.0, "zaznaczenie poza przebieg konczy sie na krawedzi", "");
+    }
+    std::snprintf (b, sizeof (b), "4:26 -> %d s, 0:20 -> %d s, 0:01 -> %d s",
+                   review::mixEstimateSec (266.0), review::mixEstimateSec (20.0), review::mixEstimateSec (1.0));
+    check (review::mixEstimateSec (266.0) == 55 && review::mixEstimateSec (20.0) == 5
+               && review::mixEstimateSec (1.0) == 5,
+           "szacunek miksu: 0,2 dlugosci, w gore do 5 s", b);
 
     // ---- 6. klawisze ekranu nagrywania ------------------------------------------------
     std::printf ("\n  6. klawisze i pasek podpowiedzi\n");

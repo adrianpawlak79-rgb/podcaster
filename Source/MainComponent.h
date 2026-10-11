@@ -15,6 +15,7 @@
 #include "WizardComponent.h"
 #include "ReviewComponent.h"
 #include "Settings.h"
+#include "InputChoice.h"
 #include "StepBar.h"
 #include "ScreenFrame.h"
 
@@ -208,7 +209,8 @@ private:
 
 //==============================================================================
 class MainComponent : public juce::Component,
-                      private juce::Timer
+                      private juce::Timer,
+                      private juce::ChangeListener
 {
 public:
     /** @param openForReview  nagranie do oceny od razu po starcie, zamiast
@@ -220,10 +222,24 @@ public:
         obejrzenia wczorajszego nagrania bez nagrywania nowego. */
     explicit MainComponent (const juce::File& openForReview = {}, bool reviewNow = false, bool previewMode = false)
     {
+        noDevice = previewMode;
         if (!previewMode) {
-            deviceManager.initialiseWithDefaultDevices (2, 2);
+            // Karta i wejscie z poprzedniego uruchomienia; gdy jej nie ma —
+            // domyslna systemu (initialise sam wraca do domyslnej).
+            const auto saved = juce::parseXML (settings.audioState());
+            deviceManager.initialise (2, 2, saved.get(), true);
             deviceManager.addAudioCallback (&recorder);
+            deviceManager.addChangeListener (this);
         }
+
+        deviceBox.onChange = [this] { chooseDevice(); };
+        inputBox.onChange  = [this] { chooseInput(); };
+        heardLabel.setFont (juce::Font (zs::type::small));
+        heardLabel.setColour (juce::Label::textColourId, zs::Ink::accent());
+        heardLabel.setJustificationType (juce::Justification::centredRight);
+        for (auto* c : { (juce::Component*) &deviceBox, (juce::Component*) &inputBox, (juce::Component*) &heardLabel })
+            addChildComponent (*c);
+        refreshInputBoxes();
 
         selector = std::make_unique<juce::AudioDeviceSelectorComponent> (
                        deviceManager, 1, 2, 0, 2, false, false, true, false);
@@ -231,7 +247,7 @@ public:
 
         addAndMakeVisible (lamp);
 
-        prompterButton.onClick = [this] { openLastOrChoose(); };
+        prompterButton.onClick = [this] { if (preparation) openScript(); else openLastOrChoose(); };
         addAndMakeVisible (prompterButton);
 
         otherTextButton.setButtonText (PL ("Zmień tekst"));
@@ -326,6 +342,32 @@ public:
         status.setColour (juce::Label::textColourId, zs::Ink::textNext());
         addAndMakeVisible (status);
 
+        nameInput.setText (PL("Nowy odcinek"));
+        nameInput.onTextChange = [this] { repaint(); };
+        scriptInput.setMultiLine (true);
+        scriptInput.setReturnKeyStartsNewLine (true);
+        scriptInput.setTextToShowWhenEmpty (PL("Tu możesz wpisać tekst lub otworzyć plik TXT."), zs::Ink::textDim());
+        if (settings.lastScript().existsAsFile()) scriptInput.setText (settings.lastScript().loadFileAsString());
+        for (auto* input : { &nameInput, &scriptInput }) {
+            input->setColour (juce::TextEditor::backgroundColourId, zs::Ink::panel());
+            input->setColour (juce::TextEditor::textColourId, zs::Ink::textNow());
+            input->setColour (juce::TextEditor::outlineColourId, zs::Ink::edge());
+            addAndMakeVisible (*input);
+        }
+        prepareButton.setButtonText (PL("Przejdź do nagrania →"));
+        zs::Look::setKind (prepareButton, zs::ui::ButtonKind::Primary);
+        prepareButton.onClick = [this] {
+            preparation = false; settingsOpen = false; detailsOpen = false;
+            if (scriptInput.getText().trim().isNotEmpty()) {
+                ensurePrompter(); prompter->load (scriptInput.getText()); showPrompter (true);
+            } else { resized(); repaint(); }
+        };
+        addAndMakeVisible (prepareButton);
+        preparationButton.setButtonText (PL("← Przygotowanie"));
+        preparationButton.onClick = [this] {
+            preparation = true; settingsOpen = false; if (inPrompter) showPrompter (false); resized(); repaint();
+        };
+        addAndMakeVisible (preparationButton);
         sessionFolder = settings.sessionFolder();
 
         // ---- kreator idzie pierwszy, ale tylko raz --------------------------
@@ -388,6 +430,8 @@ public:
 
     ~MainComponent() override
     {
+        deviceManager.removeChangeListener (this);
+        saveAudioState();
         deviceManager.removeAudioCallback (&recorder);
     }
 
@@ -395,6 +439,7 @@ public:
     Settings& userSettings() noexcept { return settings; }
     void previewSettings() { settingsOpen=true;resized();repaint(); }
     void previewPrompter() {
+        preparation = false;
         recorder.prepareDevice(48000,512,1);
         prompter=std::make_unique<PrompterComponent>(recorder,settings);
         prompter->onClose=[this]{showPrompter(false);};
@@ -415,10 +460,12 @@ public:
         const bool rec = recorder.isRecording();
         const auto name = recordingName();
         zs::ScreenFrame::paint (g, getLocalBounds(), name,
-            rec ? PL ("Esc — zatrzymaj i oceń") : PL ("Nagraj, a potem odsłuchaj podejście"));
+            rec ? PL ("Esc — zatrzymaj i oceń") : preparation ? PL("Wybierz mikrofon i przygotuj tekst") : PL ("Nagraj, a potem odsłuchaj podejście"));
         auto side = zs::ScreenFrame::sidebar (getLocalBounds());
         g.setColour (I::bar()); g.fillRect (side);
         g.setColour (I::edge()); g.drawVerticalLine (side.getX(), (float) side.getY(), (float) side.getBottom());
+        if (settingsOpen) { paintHardwareSettings (g); return; }
+        if (preparation) { paintPreparation (g); return; }
         auto main = zs::ScreenFrame::mainArea (getLocalBounds());
         g.setFont (juce::Font (zs::type::tiny, juce::Font::bold)); g.setColour (I::textDim());
         g.drawText (PL ("02 / NAGRANIE"), main.removeFromTop (18), juce::Justification::centredLeft);
@@ -439,13 +486,6 @@ public:
             g.drawText (PL ("Naciśnij Nagraj, kiedy będziesz gotowy."),
                         card.withY (card.getBottom() - 74).withHeight (24), juce::Justification::centred);
         }
-        if (settingsOpen)
-        {
-            auto box = settingsBox();
-            g.setColour (I::bar()); g.fillRect (box);
-            g.setColour (I::textNow()); g.setFont (juce::Font (zs::type::heading, juce::Font::bold));
-            g.drawText (PL ("Mikrofon i sprzęt"), box.reduced (22).removeFromTop (30), juce::Justification::centredLeft);
-        }
     }
 
     void resized() override
@@ -457,6 +497,9 @@ public:
         refreshHomeVisibility();
         settingsButton.setBounds (getWidth() - 196, 14, 174, 36);
         flow.setBounds (22, zs::ui::frame::header + 8, getWidth() - 44, zs::StepBar::preferredHeight);
+        if (settingsOpen) { layoutHardwareSettings(); return; }
+        if (preparation) { layoutPreparation(); return; }
+        preparationButton.setBounds (getWidth() - 380, 14, 174, 36);
         auto card = homeCard();
         auto side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24);
         side.removeFromTop (114);
@@ -496,13 +539,6 @@ public:
             okButton.setBounds (area.removeFromBottom (34).removeFromRight (206));
             area.removeFromBottom (8); events.setBounds (area);
         }
-        if (settingsOpen)
-        {
-            auto panel = settingsBox().reduced (18); panel.removeFromTop (44);
-            folderButton.setBounds (panel.removeFromBottom (38)); panel.removeFromBottom (10);
-            checkButton.setBounds (panel.removeFromBottom (38)); panel.removeFromBottom (12);
-            selector->setBounds (panel);
-        }
         if (inPrompter && prompter)
             for (auto* c : std::initializer_list<juce::Component*> { &lamp, &recButton, &repeatButton, &hints, &flow })
                 c->toFront (false);
@@ -533,6 +569,7 @@ public:
         katalogu tymczasowego i bez urzadzenia — plik jest pusty i znika. */
     void previewRecording (bool withPrompter)
     {
+        preparation = false;
         recorder.prepareDevice (48000, 512, 1);
 
         if (withPrompter) previewPrompter();
@@ -546,15 +583,15 @@ public:
         resized();
     }
 
-    void previewReview (const juce::File& wav)
+    void previewReview (const juce::File& wav, bool edit = false, bool done = false)
     {
-        if (wav.existsAsFile()) openReview (wav, true, true);
+        if (wav.existsAsFile()) { openReview (wav, true, true); if (review) { review->setEditMode(edit); if (done) review->previewDone(); } }
     }
 
 private:
     juce::String recordingName() const
     {
-        return recorder.isRecording() ? recorder.currentFile().getFileNameWithoutExtension() : PL ("Nowy odcinek");
+        return nameInput.getText().trim().isEmpty() ? PL("Nowy odcinek") : nameInput.getText().trim();
     }
 
     juce::Rectangle<int> homeCard() const
@@ -606,23 +643,239 @@ private:
         detailsButton.setButtonText(detailsOpen?PL("Ukryj uwagi"):PL("Pokaż uwagi"));
         selector->setVisible(idleHome && settingsOpen);
         folderButton.setVisible(idleHome && settingsOpen);checkButton.setVisible(idleHome && settingsOpen);
-        events.setVisible(idleHome && detailsOpen);okButton.setVisible(idleHome && detailsOpen);
+        events.setVisible(idleHome && detailsOpen && !settingsOpen);okButton.setVisible(idleHome && detailsOpen && !settingsOpen);
         prompterButton.setVisible(idleHome && !settingsOpen);
         otherTextButton.setVisible(idleHome && !settingsOpen && settings.lastScript().existsAsFile());
         flow.setVisible(!inWizard && !inReview);
-        flow.setCurrent(1);
+        flow.setCurrent(preparation || settingsOpen ? 0 : 1);
+        const bool prepare = idleHome && preparation;
+        nameInput.setVisible(prepare && !settingsOpen); scriptInput.setVisible(prepare && !detailsOpen && !settingsOpen);
+        prepareButton.setVisible(prepare && !settingsOpen);
+        preparationButton.setVisible(!preparation && !rec && !inWizard && !inReview);
+        for (auto* c : { (juce::Component*) &deviceBox, (juce::Component*) &inputBox, (juce::Component*) &heardLabel })
+            c->setVisible(prepare && !settingsOpen);
+        if (prepare) {
+            prompterButton.setVisible(!detailsOpen && !settingsOpen); otherTextButton.setVisible(false);
+            checkButton.setVisible(true); folderButton.setVisible(settingsOpen);
+        }
         lamp.setVisible(!inWizard && !inReview && (rec || inPrompter));
         meter.setVisible(!inWizard && !inReview && !settingsOpen);
         status.setVisible(!inWizard && !inReview && !settingsOpen);
         zs::Look::setKind(recButton, rec || detailsOpen ? zs::ui::ButtonKind::Primary : zs::ui::ButtonKind::Record);
 
         const bool hasScript = inPrompter && prompter != nullptr && prompter->hasText();
+        if (!preparation) updatePrompterButton();
         if (prompter != nullptr) prompter->refreshControls();
-        recButton.setVisible(!inWizard && !inReview);
+        recButton.setVisible(!inWizard && !inReview && !preparation && !settingsOpen);
         repeatButton.setVisible(inPrompter && rec && hasScript);
         hints.setVisible((inPrompter || rec) && !inWizard && !inReview);
         hints.setText(PL(zs::ui::hintLine(rec, hasScript).c_str()), juce::dontSendNotification);
         hints.setJustificationType(inPrompter ? juce::Justification::centred : juce::Justification::centredLeft);
+    }
+
+    void layoutHardwareSettings()
+    {
+        // JUCE oddaje tylko 60% szerokosci listom i rezerwuje miejsce na Test.
+        // W panelu 260 px nie zostawalo miejsca nawet na "Brak urzadzenia".
+        auto main = zs::ScreenFrame::mainArea (getLocalBounds());
+        main.removeFromTop (78);
+        selector->setBounds (main);
+        auto side = settingsBox().reduced (22, 24);
+        folderButton.setBounds (side.removeFromBottom (36)); side.removeFromBottom (8);
+        checkButton.setBounds (side.removeFromBottom (38));
+    }
+
+    void paintHardwareSettings (juce::Graphics& g)
+    {
+        auto main = zs::ScreenFrame::mainArea (getLocalBounds());
+        g.setColour (zs::Ink::textDim()); g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
+        g.drawText (PL("01 / PRZYGOTOWANIE"), main.removeFromTop (18), juce::Justification::centredLeft);
+        g.setColour (zs::Ink::textNow()); g.setFont (juce::Font (zs::type::title, juce::Font::bold));
+        g.drawText (PL("Mikrofon i sprzęt"), main.removeFromTop (36), juce::Justification::centredLeft);
+        g.setColour (zs::Ink::textNext()); g.setFont (juce::Font (zs::type::body));
+        g.drawText (PL("Wybierz mikrofon i słuchawki, potem sprawdź sprzęt."), main.removeFromTop (24), juce::Justification::centredLeft);
+        auto side = settingsBox().reduced (22, 24);
+        juce::AudioDeviceManager::AudioDeviceSetup setup;
+        deviceManager.getAudioDeviceSetup (setup);
+        auto device = [&] (const juce::String& label, const juce::String& name) {
+            g.setColour (zs::Ink::textDim()); g.setFont (juce::Font (zs::type::small));
+            g.drawText (label, side.removeFromTop (24), juce::Justification::centredLeft);
+            g.setColour (zs::Ink::textNow()); g.setFont (juce::Font (zs::type::body));
+            g.drawFittedText (name.isEmpty() ? PL("Brak urządzenia") : name, side.removeFromTop (72), juce::Justification::topLeft, 3);
+            side.removeFromTop (12);
+        };
+        device (PL("MIKROFON"), setup.inputDeviceName);
+        device (PL("SŁUCHAWKI"), setup.outputDeviceName);
+    }
+
+    void paintPreparation (juce::Graphics& g)
+    {
+        auto main = zs::ScreenFrame::mainArea (getLocalBounds());
+        auto text = [&g] (const juce::String& value, juce::Rectangle<int> r, float size, bool bold = false) {
+            g.setColour (bold ? zs::Ink::textNow() : zs::Ink::textNext());
+            g.setFont (juce::Font (size, bold ? juce::Font::bold : juce::Font::plain));
+            g.drawFittedText (value, r, juce::Justification::centredLeft, 2);
+        };
+        text (PL("01 / PRZYGOTOWANIE"), main.removeFromTop(18), zs::type::tiny);
+        text (PL("Przygotowanie nagrania"), main.removeFromTop(38), zs::type::title, true);
+        text (PL("Ustaw nazwę i mikrofon. Dodaj tekst, jeśli chcesz używać promptera."), main.removeFromTop(36), zs::type::body);
+        main.removeFromTop(12);
+        text (PL("Nazwa nagrania"), main.removeFromTop(22), zs::type::small);
+        main.removeFromTop(56);
+        text (PL("TEKST DO PROMPTERA"), main.removeFromTop(38), zs::type::small, true);
+        text (PL("Bez tekstu możesz nagrywać swobodnie."), main.removeFromBottom(28), zs::type::small);
+        if (!settingsOpen) {
+            auto side = settingsBox().reduced(22,24);
+            text (PL("Przed nagraniem"), side.removeFromTop(32), zs::type::heading, true);
+            side.removeFromTop(4);
+            text (settings.hardwareChecked() ? PL("Sprzęt został sprawdzony") : PL("Mikrofon nie został sprawdzony"), side.removeFromTop(32), zs::type::body);
+            side.removeFromTop(8);
+            text (PL("Karta / urządzenie"), side.removeFromTop(18), zs::type::small);
+            side.removeFromTop(30 + 6);
+            text (PL("Wejście z mikrofonem"), side.removeFromTop(18), zs::type::small);
+            text (PL("Nagranie rozpocznie się po naciśnięciu Nagraj."), settingsBox().reduced(22,12).removeFromBottom(40), zs::type::small);
+        }
+    }
+
+    void layoutPreparation()
+    {
+        auto main = zs::ScreenFrame::mainArea(getLocalBounds());
+        main.removeFromTop(126);
+        nameInput.setBounds(main.removeFromTop(40)); main.removeFromTop(16);
+        auto row = main.removeFromTop(38);
+        prompterButton.setButtonText(PL("Otwórz tekst"));
+        prompterButton.setBounds(row.removeFromRight(156)); main.removeFromTop(8);
+        main.removeFromBottom(28);
+        scriptInput.setBounds(main);
+        if (detailsOpen) {
+            okButton.setBounds(main.removeFromBottom(34).removeFromRight(206));
+            main.removeFromBottom(8); events.setBounds(main);
+        }
+        auto side = settingsBox().reduced(22,24);
+        auto bottom = side.removeFromBottom(168);
+        bottom.removeFromBottom(36);
+        prepareButton.setBounds(bottom.removeFromBottom(42)); bottom.removeFromBottom(8);
+        openButton.setBounds(bottom.removeFromBottom(32)); bottom.removeFromBottom(8);
+        detailsButton.setBounds(bottom.removeFromBottom(32));
+
+        // Uklad musi sie zmiescic przy 960 x 640: folder sesji zostaje
+        // w "Mikrofon i sprzet", tu sa tylko rzeczy przed kazdym nagraniem.
+        side.removeFromTop(32 + 4 + 32 + 8 + 18);
+        deviceBox.setBounds(side.removeFromTop(30)); side.removeFromTop(6);
+        heardLabel.setBounds(side.removeFromTop(18));
+        inputBox.setBounds(side.removeFromTop(30)); side.removeFromTop(8);
+        meter.setBounds(side.removeFromTop(20)); side.removeFromTop(8);
+        checkButton.setBounds(side.removeFromTop(34));
+        folderButton.setVisible(false);
+        status.setVisible(false);
+    }
+
+    //==========================================================================
+    // ---- karta i wejscie z mikrofonem (zasady: InputChoice.h) ------------------
+
+    /** Zmiana karty — z naszych list albo z okna "Mikrofon i sprzet". */
+    void changeListenerCallback (juce::ChangeBroadcaster*) override
+    {
+        refreshInputBoxes();
+        saveAudioState();
+        if (settingsOpen) repaint();
+    }
+
+    void saveAudioState()
+    {
+        if (noDevice) return;
+        if (auto x = deviceManager.createStateXml())
+            settings.setAudioState (x->toString());
+    }
+
+    /** Listy odtwarzane z tego, co karta ma teraz wlaczone. Bez onChange:
+        samo odswiezenie listy nie moze przestawiac karty. */
+    void refreshInputBoxes()
+    {
+        deviceBox.clear (juce::dontSendNotification);
+        inputBox.clear (juce::dontSendNotification);
+        deviceBox.setTextWhenNothingSelected (PL ("Brak urządzenia"));
+        inputBox.setTextWhenNothingSelected (PL ("Brak wejść"));
+
+        auto* type = noDevice ? nullptr : deviceManager.getCurrentDeviceTypeObject();
+        auto* device = noDevice ? nullptr : deviceManager.getCurrentAudioDevice();
+        deviceBox.setEnabled (type != nullptr);
+        inputBox.setEnabled (device != nullptr);
+        if (type == nullptr) return;
+
+        const auto names = type->getDeviceNames (true);
+        deviceBox.addItemList (names, 1);
+        deviceBox.setTextWhenNothingSelected (PL ("Wybierz kartę"));
+        deviceBox.setSelectedItemIndex (names.indexOf (deviceManager.getAudioDeviceSetup().inputDeviceName),
+                                        juce::dontSendNotification);
+        if (device == nullptr) return;
+
+        std::vector<std::string> driver;
+        for (const auto& n : device->getInputChannelNames()) driver.push_back (n.toStdString());
+
+        const auto items = zs::input::labels (driver);
+        for (size_t i = 0; i < items.size(); ++i)
+            inputBox.addItem (juce::String::fromUTF8 (items[i].c_str()), (int) i + 1);
+
+        const auto mask = (uint64_t) device->getActiveInputChannels().toInt64();
+        inputBox.setSelectedId (zs::input::choiceFromMask (mask) + 1, juce::dontSendNotification);
+        inputBox.setEnabled (driver.size() > 1);
+    }
+
+    void chooseDevice()
+    {
+        auto setup = deviceManager.getAudioDeviceSetup();
+        setup.inputDeviceName = deviceBox.getText();
+        setup.useDefaultInputChannels = true;       // inna karta: znow automatycznie
+        applySetup (setup);
+    }
+
+    void chooseInput()
+    {
+        auto* device = deviceManager.getCurrentAudioDevice();
+        if (device == nullptr) return;
+
+        const int n = device->getInputChannelNames().size();
+        const auto mask = zs::input::channelMask (inputBox.getSelectedId() - 1, n);
+
+        auto setup = deviceManager.getAudioDeviceSetup();
+        setup.useDefaultInputChannels = false;
+        setup.inputChannels.clear();
+        for (int b = 0; b < n && b < zs::input::maxChannels; ++b)
+            if (mask & (uint64_t (1) << b)) setup.inputChannels.setBit (b);
+
+        applySetup (setup);
+    }
+
+    void applySetup (const juce::AudioDeviceManager::AudioDeviceSetup& setup)
+    {
+        // W trakcie nagrania karta sie nie zmienia — plik mialby dwa zrodla.
+        if (noDevice || recorder.isRecording()) { refreshInputBoxes(); return; }
+
+        const auto err = deviceManager.setAudioDeviceSetup (setup, true);
+        if (err.isNotEmpty())
+            append (PL ("Nie mogę przełączyć karty: ") + err);
+
+        refreshInputBoxes();
+        saveAudioState();
+    }
+
+    /** "slysze wejscie 2" — zeby bylo widac, gdzie jest mikrofon, zanim
+        czlowiek wybierze wejscie recznie. Prog ok. -50 dBFS: cos wiecej niz
+        szum wejscia. */
+    void updateHeard (float level)
+    {
+        juce::String s;
+
+        if (auto* d = deviceManager.getCurrentAudioDevice())
+            if (level > 0.003f)
+            {
+                const auto mask = (uint64_t) d->getActiveInputChannels().toInt64();
+                const int n = zs::input::physicalInput (mask, recorder.analysisCh());
+                if (n > 0) s = PL ("słyszę wejście ") + juce::String (n);
+            }
+
+        if (heardLabel.getText() != s) heardLabel.setText (s, juce::dontSendNotification);
     }
 
     void repeatLine()
@@ -654,6 +907,7 @@ private:
             return;
         }
 
+        preparation = false;
         const auto err = recorder.start (previewFolder != juce::File() ? previewFolder : sessionFolder);
 
         if (err.isNotEmpty())
@@ -745,6 +999,7 @@ private:
 
         const float lvNow = recorder.inputLevel();
         meter.setLevel (lvNow);
+        if (preparation && heardLabel.isVisible()) updateHeard (lvNow);
 
         if (recorder.isRecording())
             repaint();        // zegar i nazwa nagrania we wspolnym szkielecie
@@ -879,6 +1134,12 @@ private:
     Meter meter;
     juce::TextButton recButton, repeatButton, folderButton, okButton, settingsButton, detailsButton, openButton;
     juce::Label hints;
+    juce::TextEditor nameInput, scriptInput;
+    juce::ComboBox deviceBox, inputBox;   ///< karta i wejscie z mikrofonem
+    bool noDevice = false;                ///< --preview-ui: karty nie otwieramy
+    juce::Label heardLabel;               ///< "slysze wejscie 2"
+    juce::TextButton prepareButton, preparationButton;
+    bool preparation = true;
     zs::StepBar flow;
     juce::File previewFolder;   ///< tylko --preview-ui: nagrywanie do katalogu tymczasowego
     bool settingsOpen=false, detailsOpen=false;
@@ -934,6 +1195,7 @@ private:
         if (wizard != nullptr && wizard->completed())
         {
             settings.setHardwareChecked (true, wizard->summaryLine());
+            settings.setRoomCheck (wizard->roomCheck());
             append (PL ("sprzęt sprawdzony: ") + wizard->summaryLine() + ".");
         }
         else
@@ -1010,21 +1272,25 @@ private:
 
     void loadScript (const juce::File& f)
     {
+        ensurePrompter();
+        scriptInput.setText (f.loadFileAsString());
+        prompter->load (scriptInput.getText());
+        settings.setLastScript (f);
+        updatePrompterButton();
+        if (!preparation) showPrompter (true);
+        else { resized(); repaint(); }
+    }
+
+    void ensurePrompter()
+    {
         if (prompter == nullptr)
         {
             prompter = std::make_unique<PrompterComponent> (recorder, settings);
             prompter->onClose = [this] { showPrompter (false); };
             prompter->setSpeech (&speech);
             prompter->onStopRequest = [this] { if (recorder.isRecording()) toggleRecord(); };
-            addAndMakeVisible (*prompter);
+            addChildComponent (*prompter);
         }
-
-        prompter->load (f.loadFileAsString());
-
-        settings.setLastScript (f);
-        updatePrompterButton();
-
-        showPrompter (true);
     }
 
     void updatePrompterButton()
@@ -1081,12 +1347,14 @@ private:
             addAndMakeVisible (*review);
         }
 
+        preparation = false;
         reviewCameFromPrompter = inPrompter;
 
         if (inPrompter)
             showPrompter (false);
 
         review->setRecordingDamaged((!fromDisk && recorder.recordingDamaged()) || wavFile.getSiblingFile(wavFile.getFileName()+".problem.txt").existsAsFile());
+        review->setRoom (settings.roomCheck());
         review->load (wavFile, takeEvents, ! fromDisk, waitForIt);
         showReview (true);
     }

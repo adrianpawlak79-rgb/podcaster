@@ -13,7 +13,7 @@
         7. jazda glosnoscia          zdanie wobec zdania, w sekundach
         8. wyrownywacz 2:1           sylaba wobec sylaby, w milisekundach
         9. de-esser                  sybilanty
-       10. barwa                     mniej blota, wiecej obecnosci i powietrza
+       10. barwa                     dol, bloto, obecnosc, powietrze — z pomiaru glosu
        11. nasycenie                 cieplo, z nadprobkowaniem
        12. dociskacz 4:1             pojedyncze szczyty
        13. wyrownanie do LUFS        wobec ZMIERZONEJ glosnosci calosci
@@ -143,7 +143,8 @@ public:
         float  essThreshDb  = -12.0f;
         float  essMaxCutDb  = -12.0f;
 
-        // ---- barwa
+        // ---- barwa (Decide ustawia je z pomiaru glosu, VoiceTone.h)
+        float  lowDb        = 0.0f;    // polka 150 Hz: dudnienie, efekt zblizeniowy
         float  mudDb        = -2.0f;   // 250 Hz
         float  presenceDb   = 1.5f;    // 3 kHz
         float  airDb        = 1.0f;    // 10 kHz
@@ -177,6 +178,7 @@ public:
         for (int i = 0; i < 3; ++i)
             hum[i].setCoeffs (design::notch (params.humHz * (i + 1), sr, 25.0));
 
+        low.setCoeffs      (design::lowShelf (150.0, sr, params.lowDb));
         mud.setCoeffs      (design::peaking (250.0, sr, 1.0, params.mudDb));
         presence.setCoeffs (design::peaking (3000.0, sr, 0.9, params.presenceDb));
         air.setCoeffs      (design::highShelf (10000.0, sr, params.airDb));
@@ -227,7 +229,7 @@ public:
     {
         hp1.reset(); hp2.reset();
         for (auto& h : hum) h.reset();
-        mud.reset(); presence.reset(); air.reset();
+        low.reset(); mud.reset(); presence.reset(); air.reset();
         plosive.reset(); gate.reset(); rider.reset();
         leveler.reset(); ess.reset(); sat.reset(); peaker.reset();
         tilt.reset();
@@ -272,7 +274,7 @@ public:
             rep.essMaxGrDb = std::min (rep.essMaxGrDb, ess.gainReductionDb());
         }
 
-        y = air.process (presence.process (mud.process (y)));
+        y = air.process (presence.process (mud.process (low.process (y))));
 
         if (params.useSaturation)
             y = sat.process (y);
@@ -544,12 +546,14 @@ private:
         brzmienia w calym lancuchu, ktora jest decyzja, a nie skutkiem. */
     double intendedEqDb (double hz) const
     {
-        Biquad m, p, a;
+        Biquad l, m, p, a;
+        l.setCoeffs (design::lowShelf  (150.0,   sr, params.lowDb));
         m.setCoeffs (design::peaking   (250.0,   sr, 1.0, params.mudDb));
         p.setCoeffs (design::peaking   (3000.0,  sr, 0.9, params.presenceDb));
         a.setCoeffs (design::highShelf (10000.0, sr, params.airDb));
 
-        return 20.0 * std::log10 (std::max (1.0e-9, m.magnitudeAt (hz, sr)
+        return 20.0 * std::log10 (std::max (1.0e-9, l.magnitudeAt (hz, sr)
+                                                  * m.magnitudeAt (hz, sr)
                                                   * p.magnitudeAt (hz, sr)
                                                   * a.magnitudeAt (hz, sr)));
     }
@@ -599,7 +603,7 @@ private:
 
     double sr = 48000.0;
 
-    Biquad hp1, hp2, hum[3], mud, presence, air;
+    Biquad hp1, hp2, hum[3], low, mud, presence, air;
     TiltMatch tilt;
     DePlosive plosive;
     Gate gate;

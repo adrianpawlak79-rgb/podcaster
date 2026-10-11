@@ -19,6 +19,7 @@
     pliku ze skryptem). Dla porownania to samo bez kompensacji opoznienia.
 */
 
+#include "DSP/LineLog.h"
 #include "DSP/WordTracker.h"
 #include "DSP/PrompterLines.h"
 #include "DSP/SyllableClock.h"
@@ -119,6 +120,11 @@ static Score measure (const tw::PrompterText& text, const std::vector<Hyp>& hyps
 
     int n = 0, in1 = 0, in2 = 0, inLine = 0;
     size_t h = 0;
+
+    // Czasy wersow tak, jak zapisze je program (LineLog.h) — ZS_WERSY=1.
+    const bool logLines = std::getenv ("ZS_WERSY") != nullptr && latency == 0.0;
+    tw::LineLog lineLog;
+    lineLog.begin();
     std::vector<double> delays;     // oddanie przez Vosk - poczatek slowa we wzorcu
 
     for (double now = 0.0; now <= last; now += 0.1)
@@ -149,6 +155,15 @@ static Score measure (const tw::PrompterText& text, const std::vector<Hyp>& hyps
         const int shown = tr.word (now);
         const int err = std::abs (shown - truth);
 
+        if (logLines && shown >= 0)
+        {
+            tw::LineMark m;
+            m.sec = now; m.shown = tw::lineOfWord (lines, shown);
+            m.firstWord = lines[(size_t) m.shown].firstWord; m.lastWord = lines[(size_t) m.shown].lastWord;
+            m.source = tr.hasLock (now) ? tw::LineSource::Words : tw::LineSource::Syllables;
+            lineLog.observe (m);
+        }
+
         if (std::getenv ("ZS_SLAD") != nullptr && latency > 0.0)
             std::printf ("slad %6.1f  wzorzec %3d  pokazane %3d  trafienie %3d  tempo %.2f\n",
                          now, truth, shown, tr.lastHitWord(), tr.wordsPerSec());
@@ -161,6 +176,32 @@ static Score measure (const tw::PrompterText& text, const std::vector<Hyp>& hyps
 
     if (std::getenv ("ZS_SLAD") != nullptr)
         std::printf ("slad-koniec trafien %d, ostatnie w slowie %d\n", tr.hitCount(), tr.lastHitWord());
+
+    if (logLines)
+    {
+        // Spoznienie zapisanego poczatku wersu wzgledem prawdziwego poczatku
+        // jego pierwszego slowa (wzorzec z wynik.czasy).
+        std::vector<double> late;
+        const auto fin = lineLog.finalLines();
+        int noTruth = 0;
+        for (const auto& l : lines) if (truthAt[(size_t) l.firstWord] < 0) ++noTruth;
+        std::printf ("wersy: w tekscie %zu, zapisane %zu (wszystkich wpisow %zu), bez wzorca czasu %d\n",
+                     lines.size(), fin.size(), lineLog.marks().size(), noTruth);
+        for (const auto& m : fin)
+        {
+            const double t = truthAt[(size_t) m.firstWord];
+            if (t < 0) { std::printf ("wers slowo %3d  zapisany %6.1f  (bez wzorca)\n", m.firstWord, m.sec); continue; }
+            late.push_back (m.sec - t);
+            std::printf ("wers slowo %3d  zapisany %6.1f  prawdziwy %6.1f  roznica %+5.2f s\n",
+                         m.firstWord, m.sec, t, m.sec - t);
+        }
+        std::sort (late.begin(), late.end());
+        if (! late.empty())
+            std::printf ("\n  wersow %zu (z %zu w tekscie): spoznienie poczatku wersu: mediana %+.2f s, "
+                         "10%% %+.2f s, 90%% %+.2f s, najwiecej %+.2f s\n\n",
+                         late.size(), lines.size(), late[late.size() / 2], late[late.size() / 10],
+                         late[late.size() * 9 / 10], late.back());
+    }
 
     std::sort (delays.begin(), delays.end());
     const double med = delays.empty() ? 0.0 : delays[delays.size() / 2];

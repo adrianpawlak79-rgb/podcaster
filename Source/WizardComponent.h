@@ -15,7 +15,9 @@
 #include "Recorder.h"
 #include "Look.h"
 #include "StepBar.h"
+#include "ScreenFrame.h"
 #include "DSP/Setup.h"
+#include "DSP/Mix/RoomCheck.h"
 
 //==============================================================================
 class WizardComponent : public juce::Component,
@@ -37,6 +39,23 @@ public:
     /** Jedno zdanie z liczbami, ktore kreator zmierzyl. Do zapisania na
         pozniej: po miesiacu czlowiek chce wiedziec, CO wtedy wyszlo, a nie
         tylko ze "bylo sprawdzane". */
+    /** Pomiary pokoju dla miksu: przydzwiek, odleglosc, tlo. Miks sprawdza
+        je jeszcze w nagraniu — kreator mowi, czego szukac. */
+    mix::RoomCheck roomCheck() const
+    {
+        const auto& rep = wizard.result();
+
+        mix::RoomCheck r;
+        r.known            = true;
+        r.noiseFloorDb     = rep.noiseFloorDb;
+        r.humHz            = rep.humHz;
+        r.humExcessDb      = rep.humExcessDb;
+        r.proximityDb      = rep.proximityDb;
+        r.proximityLimitDb = wizard.limits.proximityDb;
+        r.daysAgo          = 0;
+        return r;
+    }
+
     juce::String summaryLine() const
     {
         const auto& rep = wizard.result();
@@ -60,6 +79,9 @@ public:
         steps.setSteps ({ PL ("Mikrofon"), PL ("Cisza w pokoju"), PL ("Poziom"),
                           PL ("Głoski p i b"), PL ("Słuchawki"), PL ("Odsłuch") });
         addAndMakeVisible (steps);
+        addAndMakeVisible (flow);
+        flow.setSteps ({ PL("Przygotowanie"), PL("Nagranie"), PL("Odsłuch"), PL("Montaż"), PL("Gotowe") });
+        flow.setCurrent (0);
 
         title.setFont (juce::Font (zs::type::title, juce::Font::bold));
         title.setColour (juce::Label::textColourId, zs::Ink::textNow());
@@ -78,6 +100,10 @@ public:
         measured.setFont (juce::Font (juce::Font::getDefaultMonospacedFontName(), 12.5f, juce::Font::plain));
         measured.setColour (juce::Label::textColourId, zs::Ink::textDim());
         addAndMakeVisible (measured);
+        cumulative.setFont (juce::Font (zs::type::body));
+        cumulative.setColour (juce::Label::textColourId, zs::Ink::textNext());
+        cumulative.setJustificationType (juce::Justification::topLeft);
+        addAndMakeVisible (cumulative);
 
         nextButton.setButtonText ("Dalej");
         zs::Look::setKind (nextButton, zs::ui::ButtonKind::Primary);
@@ -119,12 +145,15 @@ public:
     {
         g.fillAll (zs::Ink::bg());
 
-        g.setColour (zs::Ink::textNow());
-        g.setFont (juce::Font (zs::type::heading, juce::Font::bold));
-        g.drawText (PL ("Sprawdzenie sprzętu"), header(), juce::Justification::centredLeft);
-
-        g.setColour (zs::Ink::panel());
-        g.fillRoundedRectangle (card().toFloat(), 14.0f);
+        zs::ScreenFrame::paint (g, getLocalBounds(), PL("Sprawdzenie sprzętu"), PL("Przygotuj mikrofon przed nagraniem"));
+        g.setColour (zs::Ink::bar()); g.fillRect(zs::ScreenFrame::sidebar(getLocalBounds()));
+        g.setColour (zs::Ink::textNow()); g.setFont(juce::Font(zs::type::title,juce::Font::bold));
+        g.drawText(PL("Sprawdzenie sprzętu"),header(),juce::Justification::centredLeft);
+        g.setColour (zs::Ink::panel()); g.fillRoundedRectangle(card().toFloat(),6.0f);
+        g.setColour (zs::Ink::edge()); g.drawRoundedRectangle(card().toFloat(),6.0f,1.0f);
+        auto side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24);
+        g.setColour (zs::Ink::textNow()); g.setFont (juce::Font (zs::type::heading, juce::Font::bold));
+        g.drawText (PL("Dotychczasowe pomiary"), side.removeFromTop (32), juce::Justification::centredLeft);
 
         // ---- pasek postepu pomiaru albo kreska werdyktu ---------------------
         auto bar = progressBar();
@@ -146,12 +175,17 @@ public:
 
     void resized() override
     {
-        auto r = getLocalBounds().reduced (margin(), 24);
-
-        r.removeFromTop (header().getHeight());
-        r.removeFromTop (14);
-        steps.setBounds (r.removeFromTop (zs::StepBar::preferredHeight));
-
+        flow.setBounds(22,zs::ui::frame::header+8,getWidth()-44,zs::StepBar::preferredHeight);
+        auto side = zs::ScreenFrame::sidebar(getLocalBounds()).reduced(22,24);
+        auto results = side.withTrimmedBottom (170);
+        results.removeFromTop (32);
+        cumulative.setBounds (results);
+        auto stepArea = zs::ScreenFrame::mainArea(getLocalBounds());
+        stepArea.removeFromTop(48);
+        steps.setBounds(stepArea.removeFromTop(zs::StepBar::preferredHeight));
+        skipButton.setBounds(side.removeFromBottom(38)); side.removeFromBottom(10);
+        againButton.setBounds(side.removeFromBottom(38)); side.removeFromBottom(10);
+        nextButton.setBounds(side.removeFromBottom(56));
         auto c = card().reduced (32, 28);
 
         counter.setBounds (c.removeFromTop (18));
@@ -159,17 +193,11 @@ public:
         title.setBounds (c.removeFromTop (76));
         c.removeFromTop (8 + 4 + 18);      // pasek postepu rysowany w paint()
 
-        auto row = c.removeFromBottom (44);
         c.removeFromBottom (16);
 
         measured.setBounds (c.removeFromBottom (20));
         c.removeFromBottom (8);
         body.setBounds (c);
-
-        nextButton.setBounds (row.removeFromLeft (juce::jmin (260, row.getWidth() / 3)));
-        row.removeFromLeft (10);
-        againButton.setBounds (row.removeFromLeft (150));
-        skipButton.setBounds (row.removeFromRight (190));
     }
 
     bool keyPressed (const juce::KeyPress& k) override
@@ -185,20 +213,37 @@ public:
 
 private:
     //==========================================================================
-    int margin() const { return getWidth() >= 1400 ? 72 : 40; }
+    juce::String measuredSummary() const
+    {
+        const auto& result = wizard.result();
+        const int step = (int) wizard.step();
+        // Nie wyswietlamy wartosci domyslnych jako pomiaru. Wynik z biezacego
+        // kroku jest gotowy dopiero po evaluate(), poprzednie juz sa zapisane.
+        const auto measuredStep = [step, this] (tw::SetupStep s) {
+            return step > (int) s || (step == (int) s && judged);
+        };
+        juce::String summary;
+        if (measuredStep (tw::SetupStep::Room)) {
+            summary << PL("Tło pokoju\n") << juce::String (result.noiseFloorDb, 1) << " dBFS\n\n";
+            if (result.humHz > 0.0) summary << PL("Przydźwięk\n") << juce::String ((int) result.humHz) << " Hz\n\n";
+        }
+        if (measuredStep (tw::SetupStep::Level))
+            summary << PL("Szczyty mowy\n") << juce::String (result.speechPeakDb, 1) << " dBFS\n\n";
+        if (measuredStep (tw::SetupStep::Bleed))
+            summary << PL("Przesłuch słuchawek\n") << juce::String (result.bleedPercent, 1) << "%\n\n";
+        return summary.isEmpty() ? PL("Tutaj pojawią się wyniki zakończonych pomiarów tła pokoju i głosu.") : summary.trimEnd();
+    }
 
     juce::Rectangle<int> header() const
     {
-        return getLocalBounds().reduced (margin(), 24).removeFromTop (30);
+        return zs::ScreenFrame::mainArea(getLocalBounds()).removeFromTop(38);
     }
 
-    /** Karta z trescia kroku: szerokosc do czytania, nie do krawedzi okna —
-        wiersz na 1900 pikseli czyta sie jak tabele. */
     juce::Rectangle<int> card() const
     {
-        auto r = getLocalBounds().reduced (margin(), 24);
-        r.removeFromTop (30 + 14 + zs::StepBar::preferredHeight + 20);
-        return r.withWidth (juce::jmin (r.getWidth(), 980));
+        auto r = zs::ScreenFrame::mainArea(getLocalBounds());
+        r.removeFromTop(114);
+        return r;
     }
 
     juce::Rectangle<int> progressBar() const
@@ -274,6 +319,7 @@ private:
     //==========================================================================
     void updateTexts()
     {
+        cumulative.setText (measuredSummary(), juce::dontSendNotification);
         const int n = (int) wizard.step() + 1;
         counter.setText (PL ("KROK ") + juce::String (n) + PL (" Z 6"), juce::dontSendNotification);
         steps.setCurrent (n - 1);
@@ -331,6 +377,7 @@ private:
     {
         const auto& rep = wizard.result();
 
+        cumulative.setText (measuredSummary(), juce::dontSendNotification);
         counter.setText (PL ("GOTOWE"), juce::dontSendNotification);
         steps.setCurrent (6, true);
         title.setText (rep.ready ? PL ("Możesz nagrywać.")
@@ -377,8 +424,8 @@ private:
     bool calibArmed = false;
     bool finishedProperly = false;
 
-    zs::StepBar steps;
-    juce::Label title, counter, body, measured;
+    zs::StepBar steps, flow;
+    juce::Label title, counter, body, measured, cumulative;
     juce::TextButton nextButton, againButton, skipButton;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WizardComponent)

@@ -57,7 +57,7 @@ struct ScreenFrame
                     juce::Justification::centredLeft);
         g.setFont (juce::Font (type::small)); g.setColour (Ink::textDim());
         auto foot = footer.reduced (22, 0);
-        g.drawText (name + juce::String::fromUTF8 (" · Podcast"), foot.removeFromLeft (foot.getWidth() / 2),
+        g.drawText (name, foot.removeFromLeft (foot.getWidth() / 2),
                     juce::Justification::centredLeft);
         g.setColour (Ink::textNext());
         g.drawText (hint, foot, juce::Justification::centredRight);

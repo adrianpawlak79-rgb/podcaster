@@ -39,6 +39,7 @@
 #pragma once
 
 #include "DSP/Follower.h"
+#include "DSP/LineLog.h"
 #include "DSP/PrompterLines.h"
 #include "DSP/PrompterText.h"
 #include "DSP/SyllableClock.h"
@@ -165,7 +166,7 @@ public:
         if (c == juce::KeyPress::rightKey) { nudge (+1); return true; }
 
         if (c == juce::KeyPress::homeKey)  { follower.jumpToWord (0); shownLine = 0;
-                                             scrollNow = 0.0f; repaint(); return true; }
+                                             scrollNow = 0.0f; markRestart (0); repaint(); return true; }
 
         // powiekszanie tekstu: plus i minus, takze z klawiatury numerycznej
         if (k.getTextCharacter() == '+' || k.getTextCharacter() == '=') { zoom (+0.1f); return true; }
@@ -183,10 +184,12 @@ public:
         return false;
     }
 
-    /** Podczas nagrania zostaja narzedzia tekstu, ale wyjscie prowadzi przez ocene. */
+    /** Narzedzia wracaja po zatrzymaniu; klawisze dzialaja przez caly czas. */
     void refreshControls()
     {
-        backButton.setEnabled (! recorder.isRecording());
+        const bool visible = !recorder.isRecording();
+        for (auto* b : { &backButton, &smallerButton, &largerButton, &previousButton, &nextButton, &mirrorButton })
+            b->setVisible (visible);
     }
 
     /** "Powtorz wers" (R albo przycisk): na poczatek wersu, ktory jest w
@@ -200,6 +203,7 @@ public:
         follower.repeatFrom (from);
         words.jumpTo (from, recorder.recordedSeconds());
         shownLine = tw::lineOfWord (spans, from);
+        markRestart (shownLine);
         repaint();
     }
 
@@ -208,6 +212,7 @@ public:
         follower.nudgeWords (by);
         words.jumpTo (follower.currentWord(), recorder.recordedSeconds());
         shownLine = lineToShow();
+        markRestart (shownLine);
         repaint();
     }
 
@@ -240,7 +245,7 @@ public:
         g.setColour (Ink::edge());
         g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (0.5f), 6.0f, 1.0f);
         auto r = getLocalBounds();
-        r.removeFromBottom (barHeight);
+        if (!recorder.isRecording()) r.removeFromBottom (barHeight);
         auto bottom = r.removeFromBottom (follower.isLost() ? bottomHeight() : 0);
         // Lustro dotyczy czytanego tekstu; przyciski i lampka sa stale.
         juce::Graphics::ScopedSaveState keep (g);
@@ -291,11 +296,13 @@ private:
                 words.begin (&script);
                 scrollNow = scrollTarget = 0.0f;
                 shownLine = 0;
+                lineLog.begin();
                 startSpeech();
             }
             else
             {
                 stopSpeech();
+                saveLineLog();
             }
         }
 
@@ -328,6 +335,11 @@ private:
             if (words.hasLock (now))
                 follower.syncTo (tw::syllableAtWord (script, words.position (now)));
         }
+
+        if (! lines.empty())
+            lineLog.observe (markFor (lineToShow(), now,
+                                      listening && words.hasLock (now) ? tw::LineSource::Words
+                                                                       : tw::LineSource::Syllables));
 
         repaint();
     }
@@ -440,6 +452,41 @@ private:
                 first = i + 1;
             }
         }
+    }
+
+    /* Czasy wersow (DSP/LineLog.h) — pierwszy krok punch and roll.
+       Wers rozpoznajemy po pierwszym slowie, bo numer na ekranie zalezy od
+       szerokosci okna. */
+    tw::LineMark markFor (int shown, double sec, tw::LineSource src) const
+    {
+        tw::LineMark m;
+        m.sec = sec; m.shown = shown; m.source = src;
+
+        if (shown >= 0 && shown < (int) lines.size())
+        {
+            m.firstWord = lines[(size_t) shown].firstWord;
+            m.lastWord  = lines[(size_t) shown].lastWord;
+            m.text      = lines[(size_t) shown].text.toStdString();
+        }
+        return m;
+    }
+
+    void markRestart (int shown)
+    {
+        if (recorder.isRecording() && ! lines.empty())
+            lineLog.restart (markFor (shown, recorder.recordedSeconds(), tw::LineSource::Key));
+    }
+
+    /** Obok nagrania: sesja_<data>.wersy.txt. Bez tekstu w prompterze —
+        nic (nie ma wersow). Blad zapisu nie zatrzymuje programu: nagranie
+        jest wazniejsze niz jego opis. */
+    void saveLineLog()
+    {
+        const auto wav = recorder.currentFile();
+        if (lineLog.marks().empty() || wav == juce::File()) return;
+
+        wav.getSiblingFile (wav.getFileNameWithoutExtension() + ".wersy.txt")
+           .replaceWithText (juce::String::fromUTF8 (lineLog.toText().c_str()), false, false, "\n");
     }
 
     /* Ktory wers podswietlic i w ktorym lezy slowo — DSP/PrompterLines.h,
@@ -616,6 +663,7 @@ private:
 
     std::vector<Line> lines;
     std::vector<tw::LineSpan> spans;     ///< te same wersy, same numery slow
+    tw::LineLog lineLog;                 ///< kiedy zaczal sie ktory wers (zapis obok nagrania)
     bool layoutDirty = true, running = false;
 
     /* Gdzie obraz JEST i gdzie ma dojechac, w numerach wersow. */
