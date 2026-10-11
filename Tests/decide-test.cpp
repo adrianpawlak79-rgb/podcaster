@@ -46,6 +46,46 @@ static std::vector<float> speech (const std::vector<float>& src, double sr, doub
     return out;
 }
 
+static std::vector<float> filtered (std::vector<float> x, mix::Coeffs c)
+{
+    mix::Biquad f;
+    f.setCoeffs (c);
+    for (auto& v : x) v = f.process (v);
+    return x;
+}
+
+/** Filtr dobrany tak, zeby pasmo odstawalo od wzorca o dokladnie `dev` dB.
+    Dzieki temu test nie zalezy od tego, jaki glos dal syntezator. */
+template <typename Design>
+static std::vector<float> pushBand (const std::vector<float>& x, double sr, int band,
+                                    double dev, Design design)
+{
+    double lo = -30.0, hi = 40.0;
+    std::vector<float> y = x;
+
+    for (int i = 0; i < 30; ++i)
+    {
+        const double g = 0.5 * (lo + hi);
+        y = filtered (x, design (g));
+        const double got = mix::VoiceTone::deviation (mix::VoiceTone::measure (y, sr), band);
+        (got < dev ? lo : hi) = g;
+    }
+    return y;
+}
+
+static void addTone (std::vector<float>& x, double sr, double hz, float amp)
+{
+    for (size_t i = 0; i < x.size(); ++i)
+        x[i] += amp * (float) std::sin (2.0 * M_PI * hz * (double) i / sr);
+}
+
+static bool says (const mix::Decision& d, const char* fragment)
+{
+    for (const auto& s : d.because)
+        if (s.find (fragment) != std::string::npos) return true;
+    return false;
+}
+
 static void addRoom (std::vector<float>& x, float amp, unsigned seed)
 {
     std::mt19937 rng (seed);
@@ -181,6 +221,148 @@ int main (int argc, char** argv)
                std::to_string (d.because.size()) + " zdan");
         check (allHaveNumber, "w kazdym zdaniu jest liczba",
                allHaveNumber ? "tak" : "ktoras bez liczby");
+    }
+
+    // ---- 7. barwa z pomiaru glosu ----------------------------------------------
+    //
+    // Ten sam glos, cztery mikrofony/pokoje. Wzorzec stoi w VoiceTone.h; tu nie
+    // sprawdzamy, czy wzorzec jest "dobry", tylko czy korekta idzie w strone,
+    // ktora odstaje, i czy po calym lancuchu roznica jest mniejsza niz przed.
+    {
+        std::printf ("\n7. barwa dobrana do glosu\n");
+
+        using mix::VoiceTone;
+        namespace ds = mix::design;
+
+        const auto x     = speech (base, sr, 20.0);
+        const auto dark  = filtered (x, ds::highShelf (2000.0, sr, -9.0));
+        // Syntezator prawie nie ma dolu (dol -13 dB wzgl. 1 kHz, mowa ma +1,6),
+        // wiec zeby przekroczyc wzorzec, trzeba dolozyc duzo.
+        auto mudAt  = [&] (double g) { return ds::peaking  (250.0,  sr, 1.0, g); };
+        auto lowAt  = [&] (double g) { return ds::lowShelf (150.0,  sr, g); };
+        const auto boxy  = pushBand (x, sr, VoiceTone::Mud, 8.0, mudAt);
+        const auto boomy = pushBand (x, sr, VoiceTone::Low, 8.0, lowAt);
+
+        const auto d0 = mix::Decide::listen (x, sr);
+        const auto dD = mix::Decide::listen (dark, sr);
+        const auto dB = mix::Decide::listen (boxy, sr);
+        const auto dL = mix::Decide::listen (boomy, sr);
+
+        char g[160];
+        std::snprintf (g, sizeof (g), "dol %.1f bloto %.1f obecnosc %.1f powietrze %.1f",
+                       d0.params.lowDb, d0.params.mudDb, d0.params.presenceDb, d0.params.airDb);
+        check (d0.tone.valid, "barwa zmierzona", g);
+
+        check (dD.params.presenceDb > d0.params.presenceDb + 0.5f,
+               "ciemny mikrofon: wiecej obecnosci",
+               num (d0.params.presenceDb) + " -> " + num (dD.params.presenceDb));
+        check (std::fabs (dB.params.mudDb + 2.5f) < 0.6f,
+               "bloto 8 dB ponad wzorzec: scina 250 Hz o ok. 2,5",
+               num (d0.params.mudDb) + " -> " + num (dB.params.mudDb));
+        check (std::fabs (dL.params.lowDb + 2.5f) < 0.6f,
+               "dol 8 dB ponad wzorzec: scina o ok. 2,5",
+               num (d0.params.lowDb) + " -> " + num (dL.params.lowDb));
+
+        bool limits = true;
+        for (const auto* d : { &d0, &dD, &dB, &dL })
+        {
+            const auto& q = d->params;
+            if (q.lowDb > 0.0f || q.lowDb < -6.0f || q.mudDb > 0.0f || q.mudDb < -4.0f
+                || q.presenceDb < -1.5f || q.presenceDb > 3.0f || q.airDb < -1.5f || q.airDb > 3.0f)
+                limits = false;
+        }
+        check (limits, "korekty w granicach (dol tylko w dol, gora -1,5..+3)", "");
+
+        // Zasada sama w sobie: w marginesie nic, poza nim polowa nadwyzki.
+        check (VoiceTone::correction (2.9, 3.0, -6.0f, 3.0f) == 0.0f
+                 && std::fabs (VoiceTone::correction (8.0, 3.0, -6.0f, 3.0f) + 2.5f) < 0.01f
+                 && std::fabs (VoiceTone::correction (-8.0, 3.0, -6.0f, 3.0f) - 2.5f) < 0.01f
+                 && VoiceTone::correction (30.0, 3.0, -6.0f, 3.0f) == -6.0f,
+               "polowa tego, co poza marginesem 3 dB, w granicach", "");
+
+        check (! d0.tone.hasAir() && d0.params.airDb == 0.0f && says (d0, "kończy się na"),
+               "bez pasma powyzej 12 kHz powietrze nietkniete",
+               num (d0.tone.bandwidthHz / 1000.0, " kHz"));
+
+        // Po calym lancuchu: ciemna wersja ma byc blizej jasnej niz przed.
+        auto render = [&] (const std::vector<float>& in, const mix::Decision& d)
+        {
+            mix::SpeechChain c;
+            c.params = d.params;
+            c.setSampleRate (sr);
+            c.prepare (sr);
+            std::vector<float> out;
+            c.render (in, out);
+            return VoiceTone::measure (out, sr);
+        };
+
+        const double gapIn  = VoiceTone::measure (x, sr).db[VoiceTone::Presence]
+                            - VoiceTone::measure (dark, sr).db[VoiceTone::Presence];
+        const double gapOut = render (x, d0).db[VoiceTone::Presence]
+                            - render (dark, dD).db[VoiceTone::Presence];
+
+        // Przy ostrych sybilantach podbicie jest ograniczone do 1 dB — stad
+        // poprawa o pol decybela, a nie o polowe roznicy.
+        check (gapOut < gapIn - 0.5, "po miksie ciemny glos blizej jasnego",
+               num (gapIn) + " -> " + num (gapOut));
+
+        // Kreator mowil "za blisko": mniejszy margines, wiec mocniej przy tym samym nagraniu.
+        mix::Decide::Wish w;
+        w.room.known = true;
+        w.room.proximityDb = 0.0;
+        const auto light = pushBand (x, sr, VoiceTone::Low, 2.5, lowAt);
+        const auto a = mix::Decide::listen (light, sr);
+        const auto b = mix::Decide::listen (light, sr, w);
+        check (b.params.lowDb < a.params.lowDb && says (b, "za blisko"),
+               "kreator 'za blisko' wzmacnia ciecie dolu",
+               num (a.params.lowDb) + " -> " + num (b.params.lowDb));
+    }
+
+    // ---- 8. przydzwiek: kreator mowi czego szukac, nagranie czy jest -------------
+    {
+        std::printf ("\n8. przydzwiek z kreatora\n");
+
+        const auto clean = speech (base, sr, 20.0);
+        auto weak = clean;   addTone (weak,   sr, 50.0, 0.0003f);   // ok. -70 dBFS
+        auto strong = clean; addTone (strong, sr, 50.0, 0.05f);
+
+        mix::Decide::Wish w;
+        w.room.known = true;
+        w.room.humHz = 50.0;
+        w.room.humExcessDb = 18.0;
+
+        const auto a = mix::Decide::listen (weak, sr);
+        const auto b = mix::Decide::listen (weak, sr, w);
+        const auto c = mix::Decide::listen (clean, sr, w);
+        const auto e = mix::Decide::listen (strong, sr);
+
+        check (! a.params.deHum, "slaby przydzwiek bez kreatora: nie ruszamy", num (a.humDb));
+        check (b.params.deHum && b.params.humHz == 50.0,
+               "ten sam, kreator go slyszal: wycinamy 50 Hz", num (b.humDb));
+        check (! c.params.deHum && says (c, "nie wystaje"),
+               "kreator slyszal, w nagraniu nie ma: nie wycinamy", num (c.humDb));
+        check (e.params.deHum, "wyrazny przydzwiek wycinany i bez kreatora", num (e.humDb));
+    }
+
+    // ---- 9. tlo glosniejsze niz przy sprawdzaniu ---------------------------------
+    {
+        std::printf ("\n9. tlo wobec kreatora\n");
+
+        auto x = speech (base, sr, 20.0);
+        addRoom (x, 0.004f, 3);
+
+        mix::Decide::Wish quiet, same;
+        quiet.room.known = true; quiet.room.noiseFloorDb = -75.0;
+        same.room.known  = true;
+
+        const auto a = mix::Decide::listen (x, sr, quiet);
+        same.room.noiseFloorDb = a.noiseFloorDb - 2.0;
+        const auto b = mix::Decide::listen (x, sr, same);
+
+        check (says (a, "głośniejsze niż przy sprawdzaniu"),
+               "tlo o wiele glosniejsze: program o tym mowi", num (a.noiseFloorDb));
+        check (! says (b, "głośniejsze niż przy sprawdzaniu"),
+               "tlo jak przy sprawdzaniu: cisza", "");
     }
 
     std::printf ("\n%s\n\n", fails == 0 ? "wszystko przeszlo" : "SA BLEDY");

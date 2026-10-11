@@ -58,6 +58,7 @@
 #include "Reference.h"
 #include "SpeechChain.h"
 #include "Tame.h"
+#include "VoiceTone.h"
 
 #include <algorithm>
 #include <cmath>
@@ -88,6 +89,9 @@ struct Decision
 
     double freeTargetLufs = -16.0;  ///< najglosniej bez ruszania szczytu
     double squashDb       = 0.0;    ///< ile trzeba bedzie sciagnac przy celu
+
+    VoiceTone::Bands tone;          ///< barwa glosu, wzgledem pasma 1 kHz
+    double humDb          = 0.0;    ///< o ile przydzwiek wystaje w nagraniu
 };
 
 //==============================================================================
@@ -102,6 +106,10 @@ public:
         Wish() {}
         Destination where = Destination::Auto;
         double ceilingDbTp = -1.0;
+
+        /** Wynik kreatora. Pusty, gdy kreatora nie przechodzono — wtedy
+            wszystko bierze sie z samego nagrania, jak dotad. */
+        RoomCheck room;
     };
 
     //==========================================================================
@@ -127,7 +135,6 @@ public:
 
         auto& p = d.params;
         p.ceilingDbTp = (float) wish.ceilingDbTp;
-        p.deHum = false; // No hum measurement in this decision path.
         p.useSaturation = false; // Colour is not a repair.
 
 
@@ -410,10 +417,185 @@ public:
             d.because.push_back (b);
         }
 
+        hum (in, sr, wish.room, d);
+        roomChanged (wish.room, d);
+        tone (in, sr, wish.room, headroom, d);
+
         return d;
     }
 
 private:
+    //==========================================================================
+    /* ---- 8. przydzwiek sieciowy ------------------------------------------
+
+       Kreator slucha pokoju w ciszy, wiec przydzwiek slychac tam czysto. W
+       nagraniu przykrywa go mowa — ale tez nie musi go juz byc (zasilacz
+       wypiety po kreatorze). Dlatego kreator mowi, CZEGO szukac i ze warto
+       szukac uwaznie (prog 3 dB), a nagranie mowi, czy to nadal jest.
+       Bez kreatora wycinamy tylko wyrazny przydzwiek (10 dB, tyle co kreator). */
+    static void hum (const std::vector<float>& in, double sr, const RoomCheck& room, Decision& d)
+    {
+        auto& p = d.params;
+        char b[400];
+        p.deHum = false;
+
+        if (room.known && room.humHz > 0.0)
+        {
+            d.humDb = VoiceTone::humExcessDb (in, sr, room.humHz);
+
+            if (d.humDb > 3.0)
+            {
+                p.deHum = true;
+                p.humHz = room.humHz;
+                std::snprintf (b, sizeof (b),
+                    "Wycinam przydźwięk %.0f Hz i dwie harmoniczne: kreator słyszał go w pokoju "
+                    "(wystawał o %.0f dB), a w nagraniu wystaje o %.1f dB.",
+                    room.humHz, room.humExcessDb, d.humDb);
+            }
+            else
+                std::snprintf (b, sizeof (b),
+                    "Bez wycinania przydźwięku: kreator słyszał %.0f Hz, ale w tym nagraniu "
+                    "nie wystaje (%.1f dB). Pewnie zasilacz został odpięty.",
+                    room.humHz, d.humDb);
+
+            d.because.push_back (b);
+            return;
+        }
+
+        const double h50 = VoiceTone::humExcessDb (in, sr, 50.0);
+        const double h60 = VoiceTone::humExcessDb (in, sr, 60.0);
+        d.humDb = std::max (h50, h60);
+
+        if (d.humDb > 10.0)
+        {
+            p.deHum = true;
+            p.humHz = h50 >= h60 ? 50.0 : 60.0;
+            std::snprintf (b, sizeof (b),
+                "Wycinam przydźwięk %.0f Hz: wystaje w nagraniu o %.1f dB. %s",
+                p.humHz, d.humDb, room.known ? "Kreator go nie słyszał — coś doszło po sprawdzeniu."
+                                             : "Kreator by go wskazał wcześniej.");
+            d.because.push_back (b);
+        }
+    }
+
+    /* ---- 9. tlo wobec kreatora ----------------------------------------------
+       Kreator zmierzyl pokoj. Jesli w nagraniu tlo jest wyraznie glosniejsze,
+       cos sie wlaczylo (wentylator, lodowka, ulica) i warto to wiedziec, zanim
+       nagra sie reszte. Tylko mowimy — miks i tak bierze tlo z nagrania. */
+    static void roomChanged (const RoomCheck& room, Decision& d)
+    {
+        if (! room.known || room.noiseFloorDb < -100.0 || d.noiseFloorDb < -100.0) return;
+
+        const double louder = d.noiseFloorDb - room.noiseFloorDb;
+        if (louder < 6.0) return;
+
+        char b[400];
+        std::snprintf (b, sizeof (b),
+            "Tło w nagraniu jest o %.0f dB głośniejsze niż przy sprawdzaniu pokoju "
+            "(%.0f zamiast %.0f dBFS). Coś się włączyło — wentylator, lodówka, okno?",
+            louder, d.noiseFloorDb, room.noiseFloorDb);
+        d.because.push_back (b);
+    }
+
+    /* ---- 10. barwa ----------------------------------------------------------
+       Zasady i wzorzec: VoiceTone.h. Tu tylko granice:
+         - dol i bloto tylko scinamy (do 6 i 4 dB) — podbicie dolu to gust;
+         - obecnosc i powietrze podbijamy do 3 dB, ale scinamy najwyzej o 1,5 dB.
+           Po czterech rundach odsluchu skarga brzmiala "przytlumione" — wiec
+           sciemnianie jasnego glosu robimy ostroznie; jasny glos to czesto
+           po prostu glos, a nie usterka;
+         - przy ostrych sybilantach nie podbijamy gory o wiecej niz 1 dB,
+           bo podbilibysmy wlasnie je;
+         - przy szumie blisko mowy nie podbijamy powietrza o wiecej niz 1 dB,
+           bo tam siedzi syk;
+         - nagranie bez pasma powyzej 12 kHz zostawiamy bez powietrza;
+         - kreator, ktory zmierzyl "za blisko", zmniejsza margines dolu
+           z 3 do 1,5 dB: drugi pomiar mowi to samo, wiec mu wierzymy. */
+    static void tone (const std::vector<float>& in, double sr, const RoomCheck& room,
+                      double headroom, Decision& d)
+    {
+        auto& p = d.params;
+        char b[400];
+
+        d.tone = VoiceTone::measure (in, sr);
+        p.lowDb = p.mudDb = p.presenceDb = p.airDb = 0.0f;
+
+        if (! d.tone.valid)
+        {
+            d.because.push_back ("Barwa bez zmian: nagranie za krótkie, "
+                                 "żeby zmierzyć widmo głosu.");
+            return;
+        }
+
+        const auto& t = d.tone;
+        const double dLow = VoiceTone::deviation (t, VoiceTone::Low);
+        const double dMud = VoiceTone::deviation (t, VoiceTone::Mud);
+        const double dPre = VoiceTone::deviation (t, VoiceTone::Presence);
+        const double dAir = VoiceTone::deviation (t, VoiceTone::Air);
+
+        const bool  close    = room.tooClose();
+        const float boostCap = d.tameWouldDb > 6.0 ? 1.0f : 3.0f;
+        const bool  hiss     = d.noiseFloorDb > -100.0 && headroom < 30.0;
+
+        p.lowDb      = VoiceTone::correction (dLow, close ? 1.5 : 3.0, -6.0f, 0.0f);
+        p.mudDb      = VoiceTone::correction (dMud, 3.0, -4.0f, 0.0f);
+        p.presenceDb = VoiceTone::correction (dPre, 3.0, -1.5f, boostCap);
+
+        if (t.hasAir())
+            p.airDb = VoiceTone::correction (dAir, 3.0, -1.5f, std::min (boostCap, hiss ? 1.0f : 3.0f));
+
+        // ---- dol
+        if (p.lowDb < 0.0f)
+            std::snprintf (b, sizeof (b),
+                "Dół (80–180 Hz) %+.1f dB względem 1 kHz, przeciętna mowa ma %+.1f. "
+                "Półka 150 Hz %.1f dB.%s",
+                t.db[VoiceTone::Low], VoiceTone::reference[VoiceTone::Low], p.lowDb,
+                close ? " Kreator też mówił, że jesteś za blisko mikrofonu." : "");
+        else
+            std::snprintf (b, sizeof (b),
+                "Dół (80–180 Hz) bez zmian: %+.1f dB względem 1 kHz, przeciętna mowa ma %+.1f.%s",
+                t.db[VoiceTone::Low], VoiceTone::reference[VoiceTone::Low],
+                close ? " Kreator mówił, że jesteś za blisko, ale w nagraniu tego nie słychać." : "");
+        d.because.push_back (b);
+
+        // ---- bloto
+        std::snprintf (b, sizeof (b), p.mudDb < 0.0f
+            ? "Pudełkowe brzmienie (180–355 Hz) %+.1f dB, przeciętnie %+.1f. Ścinam 250 Hz o %.1f dB."
+            : "Środek dołu (180–355 Hz) bez zmian: %+.1f dB, przeciętnie %+.1f.",
+            t.db[VoiceTone::Mud], VoiceTone::reference[VoiceTone::Mud], -p.mudDb);
+        d.because.push_back (b);
+
+        // ---- obecnosc
+        if (std::fabs (p.presenceDb) > 0.05f)
+            std::snprintf (b, sizeof (b),
+                "Obecność (2,2–4,5 kHz) %+.1f dB, przeciętnie %+.1f. %s 3 kHz o %.1f dB%s.",
+                t.db[VoiceTone::Presence], VoiceTone::reference[VoiceTone::Presence],
+                p.presenceDb > 0 ? "Podbijam" : "Ścinam", std::fabs (p.presenceDb),
+                p.presenceDb > 0 && boostCap < 2.0f ? " (mniej, bo sybilanty są ostre)" : "");
+        else
+            std::snprintf (b, sizeof (b),
+                "Obecność (2,2–4,5 kHz) bez zmian: %+.1f dB, przeciętnie %+.1f.",
+                t.db[VoiceTone::Presence], VoiceTone::reference[VoiceTone::Presence]);
+        d.because.push_back (b);
+
+        // ---- powietrze
+        if (! t.hasAir())
+            std::snprintf (b, sizeof (b),
+                "Powietrze bez zmian: nagranie kończy się na %.1f kHz, "
+                "więc podbicie góry podniosłoby tylko szum.", t.bandwidthHz / 1000.0);
+        else if (std::fabs (p.airDb) > 0.05f)
+            std::snprintf (b, sizeof (b),
+                "Powietrze (7–14 kHz) %+.1f dB, przeciętnie %+.1f. %s półkę 10 kHz o %.1f dB%s.",
+                t.db[VoiceTone::Air], VoiceTone::reference[VoiceTone::Air],
+                p.airDb > 0 ? "Podnoszę" : "Obniżam", std::fabs (p.airDb),
+                p.airDb > 0 && hiss ? " (mniej, bo w tle jest szum)" : "");
+        else
+            std::snprintf (b, sizeof (b),
+                "Powietrze (7–14 kHz) bez zmian: %+.1f dB, przeciętnie %+.1f.",
+                t.db[VoiceTone::Air], VoiceTone::reference[VoiceTone::Air]);
+        d.because.push_back (b);
+    }
+
     //==========================================================================
     /** Rozklad przebiegu glosnosci na trend, oscylacje i gest. */
     static void levelShape (const std::vector<float>& x, double sr,

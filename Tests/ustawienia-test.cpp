@@ -83,6 +83,7 @@ int main()
         ok (s.lastScript() == juce::File(), "bez ostatniego tekstu");
         ok (s.sessionFolder().getFullPathName().isNotEmpty(),
                                           "folder sesji ma jakas wartosc domyslna");
+        ok (! s.roomCheck().known,        "bez kreatora miks nie dostaje pomiarow pokoju");
     }
 
     // ---- 2. zapis idzie na dysk, nie do pamieci --------------------------
@@ -95,6 +96,15 @@ int main()
         w.setHardwareChecked (true, "tlo -61.4 dBFS, szczyty -11.2 dBFS");
         w.setFontScale (1.3);
         w.setMirrored (true);
+
+        mix::RoomCheck room;
+        room.known = true;
+        room.noiseFloorDb = -61.4;
+        room.humHz = 50.0;
+        room.humExcessDb = 14.5;
+        room.proximityDb = -2.0;
+        room.proximityLimitDb = -5.0;
+        w.setRoomCheck (room);
         w.flush();
     }
 
@@ -107,6 +117,14 @@ int main()
         eq (r.fontScale(), 1.3,   "czcionka przetrwala");
         ok (r.mirrored(),         "odbicie przetrwalo");
         eq (r.daysSinceCheck(), 0, "sprawdzone przed chwila to zero dni");
+
+        const auto room = r.roomCheck();
+        ok (room.known,                 "pomiary pokoju przetrwaly");
+        eq (room.noiseFloorDb, -61.4,   "tlo pokoju przetrwalo");
+        eq (room.humHz, 50.0,           "przydzwiek przetrwal");
+        eq (room.humExcessDb, 14.5,     "sila przydzwieku przetrwala");
+        ok (room.tooClose(),            "'za blisko' przetrwalo (-2 > -5)");
+        eq (room.daysAgo, 0,            "pomiary pokoju z dzisiaj");
     }
 
     // ---- 3. data: ile dni temu -------------------------------------------

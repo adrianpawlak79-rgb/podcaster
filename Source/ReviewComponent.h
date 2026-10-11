@@ -93,6 +93,10 @@ public:
     /** Wolane, gdy czlowiek chce wrocic do nagrywania. */
     std::function<void()> onClose;
 
+    /** Co kreator zmierzyl w pokoju. Ustawiac przed load(): miks szuka wtedy
+        w nagraniu przydzwieku, ktory slyszal kreator, i porownuje tlo. */
+    void setRoom (const mix::RoomCheck& r) { wish.room = r; }
+
     //==========================================================================
     explicit ReviewComponent (Recorder& r)
         : juce::Thread ("miks po nagraniu"), recorder (r)
@@ -278,7 +282,7 @@ public:
 
         if (waitForIt)
         {
-            review.run();
+            review.run (wish);
             adoptResult();
         }
         else
@@ -466,7 +470,7 @@ private:
        kilkaset uruchomien. */
     void run() override
     {
-        review.run();
+        review.run (wish);
 
         if (threadShouldExit()) return;
 
@@ -829,6 +833,7 @@ private:
     juce::AudioFormatManager formats;
 
     zs::TakeReview review;
+    mix::Decide::Wish wish;   ///< w tym wynik kreatora — patrz setRoom()
     zs::Audition   player;
     bool damagedRecording=false;
     zs::Envelope   beforeEnv, afterEnv;

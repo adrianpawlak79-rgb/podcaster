@@ -934,6 +934,7 @@ private:
         if (wizard != nullptr && wizard->completed())
         {
             settings.setHardwareChecked (true, wizard->summaryLine());
+            settings.setRoomCheck (wizard->roomCheck());
             append (PL ("sprzęt sprawdzony: ") + wizard->summaryLine() + ".");
         }
         else
@@ -1087,6 +1088,7 @@ private:
             showPrompter (false);
 
         review->setRecordingDamaged((!fromDisk && recorder.recordingDamaged()) || wavFile.getSiblingFile(wavFile.getFileName()+".problem.txt").existsAsFile());
+        review->setRoom (settings.roomCheck());
         review->load (wavFile, takeEvents, ! fromDisk, waitForIt);
         showReview (true);
     }
