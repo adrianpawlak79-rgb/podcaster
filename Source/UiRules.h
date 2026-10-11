@@ -159,6 +159,36 @@ namespace review
         const int room = windowHeight - fixedRest;
         return std::clamp (std::min (proportional, room), waveMin, waveMax);
     }
+
+    /** Przeciagniecie myszka po przebiegu w montazu: zakres do wyciecia.
+        Ruch krotszy niz minDragPx to klikniecie (przestaw kursor), nie
+        zaznaczenie — inaczej drgniecie reki zaznaczaloby pol sekundy.
+        Wynik w sekundach, uporzadkowany i w granicach nagrania; from < 0
+        znaczy "to bylo klikniecie". */
+    constexpr int minDragPx = 5;
+
+    struct Range { double from = -1.0, to = -1.0; bool isDrag() const { return from >= 0.0 && to > from; } };
+
+    inline Range dragRange (float x0, float x1, int left, int width, double seconds)
+    {
+        if (width <= 0 || seconds <= 0.0 || std::abs (x1 - x0) < (float) minDragPx) return {};
+
+        auto at = [&] (float x) { return std::clamp ((double) (x - left) / width, 0.0, 1.0) * seconds; };
+        Range r { at (std::min (x0, x1)), at (std::max (x0, x1)) };
+        return r.to > r.from ? r : Range{};
+    }
+
+    /** Ile zwykle trwa ocena i miks, w sekundach, zaokraglone do 5 s.
+        Zmierzone 11 pazdziernika: nagranie 197 s — sluchanie 3,1 s + miks
+        36,1 s, czyli 0,2 dlugosci nagrania (serwer testowy; komputer
+        Adriana moze byc szybszy). Lepiej obiecac troche za duzo niz za malo. */
+    constexpr double mixSecondsPerSecond = 0.2;
+
+    inline int mixEstimateSec (double recordingSec)
+    {
+        const double est = std::max (5.0, recordingSec * mixSecondsPerSecond);
+        return (int) (std::ceil (est / 5.0) * 5.0);
+    }
 }
 
 //==============================================================================
