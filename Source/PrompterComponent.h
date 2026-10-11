@@ -40,6 +40,7 @@
 
 #include "DSP/Follower.h"
 #include "DSP/LineLog.h"
+#include "DSP/PreRoll.h"
 #include "PunchFile.h"
 #include "DSP/PrompterLines.h"
 #include "DSP/PrompterText.h"
@@ -206,7 +207,35 @@ public:
         words.jumpTo (from, recorder.recordedSeconds());
         shownLine = tw::lineOfWord (spans, from);
         markRestart (shownLine, tw::LineSource::Retake);
+        startPreRoll();
         repaint();
+    }
+
+    /** Po R: w sluchawkach 2 s tego, co w czystym pliku bedzie przed tym
+        wersem, i odliczanie do czytania (DSP/PreRoll.h). Gdy kreator zmierzyl,
+        ze sluchawki uciekaja do mikrofonu — samo odliczanie. */
+    void startPreRoll()
+    {
+        if (! recorder.isRecording()) return;
+
+        double startSec = 0.0;
+        tw::PreRollPlan plan;
+        if (! settings.roomCheck().headphonesLeak())
+        {
+            const auto history = recorder.recentAudio (30.0, startSec);
+            plan = tw::PreRoll().plan (lineLog.marks(), history, recorder.currentSampleRate(), startSec);
+        }
+
+        const double sec = (double) plan.audio.size() / juce::jmax (1.0, recorder.currentSampleRate());
+        recorder.playPreRoll (std::move (plan.audio));
+        countdownStart = juce::Time::getMillisecondCounterHiRes();
+        countdownTotal = countdown.totalFor (sec);
+    }
+
+    void stopPreRoll()
+    {
+        recorder.playPreRoll ({});
+        countdownStart = -1.0;
     }
 
     void nudge (int by)
@@ -256,6 +285,7 @@ public:
                                                  .translated ((float) getWidth(), 0.0f));
         drawScript (g, r);
         if (follower.isLost()) drawLostBanner (g, bottom);
+        drawCountdown (g, r);
     }
 
 private:
@@ -304,6 +334,7 @@ private:
             else
             {
                 stopSpeech();
+                stopPreRoll();
             }
         }
 
@@ -470,6 +501,26 @@ private:
             m.text      = lines[(size_t) shown].text.toStdString();
         }
         return m;
+    }
+
+    /** Odliczanie po R: duza liczba na srodku tekstu, potem "Czytaj". */
+    void drawCountdown (juce::Graphics& g, juce::Rectangle<int> r)
+    {
+        if (countdownStart < 0.0) return;
+        const double elapsed = (juce::Time::getMillisecondCounterHiRes() - countdownStart) / 1000.0;
+        const auto label = countdown.label (elapsed, countdownTotal);
+        if (label.empty()) { countdownStart = -1.0; return; }
+
+        const bool go = label == "Czytaj";
+        auto box = r.withSizeKeepingCentre (juce::jmin (r.getWidth() - 40, 360), 150).toFloat();
+        g.setColour (Ink::raised().withAlpha (0.94f));
+        g.fillRoundedRectangle (box, 12.0f);
+        g.setColour (go ? Ink::green() : Ink::edge());
+        g.drawRoundedRectangle (box.reduced (1.0f), 12.0f, 2.0f);
+
+        g.setColour (go ? Ink::green() : Ink::textNow());
+        g.setFont (juce::Font (go ? 64.0f : 96.0f, juce::Font::bold));
+        g.drawText (juce::String (label), box.toNearestInt(), juce::Justification::centred);
     }
 
     void markRestart (int shown, tw::LineSource why = tw::LineSource::Key)
@@ -684,6 +735,8 @@ private:
     std::vector<Line> lines;
     std::vector<tw::LineSpan> spans;     ///< te same wersy, same numery slow
     tw::LineLog lineLog;                 ///< kiedy zaczal sie ktory wers (zapis obok nagrania)
+    tw::Countdown countdown;             ///< po R, razem z pre-rollem
+    double countdownStart = -1.0, countdownTotal = 0.0;   ///< ms; -1 = nie odliczamy
     bool layoutDirty = true, running = false;
 
     /* Gdzie obraz JEST i gdzie ma dojechac, w numerach wersow. */

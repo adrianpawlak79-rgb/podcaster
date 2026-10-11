@@ -25,6 +25,7 @@
 #include "DSP/SyllableClock.h"
 #include "DSP/SpeechFeed.h"
 #include "DSP/TakeReview.h"
+#include "DSP/PreRoll.h"
 
 /** JUCE robi juce::String z const char* przez CharPointer_ASCII — bajt na znak.
     Literaly sa w UTF-8, wiec bez tego "s" rozpada sie na dwa krzaki. */
@@ -151,6 +152,32 @@ public:
     /** Control thread: odpiecie czeka na ostatni odczyt, audio nigdy nie czeka. */
     void attachPlayer (zs::Audition* p) { playerSlot.set(p); }
 
+    //==========================================================================
+    /** Ostatnie sekundy biezacego nagrania (kanal glosu) — do pre-rollu po R
+        (DSP/PreRoll.h). startSec: gdzie w nagraniu zaczyna sie zwrocony
+        kawalek. Watek interfejsu. */
+    std::vector<float> recentAudio (double seconds, double& startSec) const
+    {
+        const double rate = recordingRate.load();
+        startSec = 0.0;
+        if (rate <= 0.0 || ! recording.load()) return {};
+
+        uint64_t end = 0;
+        auto out = history.copyLast ((size_t) (seconds * rate), (size_t) (historySafetySec * rate), end);
+        startSec = (double) (end - out.size()) / rate;
+        return out;
+    }
+
+    /** Jednorazowo do sluchawek, w trakcie nagrania (pre-roll po R). Pusty
+        wektor zatrzymuje. Watek interfejsu; podmiana czeka na ostatni odczyt. */
+    void playPreRoll (std::vector<float> audio)
+    {
+        preRollSlot.set(nullptr);
+        preRoll.audio = std::move(audio);
+        preRoll.pos.store(0);
+        preRollSlot.set(&preRoll);
+    }
+
     /** Odbior zdarzen w watku interfejsu. */
     bool nextEvent (tw::Event& e) noexcept {
         TaggedEvent item;
@@ -189,6 +216,10 @@ public:
         // zadeklarowanego. W watku dzwieku nie ma jak dolozyc pamieci, a
         // czytanie za koniec tablicy to nie bledny dzwiek, tylko awaria.
         playBuf.assign ((size_t) juce::jmax (1024, blockSize * 4), 0.0f);
+
+        // pamiec na pre-roll: 30 s do odczytu + zapas na to, co watek dzwieku
+        // dopisze w trakcie kopiowania
+        history.allocate ((size_t) (rate * (historySec + historySafetySec)) + (size_t) samples);
     }
 
     void audioDeviceStopped() override
@@ -212,6 +243,7 @@ public:
             audioSessionId = session->id;
             elapsedSamples = 0;
             watch.reset();
+            history.reset();
             analysisChannel = session->channel;
         }
         // ---- poziom wejscia, kanal po kanale --------------------------------
@@ -323,7 +355,11 @@ public:
                     valid = valid && channels[c]!=nullptr;
                 }
             }
-            if(valid && session->writer->write(channels,numSamples)) samplesWritten.fetch_add(numSamples);
+            if(valid && session->writer->write(channels,numSamples)) {
+                samplesWritten.fetch_add(numSamples);
+                // ten sam licznik co samplesWritten — czas w pamieci = czas w nagraniu
+                history.push(numInputChannels > ac && inputChannelData[ac] ? inputChannelData[ac] : nullptr, numSamples);
+            }
             else {
                 lostSamples.fetch_add(numSamples);
                 juce::int64 unset=-1;firstLost.compare_exchange_strong(unset,elapsedSamples);
@@ -359,6 +395,32 @@ public:
                             juce::FloatVectorOperations::copy (outputChannelData[c],
                                                               playBuf.data(), numSamples);
 
+                    tonePhase += numSamples;
+                    return;
+                }
+            }
+        }
+
+        // ---- pre-roll po R: raz, w trakcie nagrania ---------------------------
+        //
+        // Gra tylko to, co i tak zostanie wyciete — nagranie idzie dalej bez
+        // zmian. Po koncu: cisza, jak zawsze w trakcie nagrania.
+        {
+            zs::RealtimeSlot<PreRollPlay>::Read preRead(preRollSlot);
+            if (auto* p = preRead.get())
+            {
+                const size_t pos = p->pos.load();
+                if (pos < p->audio.size())
+                {
+                    const size_t n = std::min ((size_t) numSamples, p->audio.size() - pos);
+                    for (int c = 0; c < numOutputChannels; ++c)
+                    {
+                        if (outputChannelData[c] == nullptr) continue;
+                        juce::FloatVectorOperations::copy (outputChannelData[c], p->audio.data() + pos, (int) n);
+                        if ((int) n < numSamples)
+                            juce::FloatVectorOperations::clear (outputChannelData[c] + n, numSamples - (int) n);
+                    }
+                    p->pos.store (pos + n);
                     tonePhase += numSamples;
                     return;
                 }
@@ -446,6 +508,9 @@ private:
         uint64_t id=0;
     };
     struct Calibration { std::vector<float> audio; size_t pos=0; } calibration;
+    struct PreRollPlay { std::vector<float> audio; std::atomic<size_t> pos{0}; } preRoll;
+    tw::HistoryRing history;
+    static constexpr double historySec = 30.0, historySafetySec = 4.0;
     struct TaggedEvent { tw::Event event; uint64_t session=0; };
     std::mutex sessionControl;
     std::unique_ptr<Session> activeSession;
@@ -455,6 +520,7 @@ private:
     zs::RealtimeSlot<tw::SampleRing> speechSlot;
     zs::RealtimeSlot<zs::Audition> playerSlot;
     zs::RealtimeSlot<Calibration> calibrationSlot;
+    zs::RealtimeSlot<PreRollPlay> preRollSlot;
     zs::SpscQueue<TaggedEvent,2048> uiEvents;
     uint64_t nextSessionId=0, audioSessionId=0;
     std::atomic<uint64_t> currentSessionId{0};

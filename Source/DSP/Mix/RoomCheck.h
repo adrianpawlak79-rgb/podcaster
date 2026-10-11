@@ -20,9 +20,15 @@ struct RoomCheck
     double humExcessDb      = 0.0;
     double proximityDb      = 0.0;     ///< nadmiar dolu w kroku "Poziom"
     double proximityLimitDb = -5.0;    ///< powyzej tego kreator mowil "za blisko"
+    double bleedPercent     = 0.0;     ///< ile sluchawek wraca do mikrofonu
+    double bleedLimit       = 4.0;     ///< powyzej tego kreator mowil "uciekaja"
     int    daysAgo          = -1;
 
     bool tooClose() const noexcept { return known && proximityDb > proximityLimitDb; }
+
+    /** Sluchawki uciekaja do mikrofonu (albo to glosniki): nic nie grac w
+        trakcie nagrania, bo wejdzie do nagrania (pre-roll po R, PreRoll.h). */
+    bool headphonesLeak() const noexcept { return known && bleedPercent > bleedLimit; }
 };
 
 } // namespace mix
