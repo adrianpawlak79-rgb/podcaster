@@ -20,6 +20,7 @@
 */
 
 #include "DSP/LineLog.h"
+#include "DSP/CutPoint.h"
 #include "DSP/WordTracker.h"
 #include "DSP/PrompterLines.h"
 #include "DSP/SyllableClock.h"
@@ -105,6 +106,8 @@ static std::vector<bool> speechActivity (const char* wavPath)
     return out;
 }
 
+static const tw::CutFinder* gCuts = nullptr;   // ZS_WERSY + nagranie: punkt ciecia
+
 static Score measure (const tw::PrompterText& text, const std::vector<Hyp>& hyps,
                       const std::vector<double>& truthAt, const std::vector<tw::LineSpan>& lines,
                       double latency, const std::vector<bool>* activity = nullptr)
@@ -181,7 +184,8 @@ static Score measure (const tw::PrompterText& text, const std::vector<Hyp>& hyps
     {
         // Spoznienie zapisanego poczatku wersu wzgledem prawdziwego poczatku
         // jego pierwszego slowa (wzorzec z wynik.czasy).
-        std::vector<double> late;
+        std::vector<double> late, cutErr;
+        int cutOk = 0;
         const auto fin = lineLog.finalLines();
         int noTruth = 0;
         for (const auto& l : lines) if (truthAt[(size_t) l.firstWord] < 0) ++noTruth;
@@ -192,8 +196,18 @@ static Score measure (const tw::PrompterText& text, const std::vector<Hyp>& hyps
             const double t = truthAt[(size_t) m.firstWord];
             if (t < 0) { std::printf ("wers slowo %3d  zapisany %6.1f  (bez wzorca)\n", m.firstWord, m.sec); continue; }
             late.push_back (m.sec - t);
-            std::printf ("wers slowo %3d  zapisany %6.1f  prawdziwy %6.1f  roznica %+5.2f s\n",
+            std::printf ("wers slowo %3d  zapisany %6.1f  prawdziwy %6.1f  roznica %+5.2f s",
                          m.firstWord, m.sec, t, m.sec - t);
+            if (gCuts != nullptr)
+            {
+                const auto c = gCuts->find (m.sec);
+                const bool ok = c.sec <= t && c.sec >= t - 1.0;
+                cutErr.push_back (c.sec - t);
+                if (ok) ++cutOk;
+                std::printf ("   ciecie %6.2f (%+5.2f s od poczatku, %s)%s", c.sec, c.sec - t,
+                             c.inPause ? "w pauzie" : "BEZ PAUZY", ok ? "" : "  <-- zle");
+            }
+            std::printf ("\n");
         }
         std::sort (late.begin(), late.end());
         if (! late.empty())
@@ -201,6 +215,8 @@ static Score measure (const tw::PrompterText& text, const std::vector<Hyp>& hyps
                          "10%% %+.2f s, 90%% %+.2f s, najwiecej %+.2f s\n\n",
                          late.size(), lines.size(), late[late.size() / 2], late[late.size() / 10],
                          late[late.size() * 9 / 10], late.back());
+        if (gCuts != nullptr && ! cutErr.empty())
+            std::printf ("  punkt ciecia przed slowem (do 1 s wczesniej): %d z %zu\n\n", cutOk, cutErr.size());
     }
 
     std::sort (delays.begin(), delays.end());
@@ -297,6 +313,17 @@ int main (int argc, char** argv)
 
     std::vector<bool> activity;
     if (argc > 5) activity = speechActivity (argv[5]);
+    static tw::CutFinder cuts;
+    if (argc > 5)
+    {
+        wavio::Audio wa;
+        if (wavio::read (argv[5], wa).empty())
+        {
+            const auto mono = wa.toMono();
+            cuts.analyse (mono.data(), mono.size(), wa.sampleRate);
+            gCuts = &cuts;
+        }
+    }
 
     std::printf ("  %-34s  <=1 slowo  <=2 slowa  wers\n", "");
     std::printf ("  %-34s  %7.1f%%  %8.1f%%  %5.1f%%\n", ("kompensacja " + std::to_string (latency).substr (0, 4) + " s").c_str(), a.w1, a.w2, a.line);
