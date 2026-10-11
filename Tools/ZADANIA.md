@@ -253,6 +253,45 @@ Test: zakodować `/tmp/mowa.wav`, zdekodować tym samym API i sprawdzić długo�
 i szczyt po dekodowaniu względem WAV (mp3 potrafi podnieść szczyt — sufit miksu −1 dBTP jest
 właśnie po to).
 
+## 8. Tryb „Wiersz z podkładem” (muzyka)
+
+Pomysł Adriana (11 października): oprócz podcastu nagrywanie wiersza pod muzykę. Na ekranie
+Przygotowanie wybór **„Podcast” / „Wiersz z podkładem”** — ten sam, który był w prototypie
+i który pominięto w 3.2, bo program nic z nim nie robił. Teraz dostaje znaczenie.
+
+### Jak to wygląda dla człowieka
+1. **Przygotowanie:** wybór trybu; „Wczytaj podkład” (WAV, FLAC, MP3); suwak **głośności
+   podkładu**; opcjonalnie „głos wchodzi od” (np. 8 s wstępu muzyki).
+2. **Nagranie:** podkład gra w słuchawkach od początku, prompter jak zwykle. Głos zapisuje się
+   na **osobnej ścieżce**, równo z muzyką. Bez słuchawek — ostrzeżenie (muzyka z głośników
+   weszłaby do mikrofonu; kreator ma już krok „Słuchawki”, który to mierzy).
+3. **R przy muzyce = nadpisanie, nie wycięcie.** Muzyka jest ciągła, więc czasu wyciąć nie
+   można — głos rozjechałby się z podkładem. Zamiast tego: podkład cofa się 2 s przed początek
+   wersu (pre-roll), program nagrywa głos od początku wersu, a stary głos od tego miejsca
+   znika. Tak działa punch-in w programach studyjnych. Wspólne z zad. 4: czasy wersów (#24),
+   punkt w ciszy (#25), szew (#27).
+4. **Miks:** głos przez ten sam łańcuch co podcast; podkład z głośnością z suwaka i
+   **automatycznym ściszaniem pod głosem** (ile dB — ustawienie); całość do LUFS celu;
+   zapis WAV + MP3 (zad. 6). Na odsłuchu suwak podkładu działa na żywo.
+5. Zapis także osobno: sam głos (do własnego miksu w Studio One).
+
+### Kroki techniczne (każdy osobny PR z testem)
+1. Wybór trybu i wczytanie podkładu (MP3 na Windowsie przez Media Foundation — ten sam
+   mechanizm co zapis MP3 z zad. 6), zapamiętane w ustawieniach sesji.
+2. Odtwarzanie podkładu w słuchawkach w trakcie nagrania, z **kompensacją opóźnienia karty**
+   (wejście + wyjście; zmierzyć pętlą jak w kreatorze, krok „Słuchawki”), żeby głos leżał
+   równo z muzyką. Test: syntetyczna pętla z opóźnieniem → wyrównanie co do 1 ms.
+3. Punch-in z nadpisaniem (pre-roll podkładu, nagranie od punktu w ciszy, przenikanie).
+4. Miks głos + podkład: ściszanie podkładu pod głosem (sidechain), głośność całości.
+5. Ekrany: Przygotowanie (podkład, suwak), Odsłuch (suwak podkładu na żywo) — dla Codexa.
+
+### Do ustalenia z Adrianem
+- czy podkład ściszać pod głosem automatycznie, i domyślnie o ile (np. −8 dB);
+- co, gdy podkład jest krótszy / dłuższy niż czytanie (wyciszenie na końcu?);
+- „Wiersz” bez podkładu = zwykły tryb podcastu?
+
+Uwaga do pomocy w programie: prawa do podkładu — przy publikacji potrzebna muzyka z licencją.
+
 ---
 
 # Zadania nieprogramistyczne
