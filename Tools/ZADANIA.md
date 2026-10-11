@@ -164,3 +164,34 @@ Kolejność, każdy krok osobny PR z testem:
 Ryzyko: szew słyszalny na zmianie podejścia (inny oddech, inna intonacja końca zdania).
 Mierzalne w teście tak jak dziś w `montage-test` (trzask, stopień tła); intonacji test nie
 złapie — tu decyduje odsłuch.
+
+---
+
+## 6. Ekran „Ustawienia” (zakładki)
+
+Decyzja Adriana: zamiast rozrzuconych opcji jeden ekran ustawień. Przycisk w miejscu
+„Mikrofon i sprzęt”, zakładki po lewej. Podział pracy: Claude najpierw robi to, co pod
+spodem (zapis w `Settings.h`, przekazanie do miksu, testy), Codex potem wygląd (po kroku 3.5).
+
+| Zakładka | Zawartość |
+|---|---|
+| **Sprzęt** | karta, wejście z mikrofonem, słuchawki, częstotliwość, test słuchawek; **model mikrofonu** z wbudowanej tabeli (SM7B, SM58, RE20, PodMic, MV7, NT1, AT2020, Yeti… albo „dynamiczny / pojemnościowy / USB / nie wiem”) — na razie tylko rada o wzmocnieniu dla cichych dynamicznych; „Sprawdź sprzęt” z ostatnim wynikiem i datą |
+| **Nagrania** | folder sesji, „Otwórz folder”; **zapis miksu domyślnie WAV + MP3** (WAV 24-bit, MP3 192 kb/s; każdy da się wyłączyć) |
+| **Prompter** | wielkość tekstu, lustro, śledzenie (słowa / sylaby / wyłączone), klawisze i pilot prezentera (PageUp/PageDown) |
+| **Miks** | cel: Podcast −16 / YouTube −14 / bez zmiany głośności (`Decide::Destination` już to umie); sufit szczytu; barwa: automatyczna / stała jak dawniej / później „jak w moim miksie” |
+| **Lampka** | wyciszone rodzaje alarmów z możliwością przywrócenia |
+| **O programie** | wersja, licencje (JUCE, Vosk, MP3), gdzie leżą ustawienia i nagrania |
+
+### MP3 — skąd koder
+
+JUCE nie ma własnego kodera MP3 (jego `LAMEEncoderAudioFormat` wywołuje zewnętrzny `lame.exe`).
+Możliwości:
+1. **Windows Media Foundation** — koder MP3 jest częścią Windows 8/10/11, nic nie dokładamy do
+   paczki; kod tylko dla Windows (~150–200 linii), na Linuksie test bez kodowania. **Zalecane.**
+2. LAME jako osobna DLL obok .exe (jak Vosk) — wyjątek od zasad, licencja LGPL.
+3. Własny koder od zera — za duży na zysk.
+
+Patenty MP3 wygasły (2017), więc użycie jest wolne.
+Test: zakodować `/tmp/mowa.wav`, zdekodować tym samym API i sprawdzić długość, głośność (LUFS)
+i szczyt po dekodowaniu względem WAV (mp3 potrafi podnieść szczyt — sufit miksu −1 dBTP jest
+właśnie po to).
