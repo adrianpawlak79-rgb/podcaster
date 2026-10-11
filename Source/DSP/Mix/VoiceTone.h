@@ -41,10 +41,14 @@
 
     Zmierzone przy pisaniu (narzedzie jak measure(), na calych plikach):
 
-        nagranie czlowieka (mp3)   dol +12,4  bloto +6,2  obecnosc  0,0  powietrze  0,0
+        nagranie po obrobce (mp3)  dol +12,4  bloto +6,2  obecnosc  0,0  powietrze  0,0
         espeak pl                  dol -10,8  bloto -2,5  obecnosc -6,6  powietrze -24,7
         espeak pl+f2               dol -14,0  bloto -3,5  obecnosc -7,6  powietrze -23,1
         espeak pl+m3               dol -10,9  bloto -2,6  obecnosc -5,3  powietrze -21,6
+
+    "Nagranie po obrobce" to plik Adriana juz zmiksowany przez niego — jego
+    jasna gora i mocny dol moga byc skutkiem tamtej obrobki, a nie glosu.
+    Surowego nagrania czlowieka jeszcze tu nie mierzylismy.
 
     Syntezator nie ma pasma powyzej 11 kHz (nagrywa w 22 kHz), wiec jego
     "powietrze" to brak pasma, nie ciemny glos. Takie nagranie rozpoznaje
