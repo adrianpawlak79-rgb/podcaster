@@ -367,6 +367,7 @@ public:
     {
         float sensitivity = 25.0f;   ///< ile razy ponad mediane to juz trzask
         int   maxLength   = 48;      ///< dluzsze zdarzenia to nie sa trzaski
+        float isolation   = 0.1f;    ///< blad przed zdarzeniem najwyzej taki ulamek jego szczytu
     };
 
     Params params;
@@ -438,13 +439,23 @@ public:
             if (width < 1 || width >= (size_t) params.maxLength)
                 continue;
 
-            double before = 0.0;
+            //
+            // "Spokojnie" mierzymy WZGLEDEM SILY ZDARZENIA, nie wzgledem progu.
+            // Pierwsza wersja porownywala z polowa progu — a prog w mowie lezy
+            // tysiac razy ponizej prawdziwego trzasku (pomiar: prog 0,003, blad
+            // trzasku 2,8). Zwykla mowa przed trzaskiem przekraczala wiec pol
+            // progu i polowa trzaskow uchodzila (restore-test: 6 z 12).
+            // Atak spolgloski narasta — przed szczytem jest blad tego samego
+            // rzedu; trzask spada z nieba — przed nim jest o rzad wielkosci mniej.
+            double before = 0.0, peak = 0.0;
             const size_t look = std::min (i, (size_t) 128);
 
             for (size_t k = i - look; k < i; ++k)
                 before = std::max (before, (double) std::fabs (err[k]));
+            for (size_t k = i; k <= j; ++k)
+                peak = std::max (peak, (double) std::fabs (err[k]));
 
-            if (before > thresh * 0.5)
+            if (before > peak * params.isolation)
                 continue;
 
             // ---- to samo, ale na SYGNALE: czy zdarzenie jest w srodku czegos

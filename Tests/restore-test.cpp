@@ -326,6 +326,50 @@ static void testDeClick (const std::vector<float>& speech, bool haveSpeech)
 
     check (better >= 10, "naprawione miejsca sa blizej oryginalu",
            std::to_string (better) + " z 12 poprawionych");
+
+    // ---- trudniej: cichsze mlaski, zanikajacy ksztalt, cala probka -----------
+    // Prawdziwy mlask jest zwykle cichszy niz trzask wyzej (0,35 przy mowie
+    // o szczycie 0,2) i nie jest rowna pila, tylko szybko gasnie. Pomiar przy
+    // naprawie (pazdziernik): stara wersja 24 z 40, nowa 36 z 40.
+    std::vector<float> all = speech;
+    pk = 0.0f;
+    for (float v : all) pk = std::max (pk, std::fabs (v));
+    for (auto& v : all) v *= 0.2f / std::max (1.0e-6f, pk);
+
+    mix::DeClick dcAll;
+    std::vector<float> allOut;
+    dcAll.render (all, allOut);
+    check (dcAll.repaired <= 1, "cala probka mowy: nic albo prawie nic",
+           std::to_string (dcAll.repaired) + " zdarzen w " + num ((double) all.size() / kSR, 1) + " s");
+
+    std::vector<float> soft = all;
+    std::mt19937 rng2 { 9 };
+    std::uniform_int_distribution<size_t> where2 { (size_t) kSR, all.size() - (size_t) kSR };
+    std::vector<size_t> spots2;
+    for (int k = 0; k < 40; ++k)
+    {
+        const size_t p = where2 (rng2);
+        spots2.push_back (p);
+        for (int i = 0; i < 12; ++i)
+            soft[p + (size_t) i] += 0.1f * std::exp (-i / 2.5f) * (i % 3 == 0 ? 1.0f : -0.6f);
+    }
+    mix::DeClick dcSoft;
+    std::vector<float> softOut;
+    dcSoft.render (soft, softOut);
+
+    int softBetter = 0;
+    for (size_t p : spots2)
+    {
+        double b = 0.0, a2 = 0.0;
+        for (int i = 0; i < 14; ++i)
+        {
+            const size_t j = p + (size_t) i;
+            b  = std::max (b,  (double) std::fabs (soft[j] - all[j]));
+            a2 = std::max (a2, (double) std::fabs (softOut[j] - all[j]));
+        }
+        if (a2 < b * 0.5) ++softBetter;
+    }
+    check (softBetter >= 32, "cichsze, gasnace mlaski (0,1)", std::to_string (softBetter) + " z 40");
 }
 
 static void testGainRider()
