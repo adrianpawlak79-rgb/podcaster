@@ -231,7 +231,7 @@ public:
 
         addAndMakeVisible (lamp);
 
-        prompterButton.onClick = [this] { openLastOrChoose(); };
+        prompterButton.onClick = [this] { if (preparation) openScript(); else openLastOrChoose(); };
         addAndMakeVisible (prompterButton);
 
         otherTextButton.setButtonText (PL ("Zmień tekst"));
@@ -326,6 +326,32 @@ public:
         status.setColour (juce::Label::textColourId, zs::Ink::textNext());
         addAndMakeVisible (status);
 
+        nameInput.setText (PL("Nowy odcinek"));
+        nameInput.onTextChange = [this] { repaint(); };
+        scriptInput.setMultiLine (true);
+        scriptInput.setReturnKeyStartsNewLine (true);
+        scriptInput.setTextToShowWhenEmpty (PL("Tu możesz wpisać tekst lub otworzyć plik TXT."), zs::Ink::textDim());
+        if (settings.lastScript().existsAsFile()) scriptInput.setText (settings.lastScript().loadFileAsString());
+        for (auto* input : { &nameInput, &scriptInput }) {
+            input->setColour (juce::TextEditor::backgroundColourId, zs::Ink::panel());
+            input->setColour (juce::TextEditor::textColourId, zs::Ink::textNow());
+            input->setColour (juce::TextEditor::outlineColourId, zs::Ink::edge());
+            addAndMakeVisible (*input);
+        }
+        prepareButton.setButtonText (PL("Przejdź do nagrania →"));
+        zs::Look::setKind (prepareButton, zs::ui::ButtonKind::Primary);
+        prepareButton.onClick = [this] {
+            preparation = false; settingsOpen = false; detailsOpen = false;
+            if (scriptInput.getText().trim().isNotEmpty()) {
+                ensurePrompter(); prompter->load (scriptInput.getText()); showPrompter (true);
+            } else { resized(); repaint(); }
+        };
+        addAndMakeVisible (prepareButton);
+        preparationButton.setButtonText (PL("← Przygotowanie"));
+        preparationButton.onClick = [this] {
+            preparation = true; if (inPrompter) showPrompter (false); resized(); repaint();
+        };
+        addAndMakeVisible (preparationButton);
         sessionFolder = settings.sessionFolder();
 
         // ---- kreator idzie pierwszy, ale tylko raz --------------------------
@@ -395,6 +421,7 @@ public:
     Settings& userSettings() noexcept { return settings; }
     void previewSettings() { settingsOpen=true;resized();repaint(); }
     void previewPrompter() {
+        preparation = false;
         recorder.prepareDevice(48000,512,1);
         prompter=std::make_unique<PrompterComponent>(recorder,settings);
         prompter->onClose=[this]{showPrompter(false);};
@@ -415,10 +442,11 @@ public:
         const bool rec = recorder.isRecording();
         const auto name = recordingName();
         zs::ScreenFrame::paint (g, getLocalBounds(), name,
-            rec ? PL ("Esc — zatrzymaj i oceń") : PL ("Nagraj, a potem odsłuchaj podejście"));
+            rec ? PL ("Esc — zatrzymaj i oceń") : preparation ? PL("Wybierz mikrofon i przygotuj tekst") : PL ("Nagraj, a potem odsłuchaj podejście"));
         auto side = zs::ScreenFrame::sidebar (getLocalBounds());
         g.setColour (I::bar()); g.fillRect (side);
         g.setColour (I::edge()); g.drawVerticalLine (side.getX(), (float) side.getY(), (float) side.getBottom());
+        if (preparation) { paintPreparation (g); return; }
         auto main = zs::ScreenFrame::mainArea (getLocalBounds());
         g.setFont (juce::Font (zs::type::tiny, juce::Font::bold)); g.setColour (I::textDim());
         g.drawText (PL ("02 / NAGRANIE"), main.removeFromTop (18), juce::Justification::centredLeft);
@@ -457,6 +485,8 @@ public:
         refreshHomeVisibility();
         settingsButton.setBounds (getWidth() - 196, 14, 174, 36);
         flow.setBounds (22, zs::ui::frame::header + 8, getWidth() - 44, zs::StepBar::preferredHeight);
+        if (preparation) { layoutPreparation(); return; }
+        preparationButton.setBounds (getWidth() - 380, 14, 174, 36);
         auto card = homeCard();
         auto side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24);
         side.removeFromTop (114);
@@ -533,6 +563,7 @@ public:
         katalogu tymczasowego i bez urzadzenia — plik jest pusty i znika. */
     void previewRecording (bool withPrompter)
     {
+        preparation = false;
         recorder.prepareDevice (48000, 512, 1);
 
         if (withPrompter) previewPrompter();
@@ -554,7 +585,7 @@ public:
 private:
     juce::String recordingName() const
     {
-        return recorder.isRecording() ? recorder.currentFile().getFileNameWithoutExtension() : PL ("Nowy odcinek");
+        return nameInput.getText().trim().isEmpty() ? PL("Nowy odcinek") : nameInput.getText().trim();
     }
 
     juce::Rectangle<int> homeCard() const
@@ -610,19 +641,96 @@ private:
         prompterButton.setVisible(idleHome && !settingsOpen);
         otherTextButton.setVisible(idleHome && !settingsOpen && settings.lastScript().existsAsFile());
         flow.setVisible(!inWizard && !inReview);
-        flow.setCurrent(1);
+        flow.setCurrent(preparation ? 0 : 1);
+        const bool prepare = idleHome && preparation;
+        nameInput.setVisible(prepare); scriptInput.setVisible(prepare && !detailsOpen);
+        prepareButton.setVisible(prepare && !settingsOpen);
+        preparationButton.setVisible(!preparation && !rec && !inWizard && !inReview);
+        if (prepare) {
+            prompterButton.setVisible(!detailsOpen); otherTextButton.setVisible(false);
+            checkButton.setVisible(true); folderButton.setVisible(true);
+        }
         lamp.setVisible(!inWizard && !inReview && (rec || inPrompter));
         meter.setVisible(!inWizard && !inReview && !settingsOpen);
         status.setVisible(!inWizard && !inReview && !settingsOpen);
         zs::Look::setKind(recButton, rec || detailsOpen ? zs::ui::ButtonKind::Primary : zs::ui::ButtonKind::Record);
 
         const bool hasScript = inPrompter && prompter != nullptr && prompter->hasText();
+        if (!preparation) updatePrompterButton();
         if (prompter != nullptr) prompter->refreshControls();
-        recButton.setVisible(!inWizard && !inReview);
+        recButton.setVisible(!inWizard && !inReview && !preparation);
         repeatButton.setVisible(inPrompter && rec && hasScript);
         hints.setVisible((inPrompter || rec) && !inWizard && !inReview);
         hints.setText(PL(zs::ui::hintLine(rec, hasScript).c_str()), juce::dontSendNotification);
         hints.setJustificationType(inPrompter ? juce::Justification::centred : juce::Justification::centredLeft);
+    }
+
+    void paintPreparation (juce::Graphics& g)
+    {
+        auto main = zs::ScreenFrame::mainArea (getLocalBounds());
+        auto text = [&g] (const juce::String& value, juce::Rectangle<int> r, float size, bool bold = false) {
+            g.setColour (bold ? zs::Ink::textNow() : zs::Ink::textNext());
+            g.setFont (juce::Font (size, bold ? juce::Font::bold : juce::Font::plain));
+            g.drawFittedText (value, r, juce::Justification::centredLeft, 2);
+        };
+        text (PL("01 / PRZYGOTOWANIE"), main.removeFromTop(18), zs::type::tiny);
+        text (PL("Przygotowanie nagrania"), main.removeFromTop(38), zs::type::title, true);
+        text (PL("Ustaw nazwę i mikrofon. Dodaj tekst, jeśli chcesz używać promptera."), main.removeFromTop(36), zs::type::body);
+        main.removeFromTop(12);
+        text (PL("Nazwa nagrania"), main.removeFromTop(22), zs::type::small);
+        main.removeFromTop(56);
+        text (PL("TEKST DO PROMPTERA"), main.removeFromTop(38), zs::type::small, true);
+        text (PL("Bez tekstu możesz nagrywać swobodnie."), main.removeFromBottom(28), zs::type::small);
+        if (!settingsOpen) {
+            auto side = settingsBox().reduced(22,24);
+            text (PL("Przed nagraniem"), side.removeFromTop(32), zs::type::heading, true);
+            side.removeFromTop(4);
+            text (settings.hardwareChecked() ? PL("Sprzęt został sprawdzony") : PL("Mikrofon nie został sprawdzony"), side.removeFromTop(32), zs::type::body);
+            side.removeFromTop(8);
+            text (PL("Mikrofon"), side.removeFromTop(20), zs::type::small);
+            auto* device = deviceManager.getCurrentAudioDevice();
+            text (device ? device->getName() : PL("Brak urządzenia — otwórz ustawienia"), side.removeFromTop(32), zs::type::body);
+            side.removeFromTop(8);
+            text (PL("Poziom wejścia"), side.removeFromTop(20), zs::type::small);
+            text (PL("Nagranie rozpocznie się po naciśnięciu Nagraj."), settingsBox().reduced(22,12).removeFromBottom(40), zs::type::small);
+        } else {
+            g.setColour(zs::Ink::textNow()); g.setFont(juce::Font(zs::type::heading,juce::Font::bold));
+            g.drawText(PL("Mikrofon i sprzęt"),settingsBox().reduced(22).removeFromTop(30),juce::Justification::centredLeft);
+        }
+    }
+
+    void layoutPreparation()
+    {
+        auto main = zs::ScreenFrame::mainArea(getLocalBounds());
+        main.removeFromTop(126);
+        nameInput.setBounds(main.removeFromTop(40)); main.removeFromTop(16);
+        auto row = main.removeFromTop(38);
+        prompterButton.setButtonText(PL("Otwórz tekst"));
+        prompterButton.setBounds(row.removeFromRight(156)); main.removeFromTop(8);
+        main.removeFromBottom(28);
+        scriptInput.setBounds(main);
+        if (detailsOpen) {
+            okButton.setBounds(main.removeFromBottom(34).removeFromRight(206));
+            main.removeFromBottom(8); events.setBounds(main);
+        }
+        auto side = settingsBox().reduced(22,24);
+        auto bottom = side.removeFromBottom(settingsOpen ? 0 : 168);
+        bottom.removeFromBottom(36);
+        prepareButton.setBounds(bottom.removeFromBottom(42)); bottom.removeFromBottom(8);
+        openButton.setBounds(bottom.removeFromBottom(32)); bottom.removeFromBottom(8);
+        detailsButton.setBounds(bottom.removeFromBottom(32));
+        if (settingsOpen) {
+            side.removeFromTop(44);
+            folderButton.setBounds(side.removeFromBottom(36)); side.removeFromBottom(8);
+            checkButton.setBounds(side.removeFromBottom(36)); side.removeFromBottom(8);
+            selector->setBounds(side);
+        } else {
+            side.removeFromTop(156);
+            meter.setBounds(side.removeFromTop(20)); side.removeFromTop(8);
+            checkButton.setBounds(side.removeFromTop(34)); side.removeFromTop(8);
+            folderButton.setBounds(side.removeFromTop(28));
+            status.setVisible(false);
+        }
     }
 
     void repeatLine()
@@ -654,6 +762,7 @@ private:
             return;
         }
 
+        preparation = false;
         const auto err = recorder.start (previewFolder != juce::File() ? previewFolder : sessionFolder);
 
         if (err.isNotEmpty())
@@ -879,6 +988,9 @@ private:
     Meter meter;
     juce::TextButton recButton, repeatButton, folderButton, okButton, settingsButton, detailsButton, openButton;
     juce::Label hints;
+    juce::TextEditor nameInput, scriptInput;
+    juce::TextButton prepareButton, preparationButton;
+    bool preparation = true;
     zs::StepBar flow;
     juce::File previewFolder;   ///< tylko --preview-ui: nagrywanie do katalogu tymczasowego
     bool settingsOpen=false, detailsOpen=false;
@@ -1010,21 +1122,25 @@ private:
 
     void loadScript (const juce::File& f)
     {
+        ensurePrompter();
+        scriptInput.setText (f.loadFileAsString());
+        prompter->load (scriptInput.getText());
+        settings.setLastScript (f);
+        updatePrompterButton();
+        if (!preparation) showPrompter (true);
+        else { resized(); repaint(); }
+    }
+
+    void ensurePrompter()
+    {
         if (prompter == nullptr)
         {
             prompter = std::make_unique<PrompterComponent> (recorder, settings);
             prompter->onClose = [this] { showPrompter (false); };
             prompter->setSpeech (&speech);
             prompter->onStopRequest = [this] { if (recorder.isRecording()) toggleRecord(); };
-            addAndMakeVisible (*prompter);
+            addChildComponent (*prompter);
         }
-
-        prompter->load (f.loadFileAsString());
-
-        settings.setLastScript (f);
-        updatePrompterButton();
-
-        showPrompter (true);
     }
 
     void updatePrompterButton()
@@ -1081,6 +1197,7 @@ private:
             addAndMakeVisible (*review);
         }
 
+        preparation = false;
         reviewCameFromPrompter = inPrompter;
 
         if (inPrompter)
