@@ -122,6 +122,23 @@ public:
     }
 
     //==========================================================================
+    // ---- karta dzwiekowa -----------------------------------------------------
+
+    /** Stan AudioDeviceManager (XML): sterownik, karta, wlaczone wejscia.
+        Bez tego program po kazdym uruchomieniu bral domyslna karte systemu i
+        dwa pierwsze wejscia — a czlowiek wybieral swoje od nowa. */
+    juce::String audioState() const
+    {
+        return props.getUserSettings()->getValue ("audioState");
+    }
+
+    void setAudioState (const juce::String& xml)
+    {
+        props.getUserSettings()->setValue ("audioState", xml);
+        props.saveIfNeeded();
+    }
+
+    //==========================================================================
     // ---- prompter ------------------------------------------------------------
 
     juce::File lastScript() const
