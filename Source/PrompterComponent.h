@@ -499,7 +499,9 @@ public:
         if (res.applied)
             text = "# wyciete pomylki (klawisz R): " + juce::String (res.cuts) + ", razem "
                  + juce::String (res.removedSec, 1) + " s; surowe nagranie: " + res.rawCopy.getFileName()
-                 + " w folderze surowe\n" + text;
+                 + " w folderze surowe"
+                 + (res.audibleSeams > 0 ? "; szwy z inna cisza (posluchaj): " + juce::String (res.audibleSeams) : juce::String())
+                 + "\n" + text;
 
         wav.getSiblingFile (wav.getFileNameWithoutExtension() + ".wersy.txt")
            .replaceWithText (text, false, false, "\n");

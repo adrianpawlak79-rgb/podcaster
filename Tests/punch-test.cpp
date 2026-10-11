@@ -150,6 +150,22 @@ int main()
                "dwa R na jednym wersie: obie pomylki znikaja, jeden szew", b);
     }
 
+    // ---- szew: tlo po obu stronach ---------------------------------------------------
+    {
+        const auto sm = punch.seams (g.x, g.sr, plan);
+        check (sm.size() == 1 && ! sm[0].audible, "to samo tlo po obu stronach: szew nieslyszalny",
+               sm.empty() ? "" : num (sm[0].levelDiffDb, " dB"));
+
+        // po R ktos wlaczyl wentylator: tlo +8 dB od miejsca wznowienia
+        auto loud = g.x;
+        std::mt19937 r2 (9); std::normal_distribution<float> n2 (0.0f, 1.0f);
+        if (! plan.empty())
+            for (size_t i = (size_t) (plan[0].to * g.sr); i < loud.size(); ++i) loud[i] += 0.0025f * n2 (r2);
+        const auto sm2 = punch.seams (loud, g.sr, plan);
+        check (sm2.size() == 1 && sm2[0].audible, "tlo glosniejsze po R: szew oznaczony jako slyszalny",
+               sm2.empty() ? "" : num (sm2[0].levelDiffDb, " dB"));
+    }
+
     // ---- R bez wczesniejszego wersu --------------------------------------------------
     {
         std::vector<tw::LineMark> m { mark (0, 1.0, tw::LineSource::Retake) };
