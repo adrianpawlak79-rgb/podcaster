@@ -1,0 +1,19 @@
+OK trim controls exist
+OK initial selection covers full recording
+OK start handle keyboard step is 0.1s
+OK end handle keyboard step is 0.1s
+OK slider keyboard step is 0.1s
+OK dragging handle changes boundary
+OK handles cannot cross
+OK excluded region is dimmed
+OK automatic processing includes measured LUFS tone noise and hum
+OK before-after works in montage
+OK waveform seek works in montage
+OK export contains only selected range
+OK original file is byte-for-byte unchanged
+OK middle cut and undo fit minimum size
+OK undo restores entire pre-trim recording
+OK middle cut accepts marked interval
+OK middle cut still removes selected interval
+OK undo restores middle cut
+OK return to review restores actions
