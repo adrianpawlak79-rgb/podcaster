@@ -894,6 +894,18 @@ private:
             recButton.setButtonText ("Nagraj");
             zs::Look::setKey (recButton, {});
             append ("--- zatrzymane: " + justRecorded.getFileName());
+
+            // Punch and roll: pomylki po R wycinamy teraz, zanim ocena
+            // przeczyta plik (PunchFile.h). Surowe nagranie idzie do "surowe".
+            if (prompter != nullptr)
+            {
+                const auto punched = prompter->finishTake (justRecorded);
+                if (punched.applied)
+                    append (PL ("--- wycięte pomyłki (R): ") + juce::String (punched.cuts) + ", "
+                            + juce::String (punched.removedSec, 1) + PL (" s; pełne nagranie w folderze „surowe”"));
+                else if (punched.error.isNotEmpty())
+                    append (PL ("--- nie wycięłem pomyłek: ") + punched.error + PL (" (nagranie zostaje w całości)"));
+            }
             logic.reset();
             lamp.setState (0, "Zatrzymane.", true);
 

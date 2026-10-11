@@ -28,6 +28,7 @@ $CXX $FLAGS mowa16k-test.cpp   -o mowa16k-test
 $CXX $FLAGS wejscie-test.cpp   -o wejscie-test
 $CXX $FLAGS czasy-wersow-test.cpp -o czasy-wersow-test
 $CXX $FLAGS punkt-ciecia-test.cpp -o punkt-ciecia-test
+$CXX $FLAGS punch-test.cpp       -o punch-test
 
 ./lamp-test
 ./dynamics-test
@@ -55,6 +56,14 @@ espeak-ng -v pl -s 150 -w /tmp/mowa.wav \
 ./wejscie-test
 ./czasy-wersow-test
 ./punkt-ciecia-test
+./punch-test
+
+# Punch and roll na prawdziwych plikach (JUCE, CMake: cel PunchPlikTest)
+if [ -x ../build-linux/PunchPlikTest_artefacts/Release/PunchPlikTest ]; then
+    ../build-linux/PunchPlikTest_artefacts/Release/PunchPlikTest
+else
+    echo "punch-plik-test: NIE ZBUDOWANY (cmake --build build-linux --target PunchPlikTest) — nie sprawdzono"
+fi
 
 # Pamietanie ustawien — jedyny test, ktory potrzebuje JUCE i prawdziwego pliku,
 # wiec idzie przez CMake i Wine. Gdy go nie zbudowano, mowimy to wprost zamiast

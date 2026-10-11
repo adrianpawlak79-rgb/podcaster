@@ -66,6 +66,19 @@ target_link_libraries(UstawieniaTest
     PRIVATE juce::juce_data_structures juce::juce_events
     PUBLIC  juce::juce_recommended_config_flags)
 
+# Punch and roll na prawdziwych plikach: czysty plik, surowe w "surowe",
+# czasy wersow przeliczone. Zasady ciecia testuje punch-test bez JUCE.
+juce_add_console_app(PunchPlikTest PRODUCT_NAME "punch-plik-test")
+target_sources(PunchPlikTest PRIVATE Tests/punch-plik-test.cpp)
+target_include_directories(PunchPlikTest PRIVATE Source)
+target_compile_definitions(PunchPlikTest PUBLIC
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_STANDALONE_APPLICATION=1)
+target_link_libraries(PunchPlikTest
+    PRIVATE juce::juce_audio_formats juce::juce_events
+    PUBLIC  juce::juce_recommended_config_flags)
+
 juce_add_console_app(RuntimeTest PRODUCT_NAME "runtime-test")
 target_sources(RuntimeTest PRIVATE Tests/runtime-test.cpp)
 target_include_directories(RuntimeTest PRIVATE Source)
