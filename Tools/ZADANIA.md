@@ -312,6 +312,29 @@ Uwaga do pomocy w programie: prawa do podkładu — przy publikacji potrzebna mu
 
 ---
 
+## 9. Poprawki miksu (na przyszłość)
+
+Przegląd łańcucha miksu (`Source/DSP/Mix/SpeechChain.h`, 14 kroków, wszystko nasze — bez
+cudzych wtyczek) z 11 października. Kolejność kroków i cele (−16 LUFS, −1 dBTP) zostają.
+Adrian: „dajemy do zrobienia na przyszłość”. Każdy punkt osobny PR z testem.
+
+1. **Usuwanie mlasków za słabe.** `restore-test` znajduje 6 z 12 wstawionych trzasków,
+   wymóg ≥ 10 (`Tests/znane-bledy.txt`). Pierwszy krok łańcucha i najbardziej słyszalny
+   w mowie z bliska. Po naprawie test schodzi z listy znanych błędów.
+2. **Ściszanie oddechów.** Lampka je wykrywa (`Kind::Breath`), miks nie rusza; po
+   kompresji i wyrównaniu do LUFS oddechy są głośniejsze niż w surowym nagraniu.
+   Ściszać o 6–10 dB, nie wycinać do zera (inaczej mowa brzmi sztucznie). Test:
+   syntetyczne oddechy między frazami → zmierzone tłumienie, mowa nietknięta.
+3. **Nasycenie dobierane do głosu**, nie stałe 0,35 dla każdego. Z pomiaru barwy
+   (`VoiceTone.h`): przy jasnym/ostrym głosie mniej albo wcale.
+4. **Pogłos pokoju.** Na początek kreator go mierzy i mówi wprost („pokój dudni —
+   koc, zasłona”); usuwanie pogłosu z nagrania później (trudne; notatka
+   `Docs/badania/DNSMOS.md`).
+5. **Porównanie z miksem Adriana.** Surowe nagranie (SM7B, 1–2 min) + jego obróbka
+   w Studio One tego samego materiału → pomiary: barwa (LTASS), zakres głośności (LRA),
+   szczyt do średniej (PLR), poziom oddechów i tła. Poprawiamy to, co realnie odstaje.
+   Potrzebne pliki od Adriana.
+
 # Zadania nieprogramistyczne
 
 ## 7. Film z instrukcją
