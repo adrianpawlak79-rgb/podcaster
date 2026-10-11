@@ -1,0 +1,98 @@
+/*
+    punch-plik-test.cpp — punch and roll na prawdziwych plikach WAV.
+
+    Zasady ciecia sprawdza punch-test (bez JUCE). Tu sprawdzamy to, co moze
+    sie nie udac dopiero na dysku: czy surowe nagranie trafia do "surowe"
+    nietkniete, czy czysty plik ma nazwe nagrania i da sie go przeczytac,
+    czy nie zostaje plik tymczasowy, czy czasy wersow sa przeliczone.
+*/
+
+#include <juce_audio_formats/juce_audio_formats.h>
+#include "PunchFile.h"
+
+#include <cmath>
+#include <iostream>
+#include <random>
+
+static int errors = 0, checks = 0;
+static void ok (bool c, const juce::String& what) { ++checks; std::cout << (c ? "  OK    " : "  ZLE   ") << what << std::endl; if (! c) ++errors; }
+
+int main()
+{
+
+    std::cout << "\npunch-plik-test\n\n";
+
+    const auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("zs-punch-test");
+    dir.deleteRecursively(); dir.createDirectory();
+    const auto wav = dir.getChildFile ("sesja_test.wav");
+
+    // ---- nagranie: wers 0, wers 1, pomylka w wersie 2 (300 Hz), R, wers 2, wers 3
+    const double sr = 48000.0;
+    std::vector<float> x;
+    std::mt19937 rng (5); std::normal_distribution<float> n (0.0f, 1.0f);
+    auto now = [&] { return (double) x.size() / sr; };
+    auto silence = [&] (double s) { for (size_t i = 0, e = (size_t) (s * sr); i < e; ++i) x.push_back (0.001f * n (rng)); };
+    auto syl = [&] (int k, double hz) {
+        for (int j = 0; j < k; ++j) {
+            const size_t len = (size_t) (0.15 * sr);
+            for (size_t i = 0; i < len; ++i)
+                x.push_back ((float) (0.3 * std::sin (2 * M_PI * hz * i / sr) * std::sin (M_PI * i / len)));
+            silence (0.04);
+        }
+    };
+    std::vector<tw::LineMark> marks;
+    auto mk = [&] (int line, double sec, tw::LineSource s) { tw::LineMark m; m.firstWord = line * 6; m.lastWord = line * 6 + 5; m.shown = line; m.sec = sec; m.source = s; m.text = "wers " + std::to_string (line); marks.push_back (m); };
+
+    silence (0.6);
+    mk (0, now() + 0.78, tw::LineSource::Words); syl (6, 140); silence (0.4);
+    mk (1, now() + 0.78, tw::LineSource::Words); syl (6, 140); silence (0.4);
+    const double bad = now(); mk (2, now() + 0.78, tw::LineSource::Words); syl (3, 300);
+    mk (2, now() + 0.05, tw::LineSource::Retake); silence (0.7);
+    const double good = now(); syl (6, 140); silence (0.4);
+    mk (3, now() + 0.78, tw::LineSource::Words); syl (6, 140); silence (0.6);
+
+    {
+        juce::WavAudioFormat f;
+        std::unique_ptr<juce::AudioFormatWriter> w (f.createWriterFor (wav.createOutputStream().release(), sr, 1, 32, {}, 0));
+        const float* p[1] = { x.data() };
+        w->writeFromFloatArrays (p, 1, (int) x.size());
+    }
+    const auto rawBytes = wav.getSize();
+
+    const double line1Raw = marks[1].sec, line3Raw = marks[4].sec;
+    auto res = zs::applyPunch (wav, marks);
+
+    ok (res.applied && res.cuts == 1, "jedno R -> jedno wyciecie (" + juce::String (res.removedSec, 2) + " s)");
+    ok (res.rawCopy.existsAsFile() && res.rawCopy.getParentDirectory().getFileName() == "surowe",
+        "surowe nagranie w podfolderze 'surowe'");
+    ok (res.rawCopy.getSize() == rawBytes, "surowe nagranie nietkniete (ten sam rozmiar)");
+    ok (! dir.getChildFile ("sesja_test.czysty.tmp.wav").exists(), "nie zostal plik tymczasowy");
+    ok (res.rawCopy.getSiblingFile ("sesja_test.wersy.txt").existsAsFile(), "obok surowego jego zapis wersow");
+
+    juce::WavAudioFormat f;
+    std::unique_ptr<juce::AudioFormatReader> r (f.createReaderFor (wav.createInputStream().release(), true));
+    ok (r != nullptr, "czysty plik ma nazwe nagrania i da sie go przeczytac");
+    if (r != nullptr)
+    {
+        const double cleanSec = (double) r->lengthInSamples / r->sampleRate;
+        ok (std::fabs (cleanSec - ((double) x.size() / sr - res.removedSec - 0.02)) < 0.002,
+            "czysty krotszy dokladnie o wyciecie (" + juce::String (cleanSec, 3) + " s)");
+        ok (r->bitsPerSample == 32 && r->numChannels == 1, "ten sam format co surowe (32 bity, mono)");
+    }
+
+    // czasy wersow: wers 3 przesuniety o wyciecie, wers 1 bez zmian
+    ok (std::fabs (marks[1].sec - line1Raw) < 1e-9, "wers przed wycieciem: czas bez zmian");
+    ok (std::fabs (marks[4].sec - (line3Raw - res.removedSec - 0.02)) < 1e-6,
+        "wers po wycieciu: czas mniejszy dokladnie o wyciecie (" + juce::String (line3Raw, 2) + " -> "
+        + juce::String (marks[4].sec, 2) + " s)");
+    (void) bad; (void) good;
+
+    // drugi raz to samo nagranie bez R: nic
+    std::vector<tw::LineMark> plain { marks[0], marks[1] };
+    plain[0].source = plain[1].source = tw::LineSource::Words;
+    ok (! zs::applyPunch (wav, plain).applied, "bez R plik zostaje, jak byl");
+
+    dir.deleteRecursively();
+    std::cout << "\n" << (errors == 0 ? "wszystko przeszlo" : "SA BLEDY") << " (" << checks << " sprawdzen)\n\n";
+    return errors;
+}

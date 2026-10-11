@@ -40,6 +40,7 @@
 
 #include "DSP/Follower.h"
 #include "DSP/LineLog.h"
+#include "PunchFile.h"
 #include "DSP/PrompterLines.h"
 #include "DSP/PrompterText.h"
 #include "DSP/SyllableClock.h"
@@ -193,8 +194,9 @@ public:
     }
 
     /** "Powtorz wers" (R albo przycisk): na poczatek wersu, ktory jest w
-        ustach, i czekamy na glos. Nagranie leci dalej — dogrywke wycina sie
-        potem na osi, a nie zaczyna caly plik od nowa. */
+        ustach, i czekamy na glos. Nagranie leci dalej w calosci; po
+        zatrzymaniu nieudane podejscie wycina sie samo (punch and roll,
+        finishTake → PunchFile.h), a pelne nagranie zostaje w "surowe". */
     void repeatLine()
     {
         if (spans.empty()) return;
@@ -203,7 +205,7 @@ public:
         follower.repeatFrom (from);
         words.jumpTo (from, recorder.recordedSeconds());
         shownLine = tw::lineOfWord (spans, from);
-        markRestart (shownLine);
+        markRestart (shownLine, tw::LineSource::Retake);
         repaint();
     }
 
@@ -302,7 +304,6 @@ private:
             else
             {
                 stopSpeech();
-                saveLineLog();
             }
         }
 
@@ -471,24 +472,43 @@ private:
         return m;
     }
 
-    void markRestart (int shown)
+    void markRestart (int shown, tw::LineSource why = tw::LineSource::Key)
     {
         if (recorder.isRecording() && ! lines.empty())
-            lineLog.restart (markFor (shown, recorder.recordedSeconds(), tw::LineSource::Key));
+            lineLog.restart (markFor (shown, recorder.recordedSeconds(), why), why);
     }
 
-    /** Obok nagrania: sesja_<data>.wersy.txt. Bez tekstu w prompterze —
-        nic (nie ma wersow). Blad zapisu nie zatrzymuje programu: nagranie
-        jest wazniejsze niz jego opis. */
-    void saveLineLog()
+public:
+    /** Wolane przez MainComponent tuz po zatrzymaniu nagrania, ZANIM otworzy
+        sie ocena: wyciecie pomylek po R (PunchFile.h) i zapis wersow obok
+        nagrania (sesja_<data>.wersy.txt). Bez tekstu w prompterze — nic.
+        Blad nie zatrzymuje programu: surowe nagranie zostaje nietkniete. */
+    zs::PunchResult finishTake (const juce::File& wav)
     {
-        const auto wav = recorder.currentFile();
-        if (lineLog.marks().empty() || wav == juce::File()) return;
+        zs::PunchResult res;
+        if (lineLog.marks().empty() || wav == juce::File()) return res;
+
+        auto marks = lineLog.marks();
+        res = zs::applyPunch (wav, marks);
+
+        tw::LineLog out;
+        out.begin();
+        for (const auto& m : marks) out.restart (m, m.source);
+
+        juce::String text = juce::String::fromUTF8 (out.toText().c_str());
+        if (res.applied)
+            text = "# wyciete pomylki (klawisz R): " + juce::String (res.cuts) + ", razem "
+                 + juce::String (res.removedSec, 1) + " s; surowe nagranie: " + res.rawCopy.getFileName()
+                 + " w folderze surowe\n" + text;
 
         wav.getSiblingFile (wav.getFileNameWithoutExtension() + ".wersy.txt")
-           .replaceWithText (juce::String::fromUTF8 (lineLog.toText().c_str()), false, false, "\n");
+           .replaceWithText (text, false, false, "\n");
+
+        lineLog.begin();          // juz zapisane — drugi raz nie
+        return res;
     }
 
+private:
     /* Ktory wers podswietlic i w ktorym lezy slowo — DSP/PrompterLines.h,
        zeby sprawdzal to test, a nie oko. */
     int lineToShow() const { return tw::lineToShow (spans, script, follower.syllablePosition()); }

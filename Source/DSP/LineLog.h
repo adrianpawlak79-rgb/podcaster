@@ -42,11 +42,15 @@
 namespace tw
 {
 
-enum class LineSource { Words, Syllables, Key };
+/** Skad wiadomo, ze zaczal sie wers.
+    Key     — czlowiek poprawil pozycje (strzalki, Home): ten sam tekst, nie nowe czytanie;
+    Retake  — czlowiek wcisnal R: czyta wers jeszcze raz, to, co bylo, ma zniknac (Punch.h). */
+enum class LineSource { Words, Syllables, Key, Retake };
 
 inline const char* sourceName (LineSource s)
 {
-    return s == LineSource::Words ? "slowa" : s == LineSource::Syllables ? "sylaby" : "klawisz";
+    return s == LineSource::Words ? "slowa" : s == LineSource::Syllables ? "sylaby"
+         : s == LineSource::Retake ? "powtorka" : "klawisz";
 }
 
 struct LineMark
@@ -80,9 +84,9 @@ public:
 
     /** R, strzalki, Home: czlowiek sam wskazal wers — zapisujemy zawsze,
         takze gdy to ten sam wers (R = przeczytaj go jeszcze raz). */
-    void restart (LineMark m)
+    void restart (LineMark m, LineSource why = LineSource::Key)
     {
-        m.source = LineSource::Key;
+        m.source = why;
         add (m);
     }
 
@@ -104,7 +108,7 @@ public:
 
         for (const auto& m : all)
         {
-            if (m.source == LineSource::Key)
+            if (m.source == LineSource::Key || m.source == LineSource::Retake)
             {
                 keep.erase (std::remove_if (keep.begin(), keep.end(),
                                             [&] (const LineMark& k) { return k.firstWord >= m.firstWord; }),
@@ -175,7 +179,8 @@ public:
             m.lastWord  = std::atoi (col[2].c_str());
             m.shown     = std::atoi (col[3].c_str());
             m.source    = col[4] == "slowa" ? LineSource::Words
-                        : col[4] == "klawisz" ? LineSource::Key : LineSource::Syllables;
+                        : col[4] == "klawisz" ? LineSource::Key
+                        : col[4] == "powtorka" ? LineSource::Retake : LineSource::Syllables;
             m.text      = line.substr (from);
             out.push_back (m);
         }
