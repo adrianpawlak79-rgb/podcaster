@@ -17,6 +17,7 @@
 #include "StepBar.h"
 #include "ScreenFrame.h"
 #include "DSP/Setup.h"
+#include "DSP/Mix/RoomCheck.h"
 
 //==============================================================================
 class WizardComponent : public juce::Component,
@@ -38,6 +39,23 @@ public:
     /** Jedno zdanie z liczbami, ktore kreator zmierzyl. Do zapisania na
         pozniej: po miesiacu czlowiek chce wiedziec, CO wtedy wyszlo, a nie
         tylko ze "bylo sprawdzane". */
+    /** Pomiary pokoju dla miksu: przydzwiek, odleglosc, tlo. Miks sprawdza
+        je jeszcze w nagraniu — kreator mowi, czego szukac. */
+    mix::RoomCheck roomCheck() const
+    {
+        const auto& rep = wizard.result();
+
+        mix::RoomCheck r;
+        r.known            = true;
+        r.noiseFloorDb     = rep.noiseFloorDb;
+        r.humHz            = rep.humHz;
+        r.humExcessDb      = rep.humExcessDb;
+        r.proximityDb      = rep.proximityDb;
+        r.proximityLimitDb = wizard.limits.proximityDb;
+        r.daysAgo          = 0;
+        return r;
+    }
+
     juce::String summaryLine() const
     {
         const auto& rep = wizard.result();

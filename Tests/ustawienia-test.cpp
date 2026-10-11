@@ -84,6 +84,7 @@ int main()
         ok (s.audioState().isEmpty(),     "bez zapisanej karty: domyslna systemu");
         ok (s.sessionFolder().getFullPathName().isNotEmpty(),
                                           "folder sesji ma jakas wartosc domyslna");
+        ok (! s.roomCheck().known,        "bez kreatora miks nie dostaje pomiarow pokoju");
     }
 
     // ---- 2. zapis idzie na dysk, nie do pamieci --------------------------
@@ -97,6 +98,15 @@ int main()
         w.setFontScale (1.3);
         w.setMirrored (true);
         w.setAudioState ("<DEVICESETUP deviceType=\"Windows Audio\" audioInputDeviceName=\"Focusrite USB\" audioDeviceInChans=\"100\"/>");
+
+        mix::RoomCheck room;
+        room.known = true;
+        room.noiseFloorDb = -61.4;
+        room.humHz = 50.0;
+        room.humExcessDb = 14.5;
+        room.proximityDb = -2.0;
+        room.proximityLimitDb = -5.0;
+        w.setRoomCheck (room);
         w.flush();
     }
 
@@ -111,6 +121,14 @@ int main()
         eq (r.daysSinceCheck(), 0, "sprawdzone przed chwila to zero dni");
         ok (r.audioState().contains ("Focusrite USB") && r.audioState().contains ("audioDeviceInChans=\"100\""),
                                   "karta i wybrane wejscie (3) przetrwaly");
+
+        const auto room = r.roomCheck();
+        ok (room.known,                 "pomiary pokoju przetrwaly");
+        eq (room.noiseFloorDb, -61.4,   "tlo pokoju przetrwalo");
+        eq (room.humHz, 50.0,           "przydzwiek przetrwal");
+        eq (room.humExcessDb, 14.5,     "sila przydzwieku przetrwala");
+        ok (room.tooClose(),            "'za blisko' przetrwalo (-2 > -5)");
+        eq (room.daysAgo, 0,            "pomiary pokoju z dzisiaj");
     }
 
     // ---- 3. data: ile dni temu -------------------------------------------

@@ -35,6 +35,7 @@
 #pragma once
 
 #include <juce_data_structures/juce_data_structures.h>
+#include "DSP/Mix/RoomCheck.h"
 
 //==============================================================================
 class Settings
@@ -70,6 +71,34 @@ public:
         f.setValue ("hardwareSummary", summary);
         f.setValue ("hardwareCheckedAt", juce::Time::getCurrentTime().toISO8601 (true));
         props.saveIfNeeded();
+    }
+
+    /** Pomiary pokoju dla miksu. known = false, gdy kreatora nie przechodzono
+        albo zapisala go wersja programu, ktora tych liczb jeszcze nie znala. */
+    void setRoomCheck (const mix::RoomCheck& r)
+    {
+        auto& f = *props.getUserSettings();
+        f.setValue ("roomKnown",          r.known);
+        f.setValue ("roomNoiseFloorDb",   r.noiseFloorDb);
+        f.setValue ("roomHumHz",          r.humHz);
+        f.setValue ("roomHumExcessDb",    r.humExcessDb);
+        f.setValue ("roomProximityDb",    r.proximityDb);
+        f.setValue ("roomProximityLimit", r.proximityLimitDb);
+        props.saveIfNeeded();
+    }
+
+    mix::RoomCheck roomCheck() const
+    {
+        auto& f = *props.getUserSettings();
+        mix::RoomCheck r;
+        r.known            = f.getBoolValue   ("roomKnown", false);
+        r.noiseFloorDb     = f.getDoubleValue ("roomNoiseFloorDb", -140.0);
+        r.humHz            = f.getDoubleValue ("roomHumHz", 0.0);
+        r.humExcessDb      = f.getDoubleValue ("roomHumExcessDb", 0.0);
+        r.proximityDb      = f.getDoubleValue ("roomProximityDb", 0.0);
+        r.proximityLimitDb = f.getDoubleValue ("roomProximityLimit", -5.0);
+        r.daysAgo          = r.known ? daysSinceCheck() : -1;
+        return r;
     }
 
     juce::String hardwareSummary() const
