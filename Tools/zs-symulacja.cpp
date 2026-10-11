@@ -359,10 +359,19 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
         for (const auto& e : events)
         {
             if ((int) e.severity < 1) continue;
+            // Zdarzenia frazy (dryf poziomu, odsuniecie, sybilanty) maja czas
+            // POCZATKU frazy, nie wady — wiec wada "tlumaczy" zdarzenie, gdy
+            // lezy w tym samym przeczytanym kawalku, a nie tylko obok.
             bool near = false;
             for (const auto& t : truth)
+            {
                 if ((t.kind == "wada" || (t.kind == "mowa" && t.what == "pomylka"))
                     && e.timeSec >= t.from - 0.5 && e.timeSec <= t.to + 1.5) near = true;
+                if (t.kind == "wada")
+                    for (const auto& m : truth)
+                        if (m.kind == "mowa" && t.from >= m.from && t.from < m.to
+                            && e.timeSec >= m.from - 0.5 && e.timeSec < m.to) near = true;
+            }
             if (! near) { ++falseAlarms; list += std::string (list.empty() ? "" : ", ") + kindName (e.kind) + " " + f1 (e.timeSec) + " s"; }
         }
         rep.line();

@@ -40,8 +40,10 @@ sygnału zgłoszone, mlaski naprawione w miksie (3).
    cel dla całego nagrania do dolnej granicy −23 LUFS. Podcast powinien wyjść −16.
    Propozycja: domyślnie „Podcast” (−16) i wybór celu w Ustawieniach (zad. 6), albo szczyt
    liczony odpornie (percentyl zamiast maksimum).
-2. **Dwa fałszywe alarmy „dryf poziomu”** (waga „ustawienia”) — oba kilka sekund po serii R,
-   czyli po długich pauzach z odliczaniem. Sprawdzić, czy pauza po R nie psuje odniesienia.
+2. ~~Dwa fałszywe alarmy „dryf poziomu”~~ — **nie błąd programu.** Oba to frazy, w których
+   siedzi wstawiony przester i plozja: fraza jest głośniejsza, a zdarzenie frazy ma czas jej
+   POCZĄTKU (1–1,5 s przed wadą). Symulator nie łączył ich z wadą; poprawione — zdarzenie liczy
+   się jako wyjaśnione, gdy leży w tym samym przeczytanym kawałku co wada.
 3. **Bez modelu mowy śledzenie jest słabe: 22% klatek z właściwym wersem, 45% ±1 wers.**
    Skutki: R cofa do złego wersu (3 z 3 źle), wycięcie zabiera 1,28 s dobrego czytania
    i zostawia 1,3 s pomyłek, znaczki trafiają w złe wersy. Najpierw sprawdzić na prawdziwym
