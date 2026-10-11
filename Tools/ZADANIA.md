@@ -60,3 +60,63 @@ Tools/instalator/JAK-ZBUDOWAC.md. W opisie PR podaj rozmiar
 zbudowanego instalatora i czy instalacja/deinstalacja była sprawdzona
 na prawdziwym Windowsie (jeśli nie — napisz to wprost).
 ```
+
+---
+
+## 3. Nowy wygląd według prototypu (Codex / ChatGPT) — pięć kroków, pięć PR-ów
+
+Wzór i decyzje: `Docs/projekt/README.md`. Rób kroki **po kolei**; następny dopiero po
+scaleniu poprzedniego (wszystkie dotykają wspólnych plików).
+
+Środowisko Codex — **Setup script** (żeby budować program i robić zrzuty `--preview-ui`):
+
+```bash
+sudo apt-get update -q
+sudo apt-get install -y -q g++ cmake ninja-build espeak-ng ffmpeg python3-pip xvfb \
+  libfreetype-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxext-dev libasound2-dev
+python3 -m pip install --break-system-packages -q soundfile pyloudnorm
+git clone -q --depth 1 --branch 7.0.12 https://github.com/juce-framework/JUCE.git /opt/JUCE-7.0.12
+```
+
+Budowanie i zrzut: `cmake -G Ninja -B build -DZS_JUCE_PATH=/opt/JUCE-7.0.12 && cmake --build build --target ZieloneSwiatlo`,
+potem `xvfb-run -a "build/ZieloneSwiatlo_artefacts/Release/Zielone swiatlo" --preview-ui zrzut.png recording`.
+
+### 3.1 Fundament i ekran Nagranie
+
+```
+Przeczytaj AGENTS.md i Docs/projekt/README.md, obejrzyj Docs/projekt/ekran-2.png
+i Docs/projekt/prototyp.html. Gałąź codex/wyglad-1-fundament od main.
+
+1. Paleta, krój i miary z Docs/projekt/README.md: zmień Source/UiRules.h
+   (kolory, rodzaje przycisków — dodaj trzeci rodzaj: okrągły „Nagraj”) i Source/Look.h
+   (krój Segoe UI). Zaktualizuj Tests/wyglad-test.cpp tak, żeby pilnował NOWEJ palety
+   (kontrast WCAG, kolor główny #39CF7B, brak kolorowania przycisków poza Look.h).
+2. Wspólny szkielet ekranu: górny pasek, pasek 5 kroków ze strzałkami (Source/StepBar.h),
+   treść + panel boczny, stopka — jak w prototypie.
+3. Ekran Nagranie (MainComponent.h, PrompterComponent.h) według ekran-2.png, ale
+   z lampką zamiast samego paska poziomu, z Esc (zatrzymaj i oceń) i R (powtórz wers)
+   oraz prompterem idącym za głosem — patrz tabela „Działanie programu zostaje”.
+
+Nie zmieniaj niczego w Source/DSP/, VoskEngine.h, Recorder.h. Zachowaj końce linii (CRLF
+tam, gdzie są). Uruchom bash Tests/ci.sh — ma przejść. Dołącz do PR zrzuty
+--preview-ui: recording, prompter-rec, small, i porównanie z ekran-2.png.
+Opis PR po polsku: co zmienione, wynik testów, czego nie sprawdzono.
+```
+
+### 3.2 Przygotowanie — `codex/wyglad-2-przygotowanie`
+Ekran główny i ustawienia sprzętu (`MainComponent.h`) oraz kreator (`WizardComponent.h`)
+według `ekran-1.png`, na fundamencie z 3.1. Zrzuty: `small`, `settings`, `wizard`.
+
+### 3.3 Odsłuch — `codex/wyglad-3-odsluch`
+`ReviewComponent.h` według `ekran-3.png`: duży przebieg (wysokość z
+`zs::ui::review::waveHeight`), odtwarzanie, przed/po, **zdanie oceny z TakeReview**
+w panelu bocznym (nie pusty kafel). Zrzuty: `review`, `review-big` na `/tmp/mowa.wav`.
+
+### 3.4 Montaż — `codex/wyglad-4-montaz`
+Tryb edycji w `ReviewComponent.h` według `ekran-4.png`: przycięcie początku i końca
+na osi (`CutEdit.h`). Bez przełączników miksu — panel boczny pokazuje, co dobrał
+automat (`Decide.h`), zdaniem i liczbą.
+
+### 3.5 Gotowe — `codex/wyglad-5-gotowe`
+Ekran zapisu według `ekran-5.png`: nazwa pliku, format, długość; „Zapisz miks”,
+„Wróć do montażu”, „Nagraj nowe podejście”.
