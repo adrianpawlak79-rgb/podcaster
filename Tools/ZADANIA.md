@@ -252,3 +252,42 @@ Patenty MP3 wygasły (2017), więc użycie jest wolne.
 Test: zakodować `/tmp/mowa.wav`, zdekodować tym samym API i sprawdzić długość, głośność (LUFS)
 i szczyt po dekodowaniu względem WAV (mp3 potrafi podnieść szczyt — sufit miksu −1 dBTP jest
 właśnie po to).
+
+---
+
+# Zadania nieprogramistyczne
+
+## 7. Film z instrukcją
+
+Pomysł Adriana: krótki film, który pokazuje, jak używać programu. Większość da się zrobić
+automatycznie — obraz programu nagrywa się bez człowieka (tak jak dziś zrzuty `--preview-ui`).
+
+### Co powstaje
+- **„Jak zacząć” (3–4 min):** kreator sprzętu → przygotowanie (karta, wejście, tekst) →
+  nagranie z prompterem i lampką → cofnięcie klawiszem R → odsłuch i werdykt → zapis.
+- **Krótkie klipy (20–40 s) po jednej funkcji:** lampka, prompter idący za głosem,
+  R / punch and roll, „popraw zaznaczone”, zapis WAV + MP3. Nadają się też na stronę
+  i do mediów społecznościowych (test z opinii ChatGPT/Gemini: pokazać lampkę w działaniu).
+
+### Jak (kroki)
+1. **Scenariusz** — pisze AI, zatwierdza Adrian: co widać, co mówi lektor, ile sekund.
+2. **Tryb pokazowy w programie:** `--demo nagranie.wav tekst.txt` — plik WAV podawany
+   zamiast mikrofonu, w czasie rzeczywistym. Prompter idzie za głosem, lampka reaguje,
+   wszystko powtarzalne co do sekundy. To jedyna część programistyczna (osobny PR z testem);
+   przyda się też do testów i do pokazywania programu bez mikrofonu.
+3. **Nagranie obrazu automatycznie:** program pod Xvfb + `ffmpeg -f x11grab`
+   (działa w kontenerze, bez człowieka), 1920 × 1080, kursor i kliknięcia ze skryptu.
+4. **Głos lektora** — do wyboru:
+   - **Adrian czyta scenariusz w Zielonym świetle** (najlepiej: prawdziwy głos, a przy okazji
+     pokaz programu „od środka”),
+   - albo syntezator offline (np. Piper; sprawdzić licencję wybranego głosu polskiego —
+     espeak brzmi zbyt robotycznie).
+5. **Złożenie:** ffmpeg — obraz + głos + napisy (SRT po polsku), powiększenia na lampkę
+   i prompter, muzyka bez praw autorskich albo bez muzyki.
+6. **Sprawdzenie:** czy każde zdanie lektora zgadza się z tym, co widać (to AI może
+   porównać ze scenariuszem), i odsłuch przez Adriana.
+
+### Kiedy
+Po zadaniach 4 (punch and roll) i 3.5 / 6 (ekran zapisu, ustawienia) — inaczej film pokaże
+ekrany, które za chwilę się zmienią. Wcześniej można zrobić krok 2 (tryb pokazowy), bo nie
+zależy od wyglądu.
