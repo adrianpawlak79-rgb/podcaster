@@ -31,6 +31,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <map>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -248,6 +249,47 @@ int main (int argc, char** argv)
         tr.begin (&t);
         prepareSubs (tr);
         for (const auto& w : tr.vocabulary()) std::printf ("%s\n", w.c_str());
+        return 0;
+    }
+
+    // Prawda dla symulacji na prawdziwym glosie (Tools/zs-prawdziwe.py):
+    // kiedy zaczyna i konczy sie kazdy wiersz tekstu, z czasow slow Vosk.
+    // Format prawda.tsv jak w zs-scenariusz.py (tylko wiersze "mowa").
+    if (argc == 4 && std::string (argv[1]) == "--prawda")
+    {
+        tw::PrompterText t;
+        t.set (readAll (argv[2]));
+        std::vector<std::string> k;
+        for (int i = 0; i < t.wordCount(); ++i) k.push_back (tw::spokenKey (t.wordText (i)));
+
+        std::vector<Timed> h;
+        std::istringstream in (readAll (argv[3]));
+        for (Timed w; in >> w.start >> w.end >> w.key;) h.push_back ({ w.start, w.end, tw::spokenKey (w.key) });
+
+        const auto at = alignTruth (k, h);
+        std::map<double, double> endOf;                       // start slowa -> koniec
+        for (const auto& w : h) endOf[w.start] = w.end;
+
+        std::printf ("# Zielone swiatlo - prawda z czasow slow Vosk (zs-sledzenie --prawda)\n"
+                     "# typ\tod_s\tdo_s\twers\topis\tdodatkowo\n");
+        int found = 0, words = 0;
+        for (int i = 0; i < t.wordCount();)
+        {
+            const int line = t.all()[(size_t) i].line;
+            double from = -1.0, to = -1.0;
+            int j = i;
+            for (; j < t.wordCount() && t.all()[(size_t) j].line == line; ++j)
+            {
+                ++words;
+                if (at[(size_t) j] < 0.0) continue;
+                ++found;
+                if (from < 0.0) from = at[(size_t) j];
+                to = endOf[at[(size_t) j]];
+            }
+            if (from >= 0.0) std::printf ("mowa\t%.3f\t%.3f\t%d\tdobrze\t\n", from, to, line);
+            i = j;
+        }
+        std::fprintf (stderr, "dopasowane slowa: %d z %d\n", found, words);
         return 0;
     }
 

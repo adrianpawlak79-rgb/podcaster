@@ -44,10 +44,47 @@ sygnału zgłoszone, mlaski naprawione w miksie (3).
    siedzi wstawiony przester i plozja: fraza jest głośniejsza, a zdarzenie frazy ma czas jej
    POCZĄTKU (1–1,5 s przed wadą). Symulator nie łączył ich z wadą; poprawione — zdarzenie liczy
    się jako wyjaśnione, gdy leży w tym samym przeczytanym kawałku co wada.
-3. **Bez modelu mowy śledzenie jest słabe: 22% klatek z właściwym wersem, 45% ±1 wers.**
-   Skutki: R cofa do złego wersu (3 z 3 źle), wycięcie zabiera 1,28 s dobrego czytania
-   i zostawia 1,3 s pomyłek, znaczki trafiają w złe wersy. Najpierw sprawdzić na prawdziwym
-   głosie (pkt „Czego nie sprawdza”); jeśli się potwierdzi — program bez modelu mowy nie
-   powinien proponować R albo powinien cofać do wersu z `LineLog`, nie z licznika sylab.
+3. **Bez modelu mowy śledzenie nie działa — potwierdzone na prawdziwych głosach** (niżej).
+   Na syntezatorze 22% klatek z właściwym wersem; skutki: R cofa do złego wersu, wycięcie
+   zabiera dobre czytanie, znaczki trafiają w złe wersy. Wniosek: **model mowy (Vosk) jest
+   warunkiem punch and roll**. Bez niego program nie powinien proponować R albo powinien
+   cofać do wersu z `LineLog`, nie z licznika sylab.
 4. **Jeden „słyszalny szew”** w przebiegu B przy stałym tle −70 dBFS — prawdopodobnie
    porównanie poziomów łapie końcówkę mowy przy szwie. Sprawdzić `Punch` (seams).
+
+## Prawdziwe głosy (Wolne Lektury, 11.10.2026)
+
+`Tools/zs-prawdziwe.py KATALOG MODEL_VOSK zs-sledzenie` pobiera krótkie wiersze z audiobookami
+Wolnych Lektur (teksty w domenie publicznej, nagrania CC BY-SA 3.0; **nie trzymamy ich w
+repozytorium**), wycina zapowiedź lektora i robi `prawda.tsv` z czasów słów Vosk dopasowanych
+do tekstu (`zs-sledzenie --prawda`). 11 wierszy, 8 lektorów (2 kobiety), 42–121 s, 10–40 wersów;
+plus „Między nami nic nie było” z tekstem w zapisie Adriana (pusty wiersz po każdym wersie).
+
+Właściwy wers w czasie czytania:
+
+| wiersz (lektor) | same sylaby | sylaby ±1 wiersz | Vosk ≤1 słowo | Vosk ≤2 słowa | Vosk wers |
+|---|---|---|---|---|---|
+| Kochanowski, fraszka (M. Michalski) | 14% | 48% | 71% | 90% | 87% |
+| Krasicki, Jodła i jabłoń (M. Bogucka) | 13% | 48% | 59% | 80% | 83% |
+| Konopnicka, Pszczoły (M. Rzepka) | 22% | 48% | 71% | 94% | 80% |
+| Baudelaire, Olbrzymka (J. Niemirska) | 20% | 42% | 68% | 84% | 82% |
+| Asnyk, Między nami… (P. Głowacki) | 9% | 73% | 70% | 88% | 78% |
+| to samo, tekst Adriana | 9% | — | 71% | 89% | 78% |
+| Leśmian, Magda (W. Korzeniewski) | 68% | 94% | 66% | 88% | 83% |
+| Kochanowski, Pieśń IX (K. Skonieczny) | 50% | 81% | 60% | 82% | 75% |
+| Mickiewicz, Góra Kikineis (P. Głowacki) | 16% | 68% | 63% | 88% | 88% |
+| Mickiewicz, Widok gór… (J. Dravnel) | 0% | 51% | 79% | 96% | 90% |
+| Krasicki, Wilk pokutujący (B. Mazur) | 12% | 31% | 77% | 95% | 88% |
+| Jachowicz, Wróbelek… (M. Rzepka) | 4% | 39% | 69% | 87% | 70% |
+
+**Mediana: same sylaby 13% wersu, Vosk 82% wersu (≤2 słowa: 88%).**
+
+Uwagi:
+- Wzorzec czasów robi ten sam model Vosk, więc liczby Vosk są raczej optymistyczne
+  (to samo zastrzeżenie co przy pomiarze „Nic dwa razy”: tam 66% ≤1 słowo, tu 59–79%).
+- „Sylaby ±1 wiersz” dla tekstu Adriana jest nieporównywalne — puste wiersze między wersami
+  zmieniają numerację wierszy źródła (wers obok to dwa wiersze dalej).
+- Tekst z pustym wierszem po każdym wersie śledzi się tak samo jak zwarty (Vosk 71/89/78%
+  wobec 70/88/78%) — taki zapis jest bezpieczny.
+- Słowa, których model nie zna (np. „powojów”, „zraszających”), Vosk pomija — dopasowanie
+  83–91% słów tekstu.
