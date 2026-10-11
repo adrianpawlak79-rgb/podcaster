@@ -190,11 +190,39 @@ także gdy zdarzenie wypada na granicy dwóch wersów.
   dalej” (wtedy jako opcja w Ustawieniach → Prompter);
 - długość pre-rollu (domyślnie 2 s), w Ustawieniach.
 
-## 5. Poprawka wersu po nagraniu (później)
+## 5. „Nagraj całość, popraw na końcu” — drugi tryb, dla tych, co nie chcą przerywać
 
-Gdy błąd wyjdzie dopiero w Odsłuchu: kliknięcie wersu → „Nagraj ten wers jeszcze raz” →
-pre-roll, nagranie jednego wersu, program wstawia go w miejsce starego (punch-in w środku
-nagrania). Ten sam szew co w zadaniu 4. Dopiero po zadaniu 4.
+Pomysł Adriana: zamiast cofać się w trakcie (zadanie 4), czytasz cały tekst do końca,
+a potem program prowadzi przez poprawki tylko tego, co wyszło gorzej. Oba tryby mają działać
+na tym samym mechanizmie i dawać ten sam wynik: jeden czysty plik.
+
+### Jak to wygląda
+1. Nagrywasz całość, nie przerywasz (znaczki ✓ / ! / ✗ i tak się zapalają).
+2. Po zatrzymaniu, na ekranie Odsłuch: **tekst z znaczkami** i przycisk
+   **„Popraw zaznaczone (3)”** — liczba wersów z ✗ (domyślnie) albo z ✗ i ! (do wyboru).
+   Każdy wers da się kliknąć i posłuchać; można odznaczyć „ten zostaje” albo dodać
+   wers, który nie podoba się z innego powodu.
+3. „Popraw zaznaczone”: prompter pokazuje **pierwszy wers do poprawki** z jednym wersem
+   kontekstu przed nim; w słuchawkach 2 s nagrania przed tym wersem, odliczanie, czytasz
+   **tylko ten wers**. Lampka ocenia go od razu — ✓ idzie dalej, ✗ proponuje jeszcze raz.
+4. Następny zaznaczony wers… aż do końca listy.
+5. Program **wstawia nowe wersy w miejsce starych** (punch-in w środku nagrania),
+   szwy w ciszy przed i po wersie. Jeden plik, stary w ukrytej kopii.
+
+### Kroki (po zadaniu 4 — korzysta z jego czasów wersów, punktów w ciszy i szwów)
+1. Ekran tekstu ze znaczkami na Odsłuchu (dane: zdarzenia lampki + czasy wersów).
+2. Lista „do poprawki”: domyślnie ✗, człowiek dodaje i odejmuje.
+3. Nagrywanie pojedynczego wersu z pre-rollem i natychmiastową oceną.
+4. Wstawienie w środek: **dwa szwy** (przed i po), oba w ciszy; długość nowego wersu
+   może być inna niż starego — reszta nagrania przesuwa się, nic nie nachodzi.
+   Test: wstawienie krótszego i dłuższego wersu w syntetyczną mowę → brak trzasku,
+   ten sam poziom tła, długość wyniku = stara − stary wers + nowy wers.
+5. Wyrównanie poziomu i barwy wstawki do otoczenia (pomiary: `VoiceTone.h`, LUFS) —
+   poprawkę nagrywa się minutę albo godzinę później i mikrofon mógł się przesunąć.
+
+Ryzyko: intonacja na szwie (koniec zdania przed wstawką brzmi „na zamknięcie”, wstawka
+„na otwarcie”). Test tego nie złapie — decyduje odsłuch; dlatego wstawka zawsze od początku
+wersu do jego końca, nie w połowie.
 
 ## 6. Ekran „Ustawienia” (zakładki)
 
