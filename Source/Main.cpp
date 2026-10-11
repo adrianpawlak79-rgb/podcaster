@@ -49,6 +49,7 @@ countries: pl
             if(mode=="prompter-rec") preview.previewRecording(true);
             if(mode=="review") preview.previewReview(fixture);
             if(mode=="edit") preview.previewReview(fixture,true);
+            if(mode=="done") preview.previewReview(fixture,false,true);
             if(mode=="review-big") { preview.setSize(1600,1200); preview.previewReview(fixture); }
             auto file=juce::File::getCurrentWorkingDirectory().getChildFile(args[1].unquoted());
             file.getParentDirectory().createDirectory();

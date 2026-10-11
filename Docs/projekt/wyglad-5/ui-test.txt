@@ -1,0 +1,21 @@
+OK fixture copied into isolated folder
+OK ready recording starts on review screen
+OK review save opens Done only after file exists
+OK done screen exposes exact saved name and full path
+OK main folder action is available
+OK step bar marks the fifth step on Done
+OK done actions fit both requested window sizes
+OK done actions fit both requested window sizes
+OK saved output is a readable WAV
+OK output remains WAV 24-bit
+OK new take invokes existing recording callback
+OK return to montage restores trim and save controls
+OK trimmed save waits for remix before Done
+OK montage save opens Done with trimmed output
+OK second save never overwrites prior mix
+OK original remains unchanged byte for byte
+OK Escape on Done returns to montage
+OK invalid recording never opens Done or exports
+OK filesystem write failure stays on review
+OK long saved path remains reachable in scrollable text
+OK loading another recording resets Done state

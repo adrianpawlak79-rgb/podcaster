@@ -583,9 +583,9 @@ public:
         resized();
     }
 
-    void previewReview (const juce::File& wav, bool edit = false)
+    void previewReview (const juce::File& wav, bool edit = false, bool done = false)
     {
-        if (wav.existsAsFile()) { openReview (wav, true, true); if (review) review->setEditMode(edit); }
+        if (wav.existsAsFile()) { openReview (wav, true, true); if (review) { review->setEditMode(edit); if (done) review->previewDone(); } }
     }
 
 private:

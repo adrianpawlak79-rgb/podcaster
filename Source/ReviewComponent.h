@@ -122,6 +122,8 @@ public:
         backButton.onClick = [this] { if (onClose) onClose(); };
         addAndMakeVisible (backButton);
 
+        savedPath.setJustification (juce::Justification::centred);
+
         // Jeden przycisk glowny: zapis wybranego fragmentu. Reszta drugorzedna.
         zs::Look::setKind (saveButton, zs::ui::ButtonKind::Primary);
 
@@ -185,8 +187,23 @@ public:
         // Gdzie jest plik: pytanie, ktore padlo przy pierwszym prawdziwym
         // nagraniu ("nie wiem, gdzie mi sie zapisala sesja").
         folderButton.setButtonText (PL("Pokaż w folderze"));
-        folderButton.onClick = [this] { (saved.existsAsFile() ? saved : file).revealToUser(); };
+        folderButton.onClick = [this] { (doneMode ? saved : (saved.existsAsFile() ? saved : file)).revealToUser(); };
         addAndMakeVisible (folderButton);
+        doneEditButton.setButtonText (PL("Wróć do montażu"));
+        doneEditButton.onClick = [this] { setEditMode (true); };
+        newTakeButton.setButtonText (PL("Nagraj nowe podejście"));
+        newTakeButton.onClick = [this] { if (onClose) onClose(); };
+        addAndMakeVisible (doneEditButton); addAndMakeVisible (newTakeButton);
+        for (auto* editor : { &savedPath, &savedName }) {
+            editor->setMultiLine (true); editor->setReadOnly (true);
+            editor->setCaretVisible (false); editor->setScrollbarsShown (true);
+            editor->setFont (juce::Font (zs::type::small));
+            editor->setColour (juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
+            editor->setColour (juce::TextEditor::textColourId, Ink::textNext());
+            editor->setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+            editor->setColour (juce::TextEditor::focusedOutlineColourId, Ink::edge());
+            addAndMakeVisible (*editor);
+        }
         addAndMakeVisible(selection);
         middleToggle.setButtonText (PL("Wytnij fragment ze środka"));
         middleToggle.onClick = [this] { middleMode = !middleMode; resized(); repaint(); };
@@ -257,7 +274,7 @@ public:
         player.clear();
         recorder.attachPlayer (nullptr);
 
-        undoAudio.clear();cutFrom=cutTo=-1;editMode=detailsMode=middleMode=pendingSave=false;
+        undoAudio.clear();cutFrom=cutTo=-1;editMode=detailsMode=middleMode=pendingSave=doneMode=false;
         words.clear(); assessment.clear(); reviewSummary.clear(); resized();
         for (auto* b : { &playButton, &abButton, &saveButton, &editToggle, &nextButton,
                          &markStart, &markEnd, &cutButton, &undoButton }) b->setEnabled (false);
@@ -335,7 +352,10 @@ public:
         repaint();
     }
 
-    void setEditMode (bool enabled) { editMode = enabled; detailsMode = false; resized(); repaint(); }
+    void setEditMode (bool enabled) { doneMode = false; editMode = enabled; detailsMode = false; resized(); repaint(); }
+
+    // Podglad przechodzi ta sama droga zapisu co zwykly przycisk.
+    void previewDone() { saveSelection(); }
 
     bool hasTake() const { return review.stage() != zs::TakeReview::Stage::Empty; }
 
@@ -355,6 +375,10 @@ public:
     bool keyPressed (const juce::KeyPress& k) override
     {
         const int c = k.getKeyCode();
+        if (doneMode) {
+            if (c == juce::KeyPress::escapeKey) { setEditMode (true); return true; }
+            return false;
+        }
 
         if (c == juce::KeyPress::spaceKey)     { togglePlay(); return true; }
         if (c == juce::KeyPress::tabKey)       { toggleAb();   return true; }
@@ -391,6 +415,7 @@ public:
        poczatku i konca ciecia". Liczby: zs::ui::review::dragRange. */
     void mouseDown (const juce::MouseEvent& e) override
     {
+        if (doneMode) return;
         const auto strip = waveArea();
         dragX0 = -1.0f;
 
@@ -493,6 +518,12 @@ public:
     //==========================================================================
     void resized() override
     {
+        if (doneMode) { layoutDone(); return; }
+        doneEditButton.setVisible (false); newTakeButton.setVisible (false);
+        savedPath.setVisible (false); savedName.setVisible (false);
+        playButton.setVisible (true); abButton.setVisible (true);
+        saveButton.setVisible (true); editToggle.setVisible (true);
+        zs::Look::setKind (folderButton, zs::ui::ButtonKind::Secondary);
         if (editMode) { layoutEdit(); return; }
         namespace L = zs::ui::review;
         for (auto* c : { static_cast<juce::Component*>(&trimStart), static_cast<juce::Component*>(&trimEnd), static_cast<juce::Component*>(&startHandle), static_cast<juce::Component*>(&endHandle), static_cast<juce::Component*>(&middleToggle) }) c->setVisible (false);
@@ -535,6 +566,7 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        if (doneMode) { paintDone (g); return; }
         if (editMode) { paintEdit (g); return; }
         g.fillAll (Ink::bg());
         zs::ScreenFrame::paint (g, getLocalBounds(), file.getFileNameWithoutExtension(),
@@ -573,6 +605,68 @@ public:
     }
 
 private:
+    juce::Rectangle<int> doneContent() const {
+        auto main = zs::ScreenFrame::mainArea (getLocalBounds());
+        return main.withSizeKeepingCentre (main.getWidth(), juce::jmin (412, main.getHeight()));
+    }
+    void layoutDone() {
+        for (auto* child : getChildren()) child->setVisible (false);
+        flow.setVisible (true);
+        flow.setBounds (22, zs::ui::frame::header + 8, getWidth() - 44, zs::StepBar::preferredHeight);
+        flow.setCurrent (4);
+        auto main = doneContent();
+        main.removeFromTop (68 + 10 + 18 + 40 + 44 + 8);
+        folderButton.setBounds (main.removeFromTop (40).withSizeKeepingCentre (220, 40));
+        folderButton.setVisible (true);
+        folderButton.setEnabled (saved.existsAsFile());
+        zs::Look::setKind (folderButton, zs::ui::ButtonKind::Primary);
+        main.removeFromTop (12);
+        savedPath.setBounds (main.removeFromTop (72).reduced (12, 0)); savedPath.setVisible (true);
+        auto side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24);
+        side.removeFromTop (40 + 24);
+        savedName.setBounds (side.removeFromTop (60)); savedName.setVisible (true);
+        side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24);
+        auto actions = side.removeFromBottom (80);
+        newTakeButton.setBounds (actions.removeFromBottom (36)); actions.removeFromBottom (8);
+        doneEditButton.setBounds (actions.removeFromBottom (36));
+        newTakeButton.setVisible (true); doneEditButton.setVisible (true);
+    }
+    void paintDone (juce::Graphics& g) {
+        g.fillAll (Ink::bg());
+        zs::ScreenFrame::paint (g, getLocalBounds(), file.getFileNameWithoutExtension(), PL("Plik zapisany na dysku · Esc — wróć do montażu"));
+        auto side = zs::ScreenFrame::sidebar (getLocalBounds());
+        g.setColour (Ink::bar()); g.fillRect (side);
+        g.setColour (Ink::edge()); g.drawVerticalLine (side.getX(), side.getY(), side.getBottom());
+        auto main = doneContent();
+        const auto emblem = main.removeFromTop (68).withSizeKeepingCentre (68, 68).toFloat();
+        g.setColour (Ink::green().withAlpha (0.18f)); g.fillEllipse (emblem);
+        g.setColour (Ink::green().withAlpha (0.5f)); g.drawEllipse (emblem, 1.5f);
+        juce::Path check; check.startNewSubPath (emblem.getX()+21, emblem.getY()+34);
+        check.lineTo (emblem.getX()+30, emblem.getY()+43); check.lineTo (emblem.getX()+48, emblem.getY()+25);
+        g.setColour (Ink::green()); g.strokePath (check, juce::PathStrokeType (4, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        main.removeFromTop (10);
+        g.setColour (Ink::textDim()); g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
+        g.drawText (PL("05 / GOTOWE"), main.removeFromTop (18), juce::Justification::centred);
+        g.setColour (Ink::textNow()); g.setFont (juce::Font (zs::type::title, juce::Font::bold));
+        g.drawText (PL("Nagranie gotowe"), main.removeFromTop (40), juce::Justification::centred);
+        g.setColour (Ink::textNext()); g.setFont (juce::Font (zs::type::body));
+        g.drawFittedText (PL("Zapisano miks wybranego nagrania jako plik WAV na dysku."), main.removeFromTop (44).reduced (12, 0), juce::Justification::centred, 2);
+        side = side.reduced (22, 24);
+        g.setColour (Ink::textNow()); g.setFont (juce::Font (zs::type::heading, juce::Font::bold));
+        g.drawText (PL("Plik końcowy"), side.removeFromTop (40), juce::Justification::centredLeft);
+        g.setFont (juce::Font (zs::type::small)); g.setColour (Ink::textDim());
+        g.drawText (PL("Nazwa"), side.removeFromTop (24), juce::Justification::centredLeft);
+        side.removeFromTop (60);
+        const auto row = [&] (const juce::String& label, const juce::String& value, int height) {
+            auto r = side.removeFromTop (height);
+            g.setColour (Ink::textDim()); g.drawText (label, r.removeFromTop (18), juce::Justification::centredLeft);
+            g.setColour (Ink::textNow()); g.drawText (value, r.removeFromTop (22), juce::Justification::centredLeft);
+        };
+        row (PL("Format"), "WAV 24-bit", 62); // Miejsce na drugi wiersz formatu.
+        row (PL("Długość"), plr::clock (review.seconds()) + " (" + juce::String (review.seconds(), 1) + " s)", 42);
+        row (PL("Głośność"), juce::String (review.whatIDid().lufsAfter, 1) + " LUFS", 42);
+        row (PL("Szczyt"), juce::String (review.whatIDid().peakAfter, 1) + " dBTP", 42);
+    }
     class TrimSlider : public juce::Slider {
     public:
         std::function<void()> changed;
@@ -877,6 +971,11 @@ private:
 
         saved = target;
         note  = PL ("Zapisane: ") + target.getFileName();
+        player.pause();
+        savedPath.setText (saved.getFullPathName(), false);
+        savedName.setText (saved.getFileName(), false);
+        doneMode = true;
+        resized();
         repaint();
     }
 
@@ -1078,7 +1177,7 @@ private:
         if (ready.exchange (false))
             adoptResult();
 
-        folderButton.setEnabled (file.existsAsFile() || saved.existsAsFile());
+        folderButton.setEnabled (doneMode ? saved.existsAsFile() : (file.existsAsFile() || saved.existsAsFile()));
 
         if (review.stage() != zs::TakeReview::Stage::Ready)
         {
@@ -1132,7 +1231,9 @@ private:
     juce::TextEditor words, assessment;
     zs::StepBar flow;
     juce::TextButton markStart,markEnd,cutButton,undoButton,editToggle,detailsToggle,nextButton;
-    bool editMode=false,detailsMode=false,middleMode=false,pendingSave=false;
+    bool editMode=false,detailsMode=false,middleMode=false,pendingSave=false,doneMode=false;
+    juce::TextButton doneEditButton,newTakeButton;
+    juce::TextEditor savedPath,savedName;
     TrimSlider trimStart,trimEnd;
     TrimHandle startHandle,endHandle;
     juce::TextButton middleToggle;
