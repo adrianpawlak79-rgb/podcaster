@@ -16,8 +16,8 @@
     ---------------------------------------------------------------------------
     CO TU JEST
 
-    - paleta: ciemne tlo, tekst, kolory znaczen i jeden akcent (#D5A879),
-    - dwa rodzaje przyciskow — i ani jednego wiecej,
+    - paleta: ciemne tlo, tekst, kolory znaczen i jeden akcent (#39CF7B),
+    - trzy rodzaje przyciskow, w tym okragly Nagraj,
     - stany paska krokow,
     - wysokosc przebiegu na ekranie oceny w zaleznosci od okna,
     - klawisze ekranu nagrywania i pasek podpowiedzi.
@@ -40,27 +40,26 @@ namespace ui
 /* Paleta, ARGB. Znaczenia, nie nazwy kolorow — patrz komentarz w Look.h. */
 namespace colour
 {
-    constexpr uint32_t bg        = 0xff0d1117;
-    constexpr uint32_t panel     = 0xff151b24;
-    constexpr uint32_t raised    = 0xff1c2430;   ///< przycisk drugorzedny, pole
-    constexpr uint32_t edge      = 0xff2a3442;
+    constexpr uint32_t bg        = 0xff141719;
+    constexpr uint32_t bar       = 0xff1b1f21;
+    constexpr uint32_t panel     = 0xff22272a;
+    constexpr uint32_t raised    = 0xff30373a;
+    constexpr uint32_t edge      = 0xff3b4547;
 
-    constexpr uint32_t textNow   = 0xffeceff4;
-    constexpr uint32_t textNext  = 0xff9aa6b6;
-    constexpr uint32_t textPast  = 0xff6f7d8f;
-    constexpr uint32_t textDim   = 0xff8997a8;
+    constexpr uint32_t textNow   = 0xfff1f4f2;
+    constexpr uint32_t textNext  = 0xffb8c2bd;
+    constexpr uint32_t textPast  = 0xff829089;
+    constexpr uint32_t textDim   = 0xff929e97;
 
-    /** Akcent: to, co wolno nacisnac jako nastepne. Cieply, zeby nie mylil sie
-        z zielenia lampki — zielen znaczy "nagranie jest dobre" i nic wiecej. */
-    constexpr uint32_t accent    = 0xffd5a879;
-    constexpr uint32_t onAccent  = 0xff14100a;   ///< tekst na akcencie
-
-    constexpr uint32_t green     = 0xff71d9ac;
-    constexpr uint32_t yellow    = 0xffffd600;
-    constexpr uint32_t red       = 0xffff3d00;
-    constexpr uint32_t clip      = 0xffff1744;
-    constexpr uint32_t lostBlue  = 0xff3d5afe;
-    constexpr uint32_t lostText  = 0xff82b1ff;
+    // Akcent i lampka maja wspolna zielen; lampke odroznia ksztalt i napis.
+    constexpr uint32_t accent    = 0xff39cf7b;
+    constexpr uint32_t onAccent  = 0xff08190f;
+    constexpr uint32_t green     = accent;
+    constexpr uint32_t yellow    = 0xffe8bd4d;
+    constexpr uint32_t red       = 0xffe36a63;
+    constexpr uint32_t clip      = red;
+    constexpr uint32_t lostBlue  = 0xff6789ef;
+    constexpr uint32_t lostText  = 0xffa8c0ff;
 }
 
 /** Kontrast wedlug WCAG 2.x (1..21). Tekst czytany w biegu potrzebuje >= 4,5. */
@@ -82,31 +81,21 @@ inline double contrast (uint32_t a, uint32_t b)
 }
 
 //==============================================================================
-/** Dokladnie dwa rodzaje przyciskow.
-
-    Glowny: wypelniony akcentem, jeden na ekran — to, co robi sie teraz
-    ("Nagrywaj", "Zatrzymaj i ocen", "Dalej", "Zapisz miks"). Drugorzedny:
-    ciemny z obwodka — cala reszta.
-
-    W 0.4.0 ekrany kolorowaly przyciski same: zielony "Nagrywaj", czerwony
-    "Zatrzymaj", szare reszta, a przelacznik przed/po mial do tego zielony
-    albo zolty napis. Zielen i czerwien znacza u nas stan nagrania (lampka),
-    wiec przycisk w tych kolorach mowil cos, czego nie mial na mysli. Kolor przycisku ustawia teraz wylacznie Look.h —
-    test pilnuje, zeby zaden ekran nie robil tego na wlasna reke. */
-enum class ButtonKind { Primary, Secondary };
-constexpr int buttonKindCount = 2;
+/** Glowny i drugorzedny prostokat oraz okragly Nagraj z prototypu.
+    Kolory i rysowanie przyciskow ustawia wylacznie Look.h. */
+enum class ButtonKind { Primary, Secondary, Record };
+constexpr int buttonKindCount = 3;
 
 struct ButtonPaint { uint32_t fill, text, outline; };
 
 inline ButtonPaint paintFor (ButtonKind k)
 {
-    if (k == ButtonKind::Primary) return { colour::accent, colour::onAccent, colour::accent };
+    if (k == ButtonKind::Primary || k == ButtonKind::Record) return { colour::accent, colour::onAccent, colour::accent };
     return { colour::raised, colour::textNow, colour::edge };
 }
 
 //==============================================================================
-/** Pasek krokow: kreator (szesc krokow) i ekran glowny (przygotuj, nagraj,
-    odsluchaj, zapisz). */
+/** Pasek krokow: kreator (szesc krokow) i ekran glowny (piec etapow z prototypu). */
 enum class StepState { Done, Current, Todo };
 
 inline StepState stepState (int index, int current, bool allDone = false)
@@ -129,6 +118,14 @@ inline std::vector<int> stepWidths (int total, int count, int gap)
     w.assign ((size_t) count, each);
     w.back() += usable - each * count;
     return w;
+}
+
+//==============================================================================
+namespace frame
+{
+    constexpr int header = 64, steps = 62, footer = 42;
+    constexpr int margin = 28, sidePadding = 22;
+    inline int sideWidth (int width) { return std::clamp (width / 4, 260, 316); }
 }
 
 //==============================================================================
@@ -195,7 +192,7 @@ inline std::string hintLine (bool recording, bool hasScript)
 
     return hasScript ? "strzałki — popraw miejsce   ·   Home — na początek   ·   "
                        "+ / − — wielkość tekstu   ·   L — lustro   ·   Esc — wyjdź"
-                     : "Naciśnij Nagrywaj, kiedy zechcesz zacząć";
+                     : "Naciśnij Nagraj, kiedy zechcesz zacząć";
 }
 
 } // namespace ui

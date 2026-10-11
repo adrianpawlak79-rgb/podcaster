@@ -6,7 +6,7 @@
 
     - Ink: kolory znaczen ("green" znaczy "jest dobrze", a nie "zielony").
       Liczby stoja w UiRules.h, bo tam pilnuje ich test bez JUCE.
-    - Look: LookAndFeel calego programu. Kroj Inter (Fonts.h), dwa rodzaje
+    - Look: LookAndFeel calego programu. Kroj Segoe UI, trzy rodzaje
       przyciskow, klawisz skrotu narysowany na przycisku.
 
     Ink stal kiedys osobno (Ink.h), a kazdy ekran sam kolorowal swoje
@@ -29,6 +29,7 @@ struct Ink
     static juce::Colour c (uint32_t argb) { return juce::Colour (argb); }
 
     static juce::Colour bg()        { return c (ui::colour::bg); }
+    static juce::Colour bar()       { return c (ui::colour::bar); }
     static juce::Colour panel()     { return c (ui::colour::panel); }
     static juce::Colour raised()    { return c (ui::colour::raised); }
     static juce::Colour edge()      { return c (ui::colour::edge); }
@@ -55,6 +56,11 @@ class Look : public juce::LookAndFeel_V4
 public:
     Look()
     {
+        // Na Windowsie kroj z prototypu, na Linuksie systemowy zamiennik.
+        const auto available = juce::Font::findAllTypefaceNames();
+        for (const auto& name : { "Segoe UI Variable", "Segoe UI", "DejaVu Sans" })
+            if (available.contains (name)) { family = name; break; }
+        setDefaultSansSerifTypefaceName (family);
         setColour (juce::ResizableWindow::backgroundColourId, Ink::bg());
         setColour (juce::DocumentWindow::backgroundColourId, Ink::bg());
         setColour (juce::Label::textColourId, Ink::textNow());
@@ -88,14 +94,14 @@ public:
     /** Rodzaj przycisku. Domyslnie drugorzedny. */
     static void setKind (juce::Button& b, ui::ButtonKind k)
     {
-        b.getProperties().set ("zsPrimary", k == ui::ButtonKind::Primary);
+        b.getProperties().set ("zsKind", (int) k);
         b.repaint();
     }
 
     static ui::ButtonKind kindOf (const juce::Button& b)
     {
-        return (bool) b.getProperties().getWithDefault ("zsPrimary", false)
-                 ? ui::ButtonKind::Primary : ui::ButtonKind::Secondary;
+        return static_cast<ui::ButtonKind> ((int) b.getProperties().getWithDefault (
+            "zsKind", (int) ui::ButtonKind::Secondary));
     }
 
     /** Klawisz skrotu, rysowany na przycisku jako maly klawisz z prawej.
@@ -107,15 +113,9 @@ public:
     }
 
     //==========================================================================
-    juce::Typeface::Ptr getTypefaceForFont (const juce::Font& f) override
-    {
-        if (auto t = fonts.forFont (f)) return t;
-        return LookAndFeel_V4::getTypefaceForFont (f);
-    }
-
     juce::Font getTextButtonFont (juce::TextButton& b, int) override
     {
-        return juce::Font (type::body, kindOf (b) == ui::ButtonKind::Primary ? juce::Font::bold
+        return juce::Font (type::body, kindOf (b) != ui::ButtonKind::Secondary ? juce::Font::bold
                                                                               : juce::Font::plain);
     }
 
@@ -130,6 +130,15 @@ public:
         if (b.isEnabled()) fill = fill.withMultipliedBrightness (down ? 0.88f : hover ? 1.12f : 1.0f);
 
         g.setColour (fill.withMultipliedAlpha (alpha));
+        if (kindOf (b) == ui::ButtonKind::Record)
+        {
+            r = r.withSizeKeepingCentre (juce::jmin (r.getWidth(), r.getHeight()),
+                                         juce::jmin (r.getWidth(), r.getHeight()));
+            g.fillEllipse (r);
+            g.setColour (focusColour (b, p.outline, alpha));
+            g.drawEllipse (r.reduced (1.0f), b.hasKeyboardFocus (true) ? 2.0f : 1.0f);
+            return;
+        }
         g.fillRoundedRectangle (r, radius);
 
         const bool focus = b.hasKeyboardFocus (true) && b.isEnabled();
@@ -142,6 +151,20 @@ public:
         const auto p = ui::paintFor (kindOf (b));
         const auto text = juce::Colour (p.text).withMultipliedAlpha (b.isEnabled() ? 1.0f : 0.5f);
 
+        if (kindOf (b) == ui::ButtonKind::Record)
+        {
+            auto r = b.getLocalBounds();
+            const float d = (float) juce::jmin (r.getWidth(), r.getHeight());
+            const float symbol = d * 0.18f;
+            auto ring = juce::Rectangle<float> (symbol, symbol).withCentre (
+                { r.getCentreX() * 1.0f, r.getCentreY() - d * 0.10f });
+            g.setColour (text);
+            g.drawEllipse (ring, d * 0.045f);
+            g.setFont (juce::Font (juce::jlimit (19.0f, 25.0f, d * 0.12f), juce::Font::bold));
+            g.drawText (b.getButtonText(), r.withY (r.getCentreY() + (int) (d * 0.05f))
+                          .withHeight ((int) (d * 0.22f)), juce::Justification::centred);
+            return;
+        }
         auto r = b.getLocalBounds().reduced (12, 0);
         const juce::String key = b.getProperties().getWithDefault ("zsKey", {}).toString();
 
@@ -166,7 +189,12 @@ public:
     static constexpr float radius = 8.0f;
 
 private:
-    Fonts fonts;
+    static juce::Colour focusColour (const juce::Button& b, uint32_t outline, float alpha)
+    {
+        return b.hasKeyboardFocus (true) && b.isEnabled() ? Ink::textNow()
+                                                         : juce::Colour (outline).withAlpha (alpha);
+    }
+    juce::String family = juce::Font::getDefaultSansSerifFontName();
 };
 
 } // namespace zs

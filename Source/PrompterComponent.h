@@ -68,10 +68,8 @@ public:
         glowny, bo to on trzyma nagranie i ocene. */
     std::function<void()> onStopRequest;
 
-    /** Dolny pasek z przyciskami i pasek podpowiedzi nad nim. Przyciski
-        nagrywania stawia tu ekran glowny, wiec musi znac te liczby. */
-    static constexpr int barHeight  = 52;
-    static constexpr int hintHeight = 30;
+    /** Narzedzia promptera pod tekstem; nagrywanie i lampka sa w panelu bocznym. */
+    static constexpr int barHeight = 52;
 
     //==========================================================================
     PrompterComponent (Recorder& r, Settings& s) : recorder (r), settings (s)
@@ -185,14 +183,10 @@ public:
         return false;
     }
 
-    /** W trakcie nagrywania na dole zostaja tylko przyciski nagrywania.
-        Narzedzia (A-, A+, lustro) dzialaja dalej z klawiatury. */
+    /** Podczas nagrania zostaja narzedzia tekstu, ale wyjscie prowadzi przez ocene. */
     void refreshControls()
     {
-        const bool rec = recorder.isRecording();
-
-        for (auto* b : { &backButton, &smallerButton, &largerButton, &previousButton, &nextButton, &mirrorButton })
-            b->setVisible (! rec);
+        backButton.setEnabled (! recorder.isRecording());
     }
 
     /** "Powtorz wers" (R albo przycisk): na poczatek wersu, ktory jest w
@@ -226,62 +220,44 @@ public:
     }
 
     //==========================================================================
-    void resized() override {
-        layoutDirty=true;
-        auto bar=getLocalBounds().removeFromBottom(barHeight).reduced(16,6);bar.removeFromRight(224);
-        backButton.setBounds(bar.removeFromLeft(72));bar.removeFromLeft(8);
-        smallerButton.setBounds(bar.removeFromLeft(48));bar.removeFromLeft(6);
-        largerButton.setBounds(bar.removeFromLeft(48));bar.removeFromLeft(12);
-        previousButton.setBounds(bar.removeFromLeft(132));bar.removeFromLeft(6);
-        nextButton.setBounds(bar.removeFromLeft(100));bar.removeFromLeft(12);
-        mirrorButton.setBounds(bar.removeFromLeft(76));
+    void resized() override
+    {
+        layoutDirty = true;
+        auto bar = getLocalBounds().removeFromBottom (barHeight).reduced (12, 8);
+        backButton.setBounds (bar.removeFromLeft (64)); bar.removeFromLeft (6);
+        smallerButton.setBounds (bar.removeFromLeft (40)); bar.removeFromLeft (6);
+        largerButton.setBounds (bar.removeFromLeft (40)); bar.removeFromLeft (6);
+        mirrorButton.setBounds (bar.removeFromRight (70)); bar.removeFromRight (6);
+        const int w = (bar.getWidth() - 6) / 2;
+        previousButton.setBounds (bar.removeFromLeft (w)); bar.removeFromLeft (6);
+        nextButton.setBounds (bar);
     }
 
     void paint (juce::Graphics& g) override
     {
         if (layoutDirty) rebuildLines (g);
-
-        g.fillAll (Ink::bg());
-
-        // Szybka promptera odbija obraz z monitora, wiec zeby tekst byl
-        // czytelny W ODBICIU, na ekranie musi stac odwrotnie. Odbijamy caly
-        // rysunek jedna transformacja — inaczej trzeba by pamietac o tym w
-        // kazdym miejscu, w ktorym cokolwiek sie rysuje, i predzej czy pozniej
-        // jedno by sie zapomnialo.
+        g.fillAll (Ink::panel());
+        g.setColour (Ink::edge());
+        g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (0.5f), 6.0f, 1.0f);
+        auto r = getLocalBounds();
+        r.removeFromBottom (barHeight);
+        auto bottom = r.removeFromBottom (follower.isLost() ? bottomHeight() : 0);
+        // Lustro dotyczy czytanego tekstu; przyciski i lampka sa stale.
         juce::Graphics::ScopedSaveState keep (g);
-
         if (mirror)
             g.addTransform (juce::AffineTransform::scale (-1.0f, 1.0f)
                                                  .translated ((float) getWidth(), 0.0f));
-
-        auto r = getLocalBounds();
-        r.removeFromBottom (barHeight);
-        drawHud (g, r.removeFromTop (hudHeight()));
-
-        // dolny pasek istnieje tylko wtedy, gdy program sie zgubil
-        auto bottom = r.removeFromBottom (follower.isLost() ? bottomHeight() : 0);
-
-        // Pasek podpowiedzi (Esc, R, strzalki) rysuje ekran glowny w tym
-        // pasie — razem z przyciskami nagrywania, bo dotyczy tych samych
-        // klawiszy. W trakcie nagrywania jest krotszy: tylko to, co da sie
-        // zrobic jedna reka.
-        if (! follower.isLost())
-            r.removeFromBottom (hintHeight);
-
         drawScript (g, r);
-
-        if (follower.isLost())
-            drawLostBanner (g, bottom);
+        if (follower.isLost()) drawLostBanner (g, bottom);
     }
 
 private:
     //==========================================================================
-    int  hudHeight()    const { return getHeight() >= 1000 ? 140 : 110; }
     int  bottomHeight() const { return getHeight() >= 1000 ?  96 :  72; }
-    int  sideMargin()   const { return getWidth()  >= 1800 ?  96 :  64; }
+    int  sideMargin()   const { return 28; }
 
-    float fontNow()  const { return (getHeight() >= 1000 ? 46.0f : 38.0f) * fontScale; }
-    float fontElse() const { return (getHeight() >= 1000 ? 42.0f : 34.0f) * fontScale; }
+    float fontNow()  const { return juce::jlimit (26.0f, 48.0f, 34.0f * fontScale); }
+    float fontElse() const { return juce::jlimit (26.0f, 48.0f, 30.0f * fontScale); }
 
     //==========================================================================
     /* Podazanie zaczyna sie razem z NAGRANIEM, nie z otwarciem ekranu.
@@ -601,142 +577,9 @@ private:
     }
 
     //==========================================================================
-    void drawHud (juce::Graphics& g, juce::Rectangle<int> r)
-    {
-        g.setColour (Ink::panel());
-        g.fillRect (r);
-
-        g.setColour (Ink::edge());
-        g.fillRect (r.getX(), r.getBottom() - 2, r.getWidth(), 2);
-
-        auto inner = r.reduced (32, 0);
-
-        // ---- lampka: czy NAGRANIE sie nadaje ---------------------------------
-        const int d = getHeight() >= 1000 ? 60 : 48;
-
-        auto bulb = juce::Rectangle<int> (d, d).withCentre ({ inner.getX() + d / 2,
-                                                             inner.getCentreY() });
-
-        juce::Colour c;
-        juce::String title, diag;
-
-        switch (lampState)
-        {
-            case 3: c = Ink::clip(); title = PL("BŁĄD NAGRANIA");diag=lampMsg;break;
-            case 2: c = Ink::yellow(); title = PL ("POPRAW");   diag = lampMsg; break;
-            case 1: c = Ink::yellow(); title = PL ("POWTÓRZ");  diag = lampMsg; break;
-            default:
-                c = recorder.isRecording() ? Ink::green() : Ink::textNext();
-                title = recorder.isRecording() ? PL("NAGRYWASZ") : PL("GOTOWY");
-                diag = recorder.isRecording() ? lampMsg : PL("Naciśnij Nagrywaj, kiedy chcesz zacząć.");
-                break;
-        }
-
-        if (lampDim && recorder.isRecording()) c = c.withMultipliedBrightness (0.65f);
-
-        // poswiata — to ona sprawia, ze lampke widac katem oka
-        if (lampState > 0 || running)
-        {
-            g.setColour (c.withAlpha (0.22f));
-            g.fillEllipse (bulb.toFloat().expanded (14.0f));
-            g.setColour (c.withAlpha (0.12f));
-            g.fillEllipse (bulb.toFloat().expanded (26.0f));
-        }
-
-        g.setColour (c);
-        g.fillEllipse (bulb.toFloat());
-
-        g.setColour (juce::Colours::white.withAlpha (lampState > 0 ? 0.9f : 0.25f));
-        g.drawEllipse (bulb.toFloat(), 2.0f);
-
-        auto txt = inner.withTrimmedLeft (d + 16).withWidth (340);
-
-        g.setColour (c);
-        g.setFont (juce::Font (getHeight() >= 1000 ? 28.0f : 20.0f, juce::Font::bold));
-        g.drawText (title, txt.removeFromTop (txt.getHeight() / 2).translated (0, 8),
-                    juce::Justification::bottomLeft);
-
-        g.setColour (lampState > 0 ? c : Ink::textNext());
-        g.setFont (juce::Font (getHeight() >= 1000 ? 15.0f : 13.0f,
-                               lampState > 0 ? juce::Font::bold : juce::Font::plain));
-        g.drawText (diag, txt.translated (0, 4), juce::Justification::topLeft);
-
-        // ---- czas -------------------------------------------------------------
-        drawClock (g, inner);
-
-        // ---- poziom -----------------------------------------------------------
-        drawMeter (g, inner.removeFromRight (getHeight() >= 1000 ? 320 : 240));
-    }
-
-    //==========================================================================
-    void drawClock (juce::Graphics& g, juce::Rectangle<int> inner)
-    {
-        const double t = recorder.isRecording() ? recorder.recordedSeconds() : 0.0;
-
-        juce::String s;
-        s << juce::String ((int) t / 60).paddedLeft ('0', 2) << ":"
-          << juce::String ((int) t % 60).paddedLeft ('0', 2) << "."
-          << juce::String ((int) (t * 100) % 100).paddedLeft ('0', 2);
-
-        auto box = juce::Rectangle<int> (240, inner.getHeight()).withCentre (inner.getCentre());
-
-        g.setColour (Ink::textNext());
-        g.setFont (juce::Font (11.0f));
-        g.drawText (PL ("CZAS NAGRANIA"), box.removeFromTop (box.getHeight() / 2 - 4),
-                    juce::Justification::centredBottom);
-
-        g.setColour (recorder.isRecording() ? Ink::green() : Ink::textDim());
-        g.setFont (juce::Font (juce::Font::getDefaultMonospacedFontName(),
-                               getHeight() >= 1000 ? 56.0f : 40.0f, juce::Font::bold));
-        g.drawText (s, box, juce::Justification::centredTop);
-    }
-
-    //==========================================================================
-    void drawMeter (juce::Graphics& g, juce::Rectangle<int> r)
-    {
-        const float lv = recorder.currentLevel();
-        const float db = lv > 1.0e-5f ? 20.0f * std::log10 (lv) : -90.0f;
-
-        auto track = juce::Rectangle<int> (r.getWidth(), 14)
-                        .withCentre ({ r.getCentreX(), r.getCentreY() + 6 });
-
-        g.setColour (juce::Colour (0xff080b0e));
-        g.fillRect (track);
-        g.setColour (Ink::edge());
-        g.drawRect (track, 1);
-
-        constexpr int segs = 10;
-        const int segW = (track.getWidth() - 4 - (segs - 1) * 2) / segs;
-
-        // -60 dBFS na lewym koncu, 0 na prawym
-        const float fill = juce::jlimit (0.0f, 1.0f, (db + 60.0f) / 60.0f);
-
-        for (int i = 0; i < segs; ++i)
-        {
-            auto s = juce::Rectangle<int> (track.getX() + 2 + i * (segW + 2),
-                                           track.getY() + 2, segW, track.getHeight() - 4);
-
-            const float at = (i + 1) / (float) segs;
-
-            if (at > fill) { g.setColour (juce::Colour (0xff161e28)); }
-            else if (i >= segs - 2) { g.setColour (Ink::clip()); }
-            else if (i >= segs - 4) { g.setColour (Ink::yellow()); }
-            else { g.setColour (Ink::green()); }
-
-            g.fillRect (s);
-        }
-
-        g.setColour (Ink::textNext());
-        g.setFont (juce::Font (11.0f, juce::Font::bold));
-        g.drawText (db > -89.0f ? juce::String (db, 1) + " dB" : "-",
-                    track.withY (track.getY() - 18).withHeight (14),
-                    juce::Justification::centredRight);
-    }
-
-    //==========================================================================
     void drawLostBanner (juce::Graphics& g, juce::Rectangle<int> r)
     {
-        auto box = r.reduced (48, 0).withTrimmedBottom (20);
+        auto box = r.reduced (12, 0).withTrimmedBottom (8);
 
         g.setColour (Ink::lostBlue().withAlpha (0.08f));
         g.fillRect (box);
@@ -746,21 +589,12 @@ private:
         g.setColour (juce::Colour (0xffe8eaf6));
         g.setFont (juce::Font (14.0f));
         g.drawText (PL ("Mów dalej — albo popraw miejsce strzałkami."),
-                    box.reduced (20, 0), juce::Justification::centredLeft);
+                    box.reduced (12, 0).removeFromTop (30), juce::Justification::centredLeft);
 
         g.setColour (Ink::lostText());
         g.setFont (juce::Font (12.0f, juce::Font::bold));
         g.drawText (PL ("↑ ↓ wers     ← → słowo"),
-                    box.reduced (20, 0), juce::Justification::centredRight);
-    }
-
-public:
-    /** Lampka przychodzi z zewnatrz — ten ekran jej nie liczy, tylko pokazuje. */
-    void setLamp (int state, const juce::String& msg, bool dimmed)
-    {
-        lampState = state;
-        lampMsg = msg;
-        lampDim = dimmed;
+                    box.reduced (12, 0).removeFromBottom (30), juce::Justification::centredLeft);
     }
 
 private:
@@ -794,10 +628,6 @@ private:
     Settings&    settings;
     float        fontScale = 1.0f;
     bool         mirror = false;
-
-    int          lampState = 0;
-    juce::String lampMsg;
-    bool         lampDim = true;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PrompterComponent)
 };

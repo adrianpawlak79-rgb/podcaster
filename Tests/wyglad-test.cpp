@@ -9,9 +9,8 @@
     policzyc:
 
     - kontrast: czy tekst da sie przeczytac z dwoch metrow,
-    - rodzaje przyciskow: czy zaden ekran nie dorobil sobie trzeciego,
-    - kroj: czy przyciety Inter ma wszystkie polskie litery (brak "ł" nie
-      wywala programu — JUCE po cichu wstawia inny kroj w srodek slowa),
+    - rodzaje przyciskow: glowny, drugorzedny i okragly Nagraj,
+    - kroj: Segoe UI z systemu, bez podmiany na Inter,
     - przebieg na ekranie oceny: czy rosnie z oknem i czy nie wypycha
       przyciskow za krawedz,
     - klawisze ekranu nagrywania i pasek podpowiedzi.
@@ -45,51 +44,6 @@ static std::string readFile (const std::string& path)
 }
 
 //==============================================================================
-/* Minimalny czytnik tablicy cmap (format 4) — tylko po to, zeby zapytac
-   kroj, czy ma dany znak. */
-static uint32_t be32 (const std::string& d, size_t o) { return ((uint8_t) d[o] << 24) | ((uint8_t) d[o + 1] << 16) | ((uint8_t) d[o + 2] << 8) | (uint8_t) d[o + 3]; }
-static uint16_t be16 (const std::string& d, size_t o) { return (uint16_t) (((uint8_t) d[o] << 8) | (uint8_t) d[o + 1]); }
-
-static bool hasGlyph (const std::string& ttf, uint32_t cp)
-{
-    if (ttf.size() < 12) return false;
-
-    const int tables = be16 (ttf, 4);
-    size_t cmap = 0;
-
-    for (int i = 0; i < tables; ++i)
-        if (ttf.compare (12 + 16 * i, 4, "cmap") == 0) cmap = be32 (ttf, 12 + 16 * i + 8);
-
-    if (cmap == 0) return false;
-
-    const int subs = be16 (ttf, cmap + 2);
-
-    for (int i = 0; i < subs; ++i)
-    {
-        const size_t sub = cmap + be32 (ttf, cmap + 4 + 8 * i + 4);
-        if (be16 (ttf, sub) != 4) continue;
-
-        const int segs = be16 (ttf, sub + 6) / 2;
-        const size_t ends = sub + 14, starts = ends + 2 * segs + 2;
-        const size_t deltas = starts + 2 * segs, ranges = deltas + 2 * segs;
-
-        for (int s = 0; s < segs; ++s)
-        {
-            const uint16_t end = be16 (ttf, ends + 2 * s), start = be16 (ttf, starts + 2 * s);
-            if (cp < start || cp > end) continue;
-
-            const uint16_t ro = be16 (ttf, ranges + 2 * s);
-            if (ro == 0) return (uint16_t) (cp + be16 (ttf, deltas + 2 * s)) != 0;
-
-            const size_t at = ranges + 2 * s + ro + 2 * (cp - start);
-            return be16 (ttf, at) != 0;
-        }
-    }
-
-    return false;
-}
-
-//==============================================================================
 int main()
 {
     using namespace zs::ui;
@@ -101,7 +55,7 @@ int main()
     std::printf ("  1. paleta i kontrast\n");
 
     std::snprintf (b, sizeof (b), "#%06X", colour::accent & 0xffffff);
-    check ((colour::accent & 0xffffff) == 0xD5A879, "akcent to #D5A879", b);
+    check ((colour::accent & 0xffffff) == 0x39CF7B, "akcent to #39CF7B", b);
 
     struct Pair { const char* what; uint32_t fg, bg; double need; };
     const Pair pairs[] =
@@ -121,21 +75,27 @@ int main()
         check (c >= p.need, p.what, b);
     }
 
-    std::snprintf (b, sizeof (b), "kontrast akcentu z zielenia %.2f", contrast (colour::accent, colour::green));
-    check ((colour::accent & 0xffffff) != (colour::green & 0xffffff),
-           "akcent to nie zielen lampki", b);
+    check (colour::accent == colour::green, "akcent i lampka maja zielen prototypu", "#39CF7B");
+    check (colour::bg == 0xff141719 && colour::bar == 0xff1b1f21
+               && colour::panel == 0xff22272a && colour::raised == 0xff30373a
+               && colour::textNow == 0xfff1f4f2 && colour::yellow == 0xffe8bd4d
+               && colour::red == 0xffe36a63, "paleta z Docs/projekt/README.md", "");
 
-    // ---- 2. dwa rodzaje przyciskow --------------------------------------------------
+    // ---- 2. trzy rodzaje przyciskow --------------------------------------------------
     std::printf ("\n  2. przyciski\n");
 
-    check (buttonKindCount == 2, "sa dokladnie dwa rodzaje przyciskow", std::to_string (buttonKindCount));
+    check (buttonKindCount == 3, "sa trzy rodzaje, w tym okragly Nagraj", std::to_string (buttonKindCount));
 
     const auto pri = paintFor (ButtonKind::Primary), sec = paintFor (ButtonKind::Secondary);
     check (pri.fill == colour::accent && sec.fill != pri.fill, "glowny ma akcent, drugorzedny nie", "");
 
+    const auto rec = paintFor (ButtonKind::Record);
+    check (rec.fill == pri.fill && contrast (rec.text, rec.fill) >= 4.5,
+           "okragly Nagraj ma czytelny napis na zieleni", "");
+
     // Zaden ekran nie koloruje przyciskow sam — robi to tylko Look.h.
     const char* sources[] = { "MainComponent.h", "PrompterComponent.h", "ReviewComponent.h",
-                              "WizardComponent.h", "StepBar.h", "Main.cpp" };
+                              "WizardComponent.h", "StepBar.h", "ScreenFrame.h", "Main.cpp" };
     const char* forbidden[] = { "TextButton::buttonColourId", "TextButton::buttonOnColourId",
                                 "TextButton::textColourOffId", "TextButton::textColourOnId" };
     int found = 0;
@@ -156,31 +116,15 @@ int main()
 
     check (found == 0, "kolor przycisku ustawia tylko Look.h", found == 0 ? "0 miejsc" : where);
 
-    // ---- 3. kroj --------------------------------------------------------------------
-    std::printf ("\n  3. kroj Inter\n");
-
-    const char32_t polish[] = { U'ą', U'ć', U'ę', U'ł', U'ń', U'ó', U'ś', U'ź', U'ż',
-                                U'Ą', U'Ć', U'Ę', U'Ł', U'Ń', U'Ó', U'Ś', U'Ź', U'Ż',
-                                U'„', U'”', U'—', U'–', U'…', U'·', U'←', U'→', U'↑', U'↓', U'−', U'×' };
-
-    for (auto* name : { "Inter-Regular.ttf", "Inter-SemiBold.ttf" })
-    {
-        const auto ttf = readFile (std::string ("../Resources/Fonts/") + name);
-        int missing = 0;
-        for (auto cp : polish) if (! hasGlyph (ttf, (uint32_t) cp)) ++missing;
-        for (uint32_t cp = 0x20; cp < 0x7f; ++cp) if (! hasGlyph (ttf, cp)) ++missing;
-
-        std::snprintf (b, sizeof (b), "%zu KB, brakuje %d znakow", ttf.size() / 1024, missing);
-        check (! ttf.empty() && missing == 0, (std::string (name) + ": polskie litery i strzalki").c_str(), b);
-    }
-
-    check (readFile ("../Resources/Fonts/OFL.txt").find ("SIL OPEN FONT LICENSE") != std::string::npos,
-           "licencja kroju lezy obok", "");
-
-    const auto cmake = readFile ("../CMakeLists.txt");
-    check (cmake.find ("Inter-Regular.ttf") != std::string::npos
-               && cmake.find ("Inter-SemiBold.ttf") != std::string::npos,
-           "kroje sa wszyte w .exe (BinaryData)", "");
+    // ---- 3. kroj systemowy ----------------------------------------------------------
+    std::printf ("\n  3. kroj systemowy\n");
+    const auto look = readFile ("../Source/Look.h");
+    check (look.find ("Segoe UI Variable") != std::string::npos
+               && look.find ("Segoe UI") != std::string::npos,
+           "Look wybiera Segoe UI z prototypu", "kroj systemowy Windows");
+    check (readFile ("../Source/Fonts.h").find ("BinaryData") == std::string::npos
+               && readFile ("../CMakeLists.txt").find ("Inter-Regular.ttf") == std::string::npos,
+           "Inter nie zastepuje kroju systemowego", "");
 
     // ---- 4. pasek krokow ------------------------------------------------------------
     std::printf ("\n  4. pasek krokow\n");
@@ -192,7 +136,7 @@ int main()
 
     bool sums = true;
     for (int total : { 640, 641, 980, 1857 })
-        for (int n : { 4, 6 })
+        for (int n : { 5, 6 })
         {
             const auto w = stepWidths (total, n, 8);
             int sum = 8 * (n - 1);
@@ -200,6 +144,16 @@ int main()
             if (sum != total || w.front() > w.back()) sums = false;
         }
     check (sums, "kroki wypelniaja pasek co do piksela", "");
+
+    bool layoutFits = true;
+    for (int width : { 960, 1280, 1440, 2400 })
+        for (int height : { 640, 800, 900, 1600 })
+        {
+            const int mainWidth = width - frame::sideWidth (width) - 2 * frame::margin;
+            const int cardHeight = height - frame::header - frame::steps - frame::footer - 48 - 98 - 36;
+            if (mainWidth < 600 || cardHeight < 200) layoutFits = false;
+        }
+    check (layoutFits, "tresc i panel mieszcza sie od 960 x 640", "");
 
     // ---- 5. przebieg na ekranie oceny ------------------------------------------------
     std::printf ("\n  5. przebieg na ekranie oceny\n");
