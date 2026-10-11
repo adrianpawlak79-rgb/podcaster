@@ -134,6 +134,39 @@ public:
         return out;
     }
 
+    /** Szew: czy tlo po obu stronach ma ten sam poziom.
+
+        Ciecie lezy w ciszy, wiec trzasku nie bedzie — ale gdy miedzy pomylka
+        a powtorka wlaczyla sie lodowka albo czlowiek przysunal sie do
+        mikrofonu, cisza po jednej stronie szwu jest glosniejsza i to slychac
+        jako "latke". Mierzymy 150 ms ciszy tuz przed i tuz po wycieciu
+        (ta sama miara co w MontageRender: roznica ponad 1,5 dB jest
+        slyszalna). Naprawic sie tego nie da — da sie powiedziec. */
+    struct Seam { double at = 0.0; double levelDiffDb = 0.0; bool audible = false; };
+
+    std::vector<Seam> seams (const std::vector<float>& in, double sr, const std::vector<Removal>& cuts) const
+    {
+        std::vector<Seam> out;
+        auto rmsDb = [&] (double from, double to)
+        {
+            const size_t a = (size_t) std::max (0.0, from * sr);
+            const size_t b = std::min (in.size(), (size_t) std::max (0.0, to * sr));
+            double s = 0.0;
+            for (size_t i = a; i < b; ++i) s += (double) in[i] * in[i];
+            return b > a ? 10.0 * std::log10 (s / (double) (b - a) + 1.0e-12) : -120.0;
+        };
+
+        for (const auto& c : cuts)
+        {
+            Seam s;
+            s.at = remap (c.from, cuts);
+            s.levelDiffDb = rmsDb (c.to, c.to + 0.15) - rmsDb (c.from - 0.15, c.from);
+            s.audible = std::fabs (s.levelDiffDb) > 1.5;
+            out.push_back (s);
+        }
+        return out;
+    }
+
     /** Czas z surowego nagrania na czas w czystym pliku. Czas wewnatrz
         wyciecia trafia na szew. */
     double remap (double sec, const std::vector<Removal>& cuts) const

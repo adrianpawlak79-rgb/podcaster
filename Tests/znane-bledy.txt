@@ -4,4 +4,3 @@
 #
 # nazwa         dlaczego
 restore-test    usuwanie trzaskow znajduje 6 z 12 (README-NOWA-WERSJA.md: 9 z 12 na innej probce; wymog >= 10)
-montage-test    3 z 19: stary automatyczny montaz nie odmawia ciecia w srodku mowy (README-NOWA-WERSJA.md)

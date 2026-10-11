@@ -909,7 +909,11 @@ private:
                     // ocena czyta czysty plik — zdarzenia na jego czas, bez wycietych
                     takeEvents = tw::Punch().remapEvents (takeEvents, punched.plan);
                     append (PL ("--- wycięte pomyłki (R): ") + juce::String (punched.cuts) + ", "
-                            + juce::String (punched.removedSec, 1) + PL (" s; pełne nagranie w folderze „surowe”"));
+                            + juce::String (punched.removedSec, 1) + PL (" s; pełne nagranie w folderze „surowe”")
+                            + (punched.audibleSeams > 0
+                                 ? PL ("; uwaga: przy ") + juce::String (punched.audibleSeams)
+                                   + PL (" szwie tło się zmieniło (np. wentylator) — posłuchaj tych miejsc")
+                                 : juce::String()));
                 }
                 else if (punched.error.isNotEmpty())
                     append (PL ("--- nie wycięłem pomyłek: ") + punched.error + PL (" (nagranie zostaje w całości)"));
