@@ -71,6 +71,7 @@ public:
     struct Options
     {
         double searchSec    = 0.35;  ///< jak daleko szukamy dolka na ciecie
+        double edgeSec      = 0.10;  ///< cisza musi zaczynac sie tak blisko granicy
         double fadeSec      = 0.020; ///< dlugosc przenikania
         double quietWindow  = 0.030; ///< okno, w ktorym liczymy "jak cicho"
         double quietMargin  = 6.0;   ///< dolek musi byc o tyle cichszy od frazy
@@ -209,47 +210,53 @@ private:
     {
         if (env.empty()) return false;
 
+        // ---- tylko cisza PRZYLEGAJACA do granicy -------------------------
+        // Wczesniej szukalismy najcichszego okna w promieniu 0,35 s. Gdy
+        // frazy szly jedna za druga bez przerwy, w tym promieniu zawsze byla
+        // jakas przerwa miedzy SLOWAMI w srodku sasiedniej frazy — i montaz
+        // tam cial, zamiast odmowic (znany blad montage-test, 3 z 19). Teraz
+        // ciecie wolno tylko w ciagu cichych blokow, ktory zaczyna sie nie
+        // dalej niz edgeSec od zadanej granicy i miesci przenikanie.
+        const double quiet = floorDb + (speechDb - floorDb) * 0.35;
         const int centre = (int) (t * sr / hop);
+        const int tol    = std::max (1, (int) (options.edgeSec * sr / hop));
+        const int need   = std::max (1, (int) (options.fadeSec * sr / hop));
+        const int half   = need;
+        const int last   = (int) env.size() - 1;
+
+        int runLo = -1, runHi = -1;
+
+        for (int i = std::max (0, centre - tol); i <= std::min (last, centre + tol); ++i)
+        {
+            if (env[(size_t) i] > quiet) continue;
+
+            int a = i, b = i;
+            while (a > 0 && env[(size_t) (a - 1)] <= quiet) --a;
+            while (b < last && env[(size_t) (b + 1)] <= quiet) ++b;
+
+            if (b - a > runHi - runLo) { runLo = a; runHi = b; }
+            i = b;
+        }
+
+        if (runLo < 0 || runHi - runLo + 1 < 2 * half + 1) return false;
+
+        // w tym ciagu: okno, w ktorym najglosniejszy blok jest najcichszy,
+        // najblizej granicy (nie dalej niz searchSec)
         const int span = std::max (1, (int) (options.searchSec * sr / hop));
-
-        const int lo = std::max (0, centre - span);
-        const int hi = std::min ((int) env.size() - 1, centre + span);
-
-        // ---- najcichsze OKNO, nie najcichszy punkt ------------------------
-        // Pierwsza wersja szukala pojedynczego najcichszego bloku, a potem
-        // sprawdzala osobno, czy wokol niego jest dosc miejsca na przenikanie.
-        // To odrzucalo poprawne ciecia: najcichszy punkt przerwy potrafi lezec
-        // dwadziescia milisekund przed poczatkiem nastepnego slowa, a wtedy
-        // warunek "wokol tez ma byc cicho" nie jest spelniony, choc kawalek
-        // ciszy jest i da sie w nim ciac. W tescie z trzema cieciami jedno z
-        // nich przez to nie doszlo do skutku.
-        //
-        // Szukamy wiec okna dosc dlugiego, zeby zmiescic przenikanie, i
-        // bierzemy to, w ktorym NAJGLOSNIEJSZY blok jest najcichszy. Miejsce na
-        // przenikanie wychodzi wtedy z samej konstrukcji, a nie z osobnego
-        // warunku.
-        const int need = std::max (1, (int) (options.fadeSec * sr / hop));
-        const int half = need;
-
         int best = -1;
         double bestDb = 1.0e9;
 
-        for (int c = lo + half; c <= hi - half; ++c)
+        for (int c = std::max (runLo + half, centre - span); c <= std::min (runHi - half, centre + span); ++c)
         {
             double worst = -1.0e9;
-
             for (int i = c - half; i <= c + half; ++i)
                 worst = std::max (worst, env[(size_t) i]);
 
-            if (worst < bestDb) { bestDb = worst; best = c; }
+            if (worst < bestDb - 0.01 || (std::fabs (worst - bestDb) <= 0.01 && std::abs (c - centre) < std::abs (best - centre)))
+            { bestDb = worst; best = c; }
         }
 
         if (best < 0) return false;
-
-        // Okno musi byc wyraznie cichsze od mowy — inaczej to nie jest przerwa,
-        // tylko chwilowo cichsza sylaba.
-        if (bestDb > floorDb + (speechDb - floorDb) * 0.35)
-            return false;
 
         t = (double) best * hop / sr;
         (void) in;

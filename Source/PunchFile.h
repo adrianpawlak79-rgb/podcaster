@@ -30,6 +30,7 @@ struct PunchResult
     bool        applied = false;
     int         cuts = 0;
     double      removedSec = 0.0;
+    int         audibleSeams = 0;   ///< szwy, przy ktorych tlo rozni sie o > 1,5 dB
     juce::File  rawCopy;            ///< gdzie trafilo surowe nagranie
     juce::String error;
 };
@@ -117,6 +118,9 @@ inline PunchResult applyPunch (const juce::File& wav, std::vector<tw::LineMark>&
         .replaceWithText (juce::String::fromUTF8 (rawLog.toText().c_str()), false, false, "\n");
 
     for (auto& m : marks) m.sec = punch.remap (m.sec, plan);
+
+    for (const auto& sm : punch.seams (mono, sr, plan))
+        if (sm.audible) ++res.audibleSeams;
 
     res.applied = true;
     res.cuts = (int) plan.size();
