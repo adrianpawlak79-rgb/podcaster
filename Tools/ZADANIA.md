@@ -165,6 +165,26 @@ składanie wielu plików, w którym użytkownik się gubi).
 6. **Lampka po cięciu** zaczyna od nowa dla nowego segmentu; ocena po nagraniu
    (`TakeReview`) liczy już z pliku sklejonego.
 
+### Znaczek przy każdym przeczytanym wersie (pomysł Adriana)
+W prompterze, przy wersach już przeczytanych, mały znak — żeby od razu było wiadomo,
+czy jechać dalej, czy cofnąć:
+- **✓ zielony** — w czasie tego wersu lampka nic nie zgłosiła;
+- **! żółty** — coś było, ale miks to poprawi (plozja, mlask, odsunięcie) — można jechać dalej;
+- **✗ czerwony** — rzecz nie do naprawienia (przester, ucięcie, brak sygnału) — podpowiedź „R”.
+
+Skąd dane: zdarzenia lampki mają czas (`tw::Event`), wersy mają czas z kroku 1 — wystarczy
+je dopasować. Ten sam podział co w ocenie po nagraniu (`TakeReview`: naprawialne / do
+powtórki), więc w prompterze i na ekranie Odsłuch znaczek znaczy to samo.
+Po cofnięciu (R) znaczki od punktu cięcia znikają i liczą się od nowa.
+
+„Dobrze” znaczy **technicznie dobrze**, nie „ładnie przeczytane”. Później, osobno: znak
+„?” przy wersie, w którym rozpoznawanie mowy nie znalazło większości słów (możliwe
+przejęzyczenie) — dopiero po pomiarze, ile fałszywych „?” daje na nagraniach Adriana
+(śledzenie trafia dziś w ≤1 słowo w 66% chwil).
+
+Test bez JUCE: zdarzenia lampki + czasy wersów → właściwy znak dla każdego wersu,
+także gdy zdarzenie wypada na granicy dwóch wersów.
+
 ### Do ustalenia przy budowie
 - czy R zawsze robi punch-and-roll, czy zostaje też dzisiejsze „cofnij tekst, nagrywaj
   dalej” (wtedy jako opcja w Ustawieniach → Prompter);
