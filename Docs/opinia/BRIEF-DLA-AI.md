@@ -17,6 +17,11 @@ program. Działa offline, jeden instalator, bez abonamentu (plan: jednorazowa op
 
 Co robi:
 
+0. **Sprawdzenie sprzętu i pokoju przed pierwszym nagraniem** — kreator w 6 krokach,
+   każdy kończy się zdaniem, co zrobić, i zmierzoną liczbą: czy sygnał dociera i z którego
+   wejścia; szum tła, przydźwięk sieci i „ulepszacze” systemu; wzmocnienie i odległość od
+   mikrofonu; uderzenia powietrza na „p”; przeciek ze słuchawek do mikrofonu; kalibracja
+   głośności odsłuchu własnym głosem. Wynik jest zapamiętywany (przypomnienie po miesiącu).
 1. **Lampka w trakcie nagrania** — zielona / żółta / czerwona. Mówi, czy *nagranie* się
    nadaje (przester, za cicho, uderzenia powietrza, szum, odsunięcie od mikrofonu), nie czy
    ładnie przeczytane. Podaje powód i liczbę.
@@ -28,6 +33,9 @@ Co robi:
    i wskazuje, **który fragment nagrać jeszcze raz**. Odsłuch przed/po, proste cięcia,
    zapis WAV.
 
+Do tego: lista uwag z nagrania (z czasem i liczbą; fałszywy alarm danego rodzaju można
+wyciszyć), wykrywanie utraty danych przy zapisie, otwieranie starszych nagrań do oceny.
+
 Stan: działający program w fazie testów, po polsku; nie był jeszcze testowany przez
 zewnętrznych użytkowników.
 
@@ -38,7 +46,7 @@ zewnętrznych użytkowników.
 2. **Konkurencja.** Porównaj z: Auphonic, Adobe Podcast (Enhance), Descript, Riverside,
    aplikacjami-prompterami (np. PromptSmart) oraz z „darmowym Audacity + poradnik z YouTube”.
    Gdzie ten program przegrywa? Co z tego, co robi, jest naprawdę unikalne?
-3. **Która z trzech funkcji jest najcenniejsza**, a którą można by wyrzucić bez straty?
+3. **Która z czterech funkcji (0–3) jest najcenniejsza**, a którą można by wyrzucić bez straty?
 4. **Za co ktoś zapłaci?** Ile realnie (jednorazowo) i czy jest za co płacić, skoro część
    rzeczy daje się zrobić za darmo?
 5. **Największe ryzyko** porażki tego programu. Jedno, najważniejsze.
