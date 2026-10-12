@@ -9,7 +9,9 @@
 */
 
 #include "../Source/DSP/Punch.h"
+#include "../Source/DSP/PrompterLines.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <random>
@@ -245,6 +247,46 @@ int main()
         std::vector<tw::SkippedCut> sk2;
         check (pg.plan (m, cf, &sk2).empty() && sk2.size() == 1, "bez ciszy przed wersem: nie tnie na oko",
                sk2.empty() ? "" : sk2[0].why);
+    }
+
+    // ---- PEWNE / DO WSKAZANIA ---------------------------------------------------------
+    {
+        tw::Punch pr;
+        const double lag = pr.heardLagSec;
+        auto heard = [&] (std::vector<std::pair<double, int>> spoken)
+        {
+            std::vector<tw::HeardWord> h;
+            for (auto& x : spoken) h.push_back ({ x.first + lag, x.second });
+            return h;
+        };
+        const std::vector<tw::Removal> one { { 5.0, 8.0, 10, 15 } };
+        const auto normal = heard ({ { 3.0, 8 }, { 4.5, 9 }, { 5.15, 10 }, { 5.6, 11 }, { 8.15, 10 }, { 8.5, 11 } });
+
+        auto v = pr.review (one, normal, nullptr);
+        check (v.size() == 1 && v[0].sure, "zwykle R: pewne", v.empty() ? "" : v[0].why);
+
+        // ciecie w pauzie po przecinku w POPRZEDNIM wersie: jego ostatnie slowo padlo po poczatku ciecia
+        v = pr.review (one, heard ({ { 3.0, 8 }, { 5.2, 9 }, { 5.6, 10 }, { 8.15, 10 }, { 8.5, 11 } }), nullptr);
+        check (v.size() == 1 && ! v[0].sure, "poprzedni wers trwal po poczatku ciecia: do wskazania", v.empty() ? "" : v[0].why);
+
+        v = pr.review (one, normal, nullptr, { 10 });
+        check (v.size() == 1 && ! v[0].sure, "wers zaczyna sie jak inny: do wskazania", v.empty() ? "" : v[0].why);
+
+        const std::vector<tw::Removal> longCut { { 1.0, 10.0, 10, 15 } };
+        v = pr.review (longCut, heard ({ { 1.15, 10 }, { 2.0, 11 }, { 10.15, 10 }, { 10.5, 11 } }), nullptr);
+        check (v.size() == 1 && ! v[0].sure, "dlugie wyciecie: do wskazania", v.empty() ? "" : v[0].why);
+
+        v = pr.review (one, heard ({ { 5.15, 10 }, { 8.15, 12 } }), nullptr);
+        check (v.size() == 1 && ! v[0].sure, "straznik odrzuca: do wskazania", v.empty() ? "" : v[0].why);
+
+        tw::PrompterText t;
+        t.set ("Spadły kwiaty, za czasem, owoce zerwano\nSpadły liście, a zatem o jabłoń nie dbano.\nWidząc to rzekła jodła\n");
+        const auto sp = tw::lineSpans (t);
+        const auto sim = tw::similarlyStartingLines (t, sp);
+        const bool firstTwo = std::find (sim.begin(), sim.end(), sp[0].firstWord) != sim.end();
+        const bool third = std::find (sim.begin(), sim.end(), sp.back().firstWord) != sim.end();
+        check (firstTwo && ! third, "wersy od tego samego slowa sa podobne, inne nie",
+               std::to_string (sim.size()) + " podobnych");
     }
 
     // ---- R bez modelu mowy: tylko cofa tekst ---------------------------------------
