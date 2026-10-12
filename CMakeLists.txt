@@ -102,3 +102,14 @@ if(MSVC)
     target_compile_options(ZieloneSwiatlo PRIVATE /utf-8)
     target_compile_options(RuntimeTest PRIVATE /utf-8)
 endif()
+
+# Symulacja calej sesji bez czlowieka (Tools/zs-scenariusz.py robi nagranie
+# z zapisana prawda, to narzedzie puszcza je przez Recorder, prompter, lampke,
+# R, wyciecie pomylek, ocene i miks — i pisze raport).
+juce_add_console_app(ZsSymulacja PRODUCT_NAME "zs-symulacja")
+target_sources(ZsSymulacja PRIVATE Tools/zs-symulacja.cpp)
+target_include_directories(ZsSymulacja PRIVATE Source)
+target_compile_definitions(ZsSymulacja PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
+    JUCE_STANDALONE_APPLICATION=1 JUCE_USE_WINRT_MIDI=0)
+target_link_libraries(ZsSymulacja PRIVATE juce::juce_audio_utils juce::juce_gui_extra
+    PUBLIC juce::juce_recommended_config_flags)

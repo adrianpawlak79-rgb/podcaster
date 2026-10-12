@@ -1,0 +1,90 @@
+# Symulacja sesji bez człowieka
+
+Pomysł Adriana (11.10.2026): sprawdzać program kompleksowo, bez nagrywania za każdym razem.
+
+## Jak to działa
+
+1. `Tools/zs-scenariusz.py KATALOG` — sztuczne nagranie (espeak-ng, 12 wersów, 65 s) z zapisaną
+   **prawdą** w `prawda.tsv`: kiedy który wers, gdzie pomyłka i R (3×, w tym dwa razy na jednym
+   wersie), gdzie wada sprzętu (przester, plozja, brak sygnału 0,6 s, mlaski).
+2. `zs-symulacja KATALOG [raport.md]` (cel CMake `ZsSymulacja`, potrzebuje JUCE) — puszcza
+   nagranie przez **te same klasy co program**: `Recorder` (zapis, TakeWatch, licznik sylab),
+   lampka (`LampLogic`), prompter (`Follower`, `PrompterLines`, `LineLog`, R jak w
+   `PrompterComponent::repeatLine`), pre-roll, znaczki, po zatrzymaniu `applyPunch`, ocena
+   i miks (`TakeReview`). Porównuje z prawdą i pisze raport. Czas: ok. 8 s na przebieg.
+3. Dwa przebiegi:
+   - **A — prompter na samych sylabach** (tak działa program bez modelu mowy),
+   - **B — prompter jak z rozpoznawaniem mowy** (pozycja z prawdy, spóźniona o 0,78 s jak Vosk)
+     — żeby R, wycięcie i znaczki ocenić niezależnie od jakości śledzenia.
+4. GitHub Actions (`.github/workflows/symulacja.yml`) robi to przy każdym PR; raport jest
+   w podsumowaniu przebiegu. Na razie raport, nie bramka.
+
+## Czego nie sprawdza
+
+Wyglądu (od tego są zrzuty `--preview-ui`), prawdziwego rozpoznawania mowy (Vosk), brzmienia.
+Mowa z syntezatora nie mlaska, nie oddycha i nie brzmi jak SM7B — **liczby śledzenia na
+sylabach mogą być gorsze niż na żywym głosie** (sprawdzić na nagraniu Adriana).
+
+## Pierwszy wynik (11.10.2026, main po #33)
+
+**Przebieg B (śledzenie jak z modelu mowy): wszystko, co zależy od R, działa.**
+Wers po R właściwy 3 z 3, pre-roll kończy się w pauzie przed wersem 3 z 3, z pomyłek wycięte
+6,90 z 6,90 s, z dobrego czytania 0,00 s, znaczki 12 z 12 zgodne, przester / plozja / brak
+sygnału zgłoszone, mlaski naprawione w miksie (3).
+
+**Znalezione rozjazdy — do naprawy osobnymi PR-ami:**
+
+1. **Miks wychodzi na −23 LUFS zamiast −16.** Ekran oceny zawsze miksuje w trybie „Auto”
+   (`Decide::Destination::Auto`; w interfejsie nie ma wyboru celu). Auto celuje tam, gdzie nie
+   trzeba ruszać najgłośniejszego szczytu — a jeden szczyt (tu: przester albo plozja) obniża
+   cel dla całego nagrania do dolnej granicy −23 LUFS. Podcast powinien wyjść −16.
+   Propozycja: domyślnie „Podcast” (−16) i wybór celu w Ustawieniach (zad. 6), albo szczyt
+   liczony odpornie (percentyl zamiast maksimum).
+2. ~~Dwa fałszywe alarmy „dryf poziomu”~~ — **nie błąd programu.** Oba to frazy, w których
+   siedzi wstawiony przester i plozja: fraza jest głośniejsza, a zdarzenie frazy ma czas jej
+   POCZĄTKU (1–1,5 s przed wadą). Symulator nie łączył ich z wadą; poprawione — zdarzenie liczy
+   się jako wyjaśnione, gdy leży w tym samym przeczytanym kawałku co wada.
+3. **Bez modelu mowy śledzenie nie działa — potwierdzone na prawdziwych głosach** (niżej).
+   Na syntezatorze 22% klatek z właściwym wersem; skutki: R cofa do złego wersu, wycięcie
+   zabiera dobre czytanie, znaczki trafiają w złe wersy. Wniosek: **model mowy (Vosk) jest
+   warunkiem punch and roll**. Bez niego program nie powinien proponować R albo powinien
+   cofać do wersu z `LineLog`, nie z licznika sylab.
+4. **Jeden „słyszalny szew”** w przebiegu B przy stałym tle −70 dBFS — prawdopodobnie
+   porównanie poziomów łapie końcówkę mowy przy szwie. Sprawdzić `Punch` (seams).
+
+## Prawdziwe głosy (Wolne Lektury, 11.10.2026)
+
+`Tools/zs-prawdziwe.py KATALOG MODEL_VOSK zs-sledzenie` pobiera krótkie wiersze z audiobookami
+Wolnych Lektur (teksty w domenie publicznej, nagrania CC BY-SA 3.0; **nie trzymamy ich w
+repozytorium**), wycina zapowiedź lektora i robi `prawda.tsv` z czasów słów Vosk dopasowanych
+do tekstu (`zs-sledzenie --prawda`). 11 wierszy, 8 lektorów (2 kobiety), 42–121 s, 10–40 wersów;
+plus „Między nami nic nie było” z tekstem w zapisie Adriana (pusty wiersz po każdym wersie).
+
+Właściwy wers w czasie czytania:
+
+| wiersz (lektor) | same sylaby | sylaby ±1 wiersz | Vosk ≤1 słowo | Vosk ≤2 słowa | Vosk wers |
+|---|---|---|---|---|---|
+| Kochanowski, fraszka (M. Michalski) | 14% | 48% | 71% | 90% | 87% |
+| Krasicki, Jodła i jabłoń (M. Bogucka) | 13% | 48% | 59% | 80% | 83% |
+| Konopnicka, Pszczoły (M. Rzepka) | 22% | 48% | 71% | 94% | 80% |
+| Baudelaire, Olbrzymka (J. Niemirska) | 20% | 42% | 68% | 84% | 82% |
+| Asnyk, Między nami… (P. Głowacki) | 9% | 73% | 70% | 88% | 78% |
+| to samo, tekst Adriana | 9% | — | 71% | 89% | 78% |
+| Leśmian, Magda (W. Korzeniewski) | 68% | 94% | 66% | 88% | 83% |
+| Kochanowski, Pieśń IX (K. Skonieczny) | 50% | 81% | 60% | 82% | 75% |
+| Mickiewicz, Góra Kikineis (P. Głowacki) | 16% | 68% | 63% | 88% | 88% |
+| Mickiewicz, Widok gór… (J. Dravnel) | 0% | 51% | 79% | 96% | 90% |
+| Krasicki, Wilk pokutujący (B. Mazur) | 12% | 31% | 77% | 95% | 88% |
+| Jachowicz, Wróbelek… (M. Rzepka) | 4% | 39% | 69% | 87% | 70% |
+
+**Mediana: same sylaby 13% wersu, Vosk 82% wersu (≤2 słowa: 88%).**
+
+Uwagi:
+- Wzorzec czasów robi ten sam model Vosk, więc liczby Vosk są raczej optymistyczne
+  (to samo zastrzeżenie co przy pomiarze „Nic dwa razy”: tam 66% ≤1 słowo, tu 59–79%).
+- „Sylaby ±1 wiersz” dla tekstu Adriana jest nieporównywalne — puste wiersze między wersami
+  zmieniają numerację wierszy źródła (wers obok to dwa wiersze dalej).
+- Tekst z pustym wierszem po każdym wersie śledzi się tak samo jak zwarty (Vosk 71/89/78%
+  wobec 70/88/78%) — taki zapis jest bezpieczny.
+- Słowa, których model nie zna (np. „powojów”, „zraszających”), Vosk pomija — dopasowanie
+  83–91% słów tekstu.
