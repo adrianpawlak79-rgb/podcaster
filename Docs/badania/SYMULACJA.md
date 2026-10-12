@@ -142,3 +142,30 @@ Decyzja: **automatyczne wycinanie wyłączone** (`Settings::punchAutoCut`, domy�
 R cofa tekst i zapisuje miejsce; po zatrzymaniu program wypisuje miejsca do wycięcia, nagranie
 zostaje w całości. Włączymy, gdy cięcia będą sprawdzane dokładnymi czasami słów (rozpoznanie
 całego nagrania po zatrzymaniu) i ta próba da 0 niebezpiecznych.
+
+## Pewne / do wskazania (pomysł Adriana, 12.10.2026)
+
+Automat tnie sam tylko to, czego jest pewien (`Punch::review`); resztę pokazuje człowiekowi do
+wskazania miejsca na nagraniu. „Pewne” = przeszło strażnika ORAZ: żadne słowo poprzedniego wersu
+nie padło po początku cięcia (0,3 s zapasu), powtarzany wers nie zaczyna się tak jak inny w pobliżu
+(to samo pierwsze słowo albo 2 z 3 pierwszych), cięcie najwyżej 8 s.
+
+Sama długość pauzy nic nie mówi — pomiar na 11 nagraniach lektorów:
+
+| pauza | n | 25% | mediana | 75% | 95% | max |
+|---|---|---|---|---|---|---|
+| między wersami | 167 | 0,41 s | 0,75 s | 1,15 s | 1,90 s | 3,38 s |
+| w środku wersu | 100 | 0,18 s | 0,37 s | 0,63 s | 1,24 s | 1,99 s |
+
+Ta sama próba (354 R, pomyłka + R + ponowne czytanie):
+
+| | cięć | niebezpiecznych |
+|---|---|---|
+| bez strażnika | 160 | 65 |
+| strażnik | 89 | 18 |
+| **pewne** | **64** (48 dobrych, 16 częściowych — zostaje kawałek pomyłki) | **0** |
+| do wskazania | 96 | — (decyduje człowiek) |
+| bez propozycji | 194 | — (R bez znalezionego początku wersu; też do wskazania) |
+
+0 na 64 to statystycznie „poniżej ok. 5%” (95%) — potrzeba wielu tysięcy prób, zanim automat
+będzie mógł ciąć sam. Do tego czasu `punchAutoCut` zostaje wyłączone.

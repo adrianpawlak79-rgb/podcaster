@@ -10,6 +10,9 @@
 #pragma once
 
 #include "PrompterText.h"
+#include "ScriptNormalize.h"
+
+#include <cstdlib>
 
 #include <vector>
 
@@ -42,6 +45,32 @@ inline std::vector<LineSpan> lineSpans (const PrompterText& t)
     std::vector<LineSpan> out;
     for (int i = 0, first = 0; i < t.wordCount(); ++i)
         if (lineEndsAfter (t, first, i)) { out.push_back ({ first, i }); first = i + 1; }
+    return out;
+}
+
+/** Wersy, ktore zaczynaja sie podobnie jak inny wers w promieniu `near`
+    wersow (to samo pierwsze slowo albo dwa z trzech pierwszych) — rozpoznawanie mowy
+    myli je ("Patrz, do moich..." / "Patrz, jak widzac..."). Zwraca
+    pierwsze slowa takich wersow (Punch::review). */
+inline std::vector<int> similarlyStartingLines (const PrompterText& t, const std::vector<LineSpan>& lines, int near = 4)
+{
+    auto key = [&] (int w) { return spokenKey (t.wordText (w)); };
+    std::vector<int> out;
+    for (size_t i = 0; i < lines.size(); ++i)
+        for (size_t j = 0; j < lines.size(); ++j)
+        {
+            if (i == j || std::abs ((int) i - (int) j) > near) continue;
+            int same = 0;
+            for (int k = 0; k < 3; ++k)
+            {
+                const int a = lines[i].firstWord + k, b = lines[j].firstWord + k;
+                if (a > lines[i].lastWord || b > lines[j].lastWord) break;
+                if (key (a) == key (b)) ++same;
+            }
+            // to samo PIERWSZE slowo wystarczy: "Spadly kwiaty..." / "Spadly liscie..."
+            // rozpoznawanie pomylilo w probie na prawdziwym glosie (Krasicki)
+            if (same >= 2 || key (lines[i].firstWord) == key (lines[j].firstWord)) { out.push_back (lines[i].firstWord); break; }
+        }
     return out;
 }
 
