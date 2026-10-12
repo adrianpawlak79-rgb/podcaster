@@ -21,6 +21,30 @@ struct LineSpan
     int firstWord = 0, lastWord = 0;
 };
 
+/** Czy po slowie i konczy sie wers, ktory zaczal sie od slowa first.
+
+    Jedna zasada dla ekranu (PrompterComponent::rebuildLines), testu
+    (wersy-test) i narzedzi (zs-symulacja, zs-sledzenie): koniec wiersza
+    zrodla, koniec tekstu, oddech (przecinek i mocniej) po co najmniej trzech
+    slowach — albo brak miejsca w oknie (tooWide liczy ekran). */
+inline bool lineEndsAfter (const PrompterText& t, int first, int i, bool tooWide = false)
+{
+    const auto& w = t.all()[(size_t) i];
+    const bool last = i == t.wordCount() - 1;
+    const bool newSourceLine = ! last && t.all()[(size_t) (i + 1)].line != w.line;
+    const bool breathes = w.breathAfter >= 0.5f && i - first + 1 >= 3;
+    return last || newSourceLine || tooWide || breathes;
+}
+
+/** Wersy bez okna — tak, jak w szerokim oknie (narzedzia, symulacja). */
+inline std::vector<LineSpan> lineSpans (const PrompterText& t)
+{
+    std::vector<LineSpan> out;
+    for (int i = 0, first = 0; i < t.wordCount(); ++i)
+        if (lineEndsAfter (t, first, i)) { out.push_back ({ first, i }); first = i + 1; }
+    return out;
+}
+
 /** Wers, w ktorym lezy slowo. Poza tekstem: pierwszy albo ostatni. */
 inline int lineOfWord (const std::vector<LineSpan>& lines, int word)
 {

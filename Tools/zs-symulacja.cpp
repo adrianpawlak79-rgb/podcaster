@@ -72,24 +72,6 @@ static std::vector<Truth> readTruth (const juce::File& f)
     return out;
 }
 
-/** Wersy promptera bez szerokosci okna: ta sama zasada co
-    PrompterComponent::rebuildLines (koniec wiersza zrodla albo oddech po
-    co najmniej trzech slowach). Szerokie okno — tak jak u Adriana. */
-static std::vector<tw::LineSpan> spansOf (const tw::PrompterText& s)
-{
-    std::vector<tw::LineSpan> out;
-    int first = 0;
-    for (int i = 0; i < s.wordCount(); ++i)
-    {
-        const auto& w = s.all()[(size_t) i];
-        const bool last = i == s.wordCount() - 1;
-        const bool newLine = ! last && s.all()[(size_t) (i + 1)].line != w.line;
-        const bool breathes = w.breathAfter >= 0.5f && i - first + 1 >= 3;
-        if (last || newLine || breathes) { out.push_back ({ first, i }); first = i + 1; }
-    }
-    return out;
-}
-
 static std::string f1 (double v) { char b[32]; std::snprintf (b, sizeof (b), "%.1f", v); return b; }
 static std::string f2 (double v) { char b[32]; std::snprintf (b, sizeof (b), "%.2f", v); return b; }
 static std::string pct (double a, double b) { return b > 0 ? f1 (100.0 * a / b) + "%" : "-"; }
@@ -156,7 +138,7 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
     // ---- prompter ----------------------------------------------------------------
     tw::PrompterText script;
     script.set (text);
-    const auto spans = spansOf (script);
+    const auto spans = tw::lineSpans (script);   // jak w szerokim oknie
     const double lagSec = 0.78;
     auto firstWordOf = [&] (int line) { for (int i = 0; i < script.wordCount(); ++i) if (script.all()[(size_t) i].line == line) return i; return -1; };
     auto lastWordOf  = [&] (int line) { int r = -1; for (int i = 0; i < script.wordCount(); ++i) if (script.all()[(size_t) i].line == line) r = i; return r; };
