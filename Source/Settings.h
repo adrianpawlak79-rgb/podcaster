@@ -171,6 +171,21 @@ public:
     }
 
     /** Odbicie lustrzane — do szybki promptera, ktora odbija obraz z monitora. */
+    /** Czy R wycina pomylki samo po zatrzymaniu (punch and roll).
+
+        Domyslnie NIE. Proba na prawdziwym glosie (11 lektorow, 354 R,
+        Docs/badania/SYMULACJA.md): nawet ze straznikiem (Punch::guard) 5%
+        wyciec zabieralo dobre czytanie — glownie koncowke poprzedniego wersu,
+        gdy szukanie ciszy trafilo w pauze po przecinku. Wyciete slowo w
+        podcascie to katastrofa, zostawiona pomylka — niewygoda. Wlaczymy,
+        gdy ciecia beda sprawdzane dokladnymi czasami slow i proba da 0
+        niebezpiecznych. Do tego czasu R zaznacza miejsca, a czlowiek tnie na
+        ekranie Montaz. */
+    bool punchAutoCut() const
+    {
+        return props.getUserSettings()->getBoolValue ("punchAutoCut", false);
+    }
+
     bool mirrored() const
     {
         return props.getUserSettings()->getBoolValue ("mirrored", false);

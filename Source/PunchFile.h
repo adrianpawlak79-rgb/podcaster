@@ -33,12 +33,16 @@ struct PunchResult
     int         audibleSeams = 0;   ///< szwy, przy ktorych tlo rozni sie o > 1,5 dB
     juce::File  rawCopy;            ///< gdzie trafilo surowe nagranie
     std::vector<tw::Removal> plan;  ///< co wycieto (czas surowego nagrania)
+    std::vector<tw::SkippedCut> skipped;   ///< R, po ktorych NIE wycielismy — i dlaczego
     juce::String error;
 };
 
 /** marks: zapis wersow tego nagrania; przy powodzeniu czasy zostaja
-    przeliczone na czysty plik. */
-inline PunchResult applyPunch (const juce::File& wav, std::vector<tw::LineMark>& marks)
+    przeliczone na czysty plik.
+    heard: slowa uslyszane przez rozpoznawanie mowy — bez nich nic nie
+    wycinamy (Punch::guard: tniemy tylko to, co przeczytano jeszcze raz). */
+inline PunchResult applyPunch (const juce::File& wav, std::vector<tw::LineMark>& marks,
+                               const std::vector<tw::HeardWord>& heard, bool reallyCut = true)
 {
     PunchResult res;
 
@@ -67,8 +71,15 @@ inline PunchResult applyPunch (const juce::File& wav, std::vector<tw::LineMark>&
     tw::CutFinder finder;
     finder.analyse (mono.data(), mono.size(), sr);
     tw::Punch punch;
-    const auto plan = punch.plan (marks, finder);
+    const auto plan = punch.guard (punch.plan (marks, finder, &res.skipped), heard, &res.skipped, &finder);
     if (plan.empty()) return res;
+
+    // Tylko propozycja: gdzie wycialbym — plik zostaje nietkniety (Settings::punchAutoCut).
+    if (! reallyCut)
+    {
+        res.plan = plan;
+        return res;
+    }
 
     // ---- czysty dzwiek, kanal po kanale
     std::vector<std::vector<float>> clean ((size_t) ch);

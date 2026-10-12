@@ -117,3 +117,28 @@ Co znaczą błędy:
 
 Sprawdzone i odrzucone: R do ostatniego **usłyszanego** słowa zamiast pozycji promptera —
 wynik identyczny (po 1,5 s ciszy prompter i tak stoi na ostatnim usłyszanym słowie).
+
+## Pełna próba wycięcia na prawdziwym głosie (12.10.2026)
+
+`Tools/zs-r-pauzy.py … --powtorka` + `zs-sledzenie --r-ciecie`: na 11 nagraniach lektorów
+po słowie z „pomyłką” 1 s ciszy, R w tej ciszy, potem lektor czyta wers **jeszcze raz**
+(wklejone jego własne nagranie od początku wersu). Dalej dokładnie to, co program po
+zatrzymaniu: hipotezy Vosk → `WordTracker`, `LineLog`, `CutFinder`, `Punch::plan`, `Punch::guard`.
+Cięcie „niebezpieczne” = zabiera coś spoza [koniec poprzedniego wersu, początek powtórki].
+
+| 354 R | dobre cięcie | częściowe | bez cięcia | **niebezpieczne** |
+|---|---|---|---|---|
+| bez strażnika (tak jak w `main` do 12.10) | 95 (27%) | 25 | 169 | **65 (18%)** |
+| ze strażnikiem | 71 (20%) | 19 | 246 | **18 (5%)** |
+
+Przyczyny niebezpiecznych cięć:
+- **szukanie ciszy przed wersem** (`CutFinder`) trafia czasem w pauzę po przecinku w
+  POPRZEDNIM wersie i ucina jego końcówkę (0,4–2 s) — strażnik tego nie widzi, bo te słowa
+  rozpoznawanie usłyszało przed cięciem;
+- **rozpoznawanie myli podobne wersy** („Patrz, do moich…” / „Patrz, jak widząc…”) i przypisuje
+  powtórkę innemu wersowi — wtedy wycinanych słów strażnik po prostu nie widzi.
+
+Decyzja: **automatyczne wycinanie wyłączone** (`Settings::punchAutoCut`, domyślnie false).
+R cofa tekst i zapisuje miejsce; po zatrzymaniu program wypisuje miejsca do wycięcia, nagranie
+zostaje w całości. Włączymy, gdy cięcia będą sprawdzane dokładnymi czasami słów (rozpoznanie
+całego nagrania po zatrzymaniu) i ta próba da 0 niebezpiecznych.

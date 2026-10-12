@@ -915,7 +915,18 @@ private:
                                    + PL (" szwie tło się zmieniło (np. wentylator) — posłuchaj tych miejsc")
                                  : juce::String()));
                 }
-                else if (punched.error.isNotEmpty())
+                if (! punched.applied && ! punched.plan.empty())
+                {
+                    juce::String where;
+                    for (const auto& c : punched.plan)
+                        where << (where.isEmpty() ? "" : ", ") << pl::hhmmss (c.from) << PL ("–") << pl::hhmmss (c.to);
+                    append (PL ("--- R: pomyłki do wycięcia na ekranie Montaż: ") + where
+                            + PL (" (nagranie zostaje w całości — program sam nie tnie)"));
+                }
+                for (const auto& s : punched.skipped)
+                    append (PL ("--- NIE wycięłem pomyłki ") + juce::String (s.cut.from, 1) + "–" + juce::String (s.cut.to, 1)
+                            + PL (" s: ") + PL (s.why.c_str()) + PL (". Wytnij ją na ekranie Montaż."));
+                if (punched.error.isNotEmpty())
                     append (PL ("--- nie wycięłem pomyłek: ") + punched.error + PL (" (nagranie zostaje w całości)"));
             }
             logic.reset();

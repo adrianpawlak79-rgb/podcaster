@@ -36,13 +36,28 @@
 #include "TakeWatchCore.h"
 
 #include <algorithm>
+#include <string>
 #include <cmath>
 #include <vector>
 
 namespace tw
 {
 
-struct Removal { double from = 0.0, to = 0.0; };
+struct Removal
+{
+    double from = 0.0, to = 0.0;
+    int lineFirst = -1;     ///< slowa wersu, ktory jest powtarzany (-1 = nie wiadomo)
+    int lineLast  = -1;
+    bool mixedLines = false;   ///< sklejone wyciecia roznych wersow — nie wiadomo, co jest w srodku
+};
+
+/** Slowo tekstu uslyszane przez rozpoznawanie mowy: ktore i kiedy je oddalo
+    (czas nagrania, z opoznieniem rozpoznawania). */
+struct HeardWord { double sec = 0.0; int word = 0; };
+
+/** Wyciecie, ktorego NIE zrobilismy — i dlaczego. Pomylka zostaje w nagraniu
+    do recznego wyciecia na ekranie Montaz. */
+struct SkippedCut { Removal cut; std::string why; };
 
 class Punch
 {
@@ -50,8 +65,12 @@ public:
     double resumeLookSec = 2.0;     ///< jak daleko po R szukac pauzy
     double crossfadeSec  = 0.020;
 
-    /** Wyciecia z zapisu wersow i pauz w surowym nagraniu. */
-    std::vector<Removal> plan (const std::vector<LineMark>& marks, const CutFinder& cuts) const
+    /** Wyciecia z zapisu wersow i pauz w surowym nagraniu.
+
+        Poczatek wersu musi lezec w PAUZIE. Gdy CutFinder pauzy nie znalazl
+        (zgadl czas), nie tniemy wcale: ciecie "na oko" moze trafic w slowo. */
+    std::vector<Removal> plan (const std::vector<LineMark>& marks, const CutFinder& cuts,
+                               std::vector<SkippedCut>* skipped = nullptr) const
     {
         std::vector<Removal> out;
         std::vector<double> resumeOf (marks.size(), -1.0);
@@ -69,24 +88,122 @@ public:
             for (size_t j = i; j-- > 0;)
                 if (marks[j].firstWord == r.firstWord)
                 {
-                    from = marks[j].source == LineSource::Retake ? resumeOf[j]
-                                                                 : cuts.find (marks[j].sec).sec;
+                    if (marks[j].source == LineSource::Retake) { from = resumeOf[j]; break; }   // ten sam wers
+                    const auto c = cuts.find (marks[j].sec);
+                    if (! c.inPause)
+                    {
+                        if (skipped != nullptr) skipped->push_back ({ { c.sec, resume }, "przed wersem nie ma ciszy, a ciąć w słowie nie wolno" });
+                        from = -2.0;
+                        break;
+                    }
+                    from = c.sec;
                     break;
                 }
-            if (from < 0.0) continue;            // R zanim wers sie zaczal — nie ma czego ciac
+            if (from < 0.0) continue;            // R zanim wers sie zaczal (albo bez ciszy) — nie tniemy
 
             from = std::min (from, r.sec);
-            if (resume > from) out.push_back ({ from, resume });
+            if (resume > from) out.push_back ({ from, resume, r.firstWord, r.lastWord });
         }
 
         std::sort (out.begin(), out.end(), [] (const Removal& a, const Removal& b) { return a.from < b.from; });
         std::vector<Removal> merged;
         for (const auto& x : out)
         {
-            if (! merged.empty() && x.from <= merged.back().to) merged.back().to = std::max (merged.back().to, x.to);
+            if (! merged.empty() && x.from <= merged.back().to)
+            {
+                merged.back().to = std::max (merged.back().to, x.to);
+                if (x.lineFirst != merged.back().lineFirst) merged.back().mixedLines = true;
+            }
             else merged.push_back (x);
         }
         return merged;
+    }
+
+    //==========================================================================
+    /** STRAZNIK: wyciecie tylko wtedy, gdy wszystko, co wycina, zostalo potem
+        przeczytane jeszcze raz.
+
+        To jest najwazniejsza zasada calego punch and roll: zostawiona pomylka
+        to niewygoda (czlowiek wytnie ja recznie), wyciete dobre slowo to
+        katastrofa. Pomiar (Docs/badania/SYMULACJA.md): R z rozpoznawaniem mowy
+        trafia we wlasciwy wers w 90-96%; w pozostalych prompter cofa za
+        daleko — i jesli czlowiek NIE przeczyta wtedy jeszcze raz poprzedniego
+        wersu, wyciecie zabraloby dobry wers.
+
+        Sprawdzamy to slowami, ktore rozpoznawanie naprawde uslyszalo:
+          w wycinanym kawalku  — najwczesniejsze slowo tekstu W,
+          po wznowieniu        — najwczesniejsze slowo tekstu P
+                                 (do nastepnego wyciecia, najwyzej 20 s).
+        Tniemy tylko, gdy P <= W: czytanie po wznowieniu zaczelo sie nie
+        pozniej niz to, co wycinamy. Gdy ktorejs strony nie da sie ustalic
+        (nic nie uslyszane) — nie tniemy.
+
+        Slowa SPRZED wersu, od ktorego zaczyna sie wyciecie (numer mniejszy
+        niz lineFirst), nie licza sie do W: padly przed poczatkiem wyciecia,
+        tylko rozpoznawanie oddalo je pozniej. Pierwsza wersja odcinala je
+        marginesem czasu 0,4 s — i razem z nimi pomylke na pierwszym slowie
+        wersu, wiec straznik odrzucal prawie kazde dobre wyciecie (proba na
+        prawdziwym glosie, Docs/badania/SYMULACJA.md). */
+    double heardLagSec   = 0.58;   ///< mediana opoznienia rozpoznawania (pomiar na 12 nagraniach)
+
+    /*  Dwie dalsze zasady — z proby na prawdziwym glosie (11 lektorow,
+        Docs/badania/SYMULACJA.md). Rozpoznawanie potrafi pomylic podobne wersy
+        ("Patrz, do moich..." / "Patrz, jak widzac...") i przypisac powtorke
+        innemu wersowi; wtedy slow, ktore zginelyby, straznik po prostu nie
+        widzi. Dlatego:
+          - kazde slowo uslyszane w wycinanym kawalku musi nalezec do wersu,
+            ktory jest powtarzany (lineFirst..lineLast) — slowo innego wersu
+            znaczy, ze wycinamy cos wiecej niz pomylke;
+          - mowy w wycinanym kawalku nie moze byc wiecej, niz tlumacza
+            uslyszane slowa (1 s + 0,7 s na slowo): nierozpoznana mowa to
+            moze byc dobre czytanie.  */
+    double secondsPerHeardWord = 0.7;
+    double unexplainedSec      = 1.0;
+
+    std::vector<Removal> guard (const std::vector<Removal>& plan, const std::vector<HeardWord>& heard,
+                                std::vector<SkippedCut>* skipped = nullptr, const CutFinder* speech = nullptr) const
+    {
+        std::vector<Removal> out;
+        for (size_t i = 0; i < plan.size(); ++i)
+        {
+            const auto& c = plan[i];
+            const double afterEnd = std::min (i + 1 < plan.size() ? plan[i + 1].from : 1.0e12, c.to + 20.0);
+
+            int inside = -1, after = -1, insideCount = 0;
+            bool foreign = false;
+            for (const auto& h : heard)
+            {
+                const double t = h.sec - heardLagSec;      // kiedy slowo padlo
+                if (t >= c.from && t < c.to)
+                {
+                    if (c.lineFirst >= 0 && h.word < c.lineFirst) continue;      // poprzedni wers, oddany pozniej
+                    if (c.lineLast >= 0 && h.word > c.lineLast) foreign = true;
+                    inside = inside < 0 ? h.word : std::min (inside, h.word);
+                    ++insideCount;
+                }
+                else if (t >= c.to && t < afterEnd)
+                    after = after < 0 ? h.word : std::min (after, h.word);
+            }
+
+            // ile mowy (nie-pauzy) jest w wycinanym kawalku
+            double voiced = c.to - c.from;
+            if (speech != nullptr)
+                for (const auto& p : speech->pauses())
+                    voiced -= std::max (0.0, std::min (p.second, c.to) - std::max (p.first, c.from));
+
+            const char* why = nullptr;
+            if (c.mixedLines)     why = "wycięcia różnych wersów nachodzą na siebie";
+            else if (inside < 0)  why = "w wycinanym kawałku rozpoznawanie mowy niczego nie usłyszało";
+            else if (foreign)     why = "w wycinanym kawałku są słowa innego wersu";
+            else if (speech != nullptr && voiced > unexplainedSec + secondsPerHeardWord * insideCount)
+                                  why = "w wycinanym kawałku jest mowa, której rozpoznawanie nie przypisało do tekstu";
+            else if (after < 0)   why = "po wznowieniu rozpoznawanie mowy niczego nie usłyszało";
+            else if (after > inside) why = "po wznowieniu nie przeczytano jeszcze raz wszystkiego, co byłoby wycięte";
+
+            if (why == nullptr) out.push_back (c);
+            else if (skipped != nullptr) skipped->push_back ({ c, why });
+        }
+        return out;
     }
 
     /** Gdzie wznowic po R: koniec pierwszej pauzy po R, 0,15 s przed mowa. */
