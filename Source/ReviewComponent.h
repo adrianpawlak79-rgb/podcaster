@@ -1215,7 +1215,7 @@ private:
     juce::AudioFormatManager formats;
 
     zs::TakeReview review;
-    mix::Decide::Wish wish;   ///< w tym wynik kreatora — patrz setRoom()
+    mix::Decide::Wish wish = zs::TakeReview::podcastWish();   ///< w tym wynik kreatora — patrz setRoom()
     zs::Audition   player;
     bool damagedRecording=false;
     zs::Envelope   beforeEnv, afterEnv;

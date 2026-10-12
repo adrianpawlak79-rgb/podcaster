@@ -320,7 +320,23 @@ public:
     //==========================================================================
     /** Cala robota. Wolane z watku roboczego, nie z interfejsu — na minucie
         mowy lancuch chodzi kilka sekund, a zamrozone okno wyglada na awarie. */
-    void run (mix::Decide::Wish wish = {})
+    /** Czego program chce od miksu, gdy czlowiek nic nie wybral: podcast,
+        -16 LUFS.
+
+        Dotad byl tu tryb Auto ("tam, gdzie nie trzeba ruszac szczytu, ale nie
+        ciszej niz -23"), a ekran oceny nie mial wyboru celu. Symulacja sesji
+        (Docs/badania/SYMULACJA.md) pokazala skutek: jeden szczyt — przester
+        albo plozja — sciszal CALY odcinek do -23 LUFS, o 7 dB ciszej niz
+        podcasty w Apple i Spotify. Pojedyncze szczyty ma zatrzymac limiter,
+        nie glosnosc calosci. */
+    static mix::Decide::Wish podcastWish()
+    {
+        mix::Decide::Wish w;
+        w.where = mix::Decide::Destination::Podcast;
+        return w;
+    }
+
+    void run (mix::Decide::Wish wish = podcastWish())
     {
         if (before.empty()) { st.store (Stage::Empty); return; }
 

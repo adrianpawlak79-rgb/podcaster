@@ -318,6 +318,18 @@ int main (int argc, char** argv)
         check (! r.verdictLine().empty(), "werdykt jest jednym zdaniem");
 
         std::printf ("\n        werdykt: %s\n\n", r.verdictLine().c_str());
+
+        // Jeden szczyt nie moze sciszyc calego odcinka (Docs/badania/SYMULACJA.md:
+        // w trybie Auto przester w jednym miejscu dawal -23 LUFS zamiast -16).
+        auto loud = speech (src, sr, 25.0);
+        for (int i = 0; i < 2400; ++i)
+            loud[(size_t) (10.0 * sr) + (size_t) i] = (i / 24) % 2 ? -1.0f : 1.0f;
+        zs::TakeReview p;
+        p.setTake (loud, sr, {});
+        p.run();
+        check (std::fabs (p.whatIDid().lufsAfter + 16.0) < 1.0, "podcast: -16 LUFS mimo jednego szczytu 0 dBFS",
+               num (p.whatIDid().lufsAfter, " LUFS"));
+        check (p.whatIDid().peakAfter <= -0.9, "i szczyt pod sufitem", num (p.whatIDid().peakAfter, " dBTP"));
     }
 
     // ---- 5. zapis pliku i powrot ----------------------------------------
