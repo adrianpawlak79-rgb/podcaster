@@ -31,6 +31,7 @@ $CXX $FLAGS punkt-ciecia-test.cpp -o punkt-ciecia-test
 $CXX $FLAGS punch-test.cpp       -o punch-test
 $CXX $FLAGS preroll-test.cpp     -o preroll-test
 $CXX $FLAGS znaczki-test.cpp     -o znaczki-test
+$CXX $FLAGS lista-ciec-test.cpp  -o lista-ciec-test
 
 ./lamp-test
 ./dynamics-test
@@ -61,6 +62,7 @@ espeak-ng -v pl -s 150 -w /tmp/mowa.wav \
 ./punch-test
 ./preroll-test
 ./znaczki-test
+./lista-ciec-test
 
 # Punch and roll na prawdziwych plikach (JUCE, CMake: cel PunchPlikTest)
 if [ -x ../build-linux/PunchPlikTest_artefacts/Release/PunchPlikTest ]; then
