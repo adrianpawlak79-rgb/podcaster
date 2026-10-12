@@ -710,6 +710,10 @@ public:
         res = zs::applyPunch (wav, marks, heardWords, settings.punchAutoCut(),
                               tw::similarlyStartingLines (script, tw::lineSpans (script)));
 
+        // lista ciec dla ekranu Odsluch (DSP/CutList.h): pewne + do wskazania
+        if (! res.applied && ! res.proposals.empty())
+            zs::writeCutList (wav, res.proposals);
+
         tw::LineLog out;
         out.begin();
         for (const auto& m : marks) out.restart (m, m.source);

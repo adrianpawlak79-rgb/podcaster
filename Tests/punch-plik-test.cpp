@@ -101,6 +101,32 @@ int main()
         + juce::String (marks[4].sec, 2) + " s)");
     (void) bad; (void) good;
 
+    // ---- lista ciec dla ekranu Odsluch (bez wycinania od razu) --------------------
+    {
+        const auto copyWav = dir.getChildFile ("sesja_lista.wav");
+        res.rawCopy.copyFileTo (copyWav);
+        const auto before = copyWav.getSize();
+        auto m2 = marks;   // czasy z czystego pliku nie pasuja — bierzemy z surowego zapisu
+        auto rawMarks = tw::LineLog::parse (res.rawCopy.getSiblingFile (res.rawCopy.getFileNameWithoutExtension() + ".wersy.txt")
+                                               .loadFileAsString().toStdString());
+        const auto prop = zs::applyPunch (copyWav, rawMarks, heard, false);
+        ok (! prop.applied && copyWav.getSize() == before && prop.proposals.size() == 1
+            && prop.proposals[0].sure && prop.proposals[0].state == tw::CutProposal::State::Accepted,
+            "bez wycinania: plik nietkniety, jedna pewna propozycja");
+        ok (zs::writeCutList (copyWav, prop.proposals) && zs::readCutList (copyWav).size() == 1,
+            "lista obok nagrania zapisana i odczytana");
+
+        auto list = zs::readCutList (copyWav);
+        list[0].state = tw::CutProposal::State::Rejected;
+        ok (! zs::applyCutList (copyWav, list).applied && copyWav.getSize() == before, "przywrocone: nic nie wyciete");
+        list[0].state = tw::CutProposal::State::Accepted;
+        const auto done = zs::applyCutList (copyWav, list);
+        ok (done.applied && copyWav.getSize() < before && ! zs::cutListFile (copyWav).existsAsFile()
+            && done.rawCopy.getSiblingFile (done.rawCopy.getFileNameWithoutExtension() + ".ciecia.tsv").existsAsFile(),
+            "zatwierdzone: wyciete, surowe i lista w 'surowe'");
+        (void) m2;
+    }
+
     // drugi raz to samo nagranie bez R: nic
     std::vector<tw::LineMark> plain { marks[0], marks[1] };
     plain[0].source = plain[1].source = tw::LineSource::Words;
