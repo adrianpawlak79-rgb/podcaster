@@ -289,6 +289,23 @@ int main()
                std::to_string (sim.size()) + " podobnych");
     }
 
+    // ---- miejsce ciecia z pre-rollu i ze strzalek -------------------------------------
+    {
+        tw::Punch pp;
+        std::vector<tw::LineMark> m { mark (0, l0 + 0.78, tw::LineSource::Words), mark (1, l1 + 0.78, tw::LineSource::Words),
+                                      mark (2, bad + 0.78, tw::LineSource::Words), mark (2, key, tw::LineSource::Retake) };
+        m.back().cutFrom = bad - 0.10;  m.back().cutByHand = false;
+        auto pl = pp.plan (m, cuts);
+        check (pl.size() == 1 && std::fabs (pl[0].from - (bad - 0.10)) < 1e-9 && ! pl[0].byHand,
+               "ciecie zaczyna sie tam, gdzie skonczyl sie pre-roll");
+
+        m.back().cutFrom = l1 - 0.15;  m.back().cutByHand = true;     // czlowiek cofnal o wers
+        pl = pp.plan (m, cuts);
+        check (pl.size() == 1 && std::fabs (pl[0].from - (l1 - 0.15)) < 1e-9 && pl[0].byHand, "strzalkami przesuniete: tam");
+        const auto v = pp.review (pl, {}, nullptr);
+        check (v.size() == 1 && v[0].sure, "wskazane przez czlowieka: pewne", v.empty() ? "" : v[0].why);
+    }
+
     // ---- R bez modelu mowy: tylko cofa tekst ---------------------------------------
     {
         check (tw::retakeSource (true) == tw::LineSource::Retake, "z rozpoznawaniem mowy R wycina");

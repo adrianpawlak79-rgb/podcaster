@@ -74,6 +74,12 @@ struct LineMark
     int         shown     = 0;     ///< numer wersu na ekranie (zalezy od okna)
     LineSource  source    = LineSource::Syllables;
     std::string text;              ///< UTF-8, do czytania przez czlowieka
+
+    /** Tylko przy R: gdzie zaczyna sie wyciecie — koniec pre-rollu, ktory
+        czlowiek uslyszal (PreRoll.h). -1 = nie wiadomo. cutByHand: przesunal
+        je strzalkami w czasie odliczania. */
+    double      cutFrom   = -1.0;
+    bool        cutByHand = false;
 };
 
 class LineLog
@@ -104,6 +110,14 @@ public:
     }
 
     const std::vector<LineMark>& marks() const noexcept { return all; }
+
+    /** Punkt wyciecia ostatniego R (pre-roll, strzalki). */
+    void setLastCut (double sec, bool byHand)
+    {
+        if (all.empty() || all.back().source != LineSource::Retake) return;
+        all.back().cutFrom = sec;
+        all.back().cutByHand = byHand;
+    }
 
     /** Wersy, ktore zostaja w nagraniu, uporzadkowane po tekscie.
 

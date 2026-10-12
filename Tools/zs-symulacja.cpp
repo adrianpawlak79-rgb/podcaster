@@ -272,7 +272,8 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
     // ---- po zatrzymaniu ------------------------------------------------------------
     auto marks = lineLog.marks();
     const auto grades = tw::LineGrader().grade (marks, events, true);
-    const auto punched = zs::applyPunch (raw, marks, heard);
+    // jak PrompterComponent::finishTake: tnie tylko PEWNE, reszta do wskazania
+    const auto punched = zs::applyPunch (raw, marks, heard, true, tw::similarlyStartingLines (script, spans));
     const auto cleanEvents = punched.applied ? tw::Punch().remapEvents (events, punched.plan) : events;
 
     std::vector<float> clean;
@@ -435,7 +436,15 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
         else
         {
             rep.check (punched.applied, "plik po wycięciu powstał", punched.applied ? "tak, cięć: " + std::to_string (punched.cuts) : "nie: " + punched.error.toStdString(), "tak");
-            rep.check (mistakeCut >= 0.95 * mistake, "wycięte z pomyłek", f2 (mistakeCut) + " z " + f2 (mistake) + " s", "≥ 95%");
+            // pomylka nie wycieta, ale pokazana czlowiekowi (do wskazania) tez jest w porzadku
+            double flagged = 0;
+            for (const auto& t : truth)
+                if (t.kind == "mowa" && t.what == "pomylka")
+                    for (const auto& sk : punched.skipped) flagged += overlap (t.from, t.to, sk.cut.from, sk.cut.to);
+            rep.check (mistakeCut + flagged >= 0.95 * mistake, "pomyłki wycięte albo do wskazania",
+                       f2 (mistakeCut) + " s wycięte + " + f2 (flagged) + " s do wskazania z " + f2 (mistake) + " s", "≥ 95%");
+            for (const auto& sk : punched.skipped)
+                rep.line ("| ℹ️ | do wskazania " + f2 (sk.cut.from) + "–" + f2 (sk.cut.to) + " s | " + sk.why + " | |");
             rep.check (goodCut <= 0.05, "wycięte z dobrego czytania", f2 (goodCut) + " s", "≤ 0,05 s");
             rep.check (punched.audibleSeams == 0, "słyszalne szwy (zmiana tła)", std::to_string (punched.audibleSeams), "0");
         }

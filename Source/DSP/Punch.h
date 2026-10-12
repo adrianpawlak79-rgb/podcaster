@@ -49,6 +49,7 @@ struct Removal
     int lineFirst = -1;     ///< slowa wersu, ktory jest powtarzany (-1 = nie wiadomo)
     int lineLast  = -1;
     bool mixedLines = false;   ///< sklejone wyciecia roznych wersow — nie wiadomo, co jest w srodku
+    bool byHand = false;       ///< poczatek wskazal czlowiek (strzalki w pre-rollu)
 };
 
 /** Slowo tekstu uslyszane przez rozpoznawanie mowy: ktore i kiedy je oddalo
@@ -83,8 +84,16 @@ public:
             const double resume = resumeAfter (r.sec, cuts);
             resumeOf[i] = resume;
 
-            // poczatek wersu: ostatnie wejscie w ten wers przed R
+            // Poczatek: tam, gdzie skonczyl sie pre-roll, ktory czlowiek uslyszal
+            // (i moze przesunal strzalkami) — wtedy tniemy dokladnie tam, gdzie
+            // obiecalismy. Bez tego: ostatnie wejscie w ten wers przed R.
             double from = -1.0;
+            if (r.cutFrom >= 0.0 && r.cutFrom < r.sec)
+            {
+                const double f = r.cutFrom;
+                if (resume > f) out.push_back ({ f, resume, r.firstWord, r.lastWord, false, r.cutByHand });
+                continue;
+            }
             for (size_t j = i; j-- > 0;)
                 if (marks[j].firstWord == r.firstWord)
                 {
@@ -102,7 +111,7 @@ public:
             if (from < 0.0) continue;            // R zanim wers sie zaczal (albo bez ciszy) — nie tniemy
 
             from = std::min (from, r.sec);
-            if (resume > from) out.push_back ({ from, resume, r.firstWord, r.lastWord });
+            if (resume > from) out.push_back ({ from, resume, r.firstWord, r.lastWord, false, false });
         }
 
         std::sort (out.begin(), out.end(), [] (const Removal& a, const Removal& b) { return a.from < b.from; });
@@ -113,6 +122,7 @@ public:
             {
                 merged.back().to = std::max (merged.back().to, x.to);
                 if (x.lineFirst != merged.back().lineFirst) merged.back().mixedLines = true;
+                merged.back().byHand = merged.back().byHand && x.byHand;
             }
             else merged.push_back (x);
         }
@@ -231,10 +241,14 @@ public:
         std::vector<Verdict> out;
         for (const auto& c : plan)
         {
-            std::vector<SkippedCut> sk;
-            const auto ok = guard ({ c }, heard, &sk, speech);
             Verdict v;
             v.cut = c;
+
+            // Poczatek wskazal czlowiek, sluchajac pre-rollu: on wie, co wycina.
+            if (c.byHand && ! c.mixedLines) { v.sure = true; v.why = "miejsce wskazane w pre-rollu"; out.push_back (v); continue; }
+
+            std::vector<SkippedCut> sk;
+            const auto ok = guard ({ c }, heard, &sk, speech);
             if (ok.empty()) { v.why = sk.empty() ? "straznik" : sk[0].why; out.push_back (v); continue; }
 
             bool prevAfter = false;
