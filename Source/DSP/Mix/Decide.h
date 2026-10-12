@@ -107,6 +107,14 @@ public:
         Destination where = Destination::Auto;
         double ceilingDbTp = -1.0;
 
+        /** Lagodny miks (domyslny): tylko filtr dolu, lekkie odszumianie,
+            kompresja 2:1 i limiter. Odsluch Adriana 12.10 na wlasnym glosie:
+            pelny lancuch (brama, tlumienie glosek, de-esser, barwa, mocne
+            odszumianie) brzmial gorzej niz surowe nagranie — "studnia, mlaski,
+            oddechy, przester"; odszumianie 10 dB juz psulo glos, 6 dB nie.
+            Pelna logika zostaje — wraca, gdy wygra odsluch z lagodnym. */
+        bool gentle = true;
+
         /** Wynik kreatora. Pusty, gdy kreatora nie przechodzono — wtedy
             wszystko bierze sie z samego nagrania, jak dotad. */
         RoomCheck room;
@@ -421,7 +429,68 @@ public:
         roomChanged (wish.room, d);
         tone (in, sr, wish.room, headroom, d);
 
+        if (wish.gentle) gentle (wish, headroom, d);
+
         return d;
+    }
+
+    /** Lagodny miks — patrz Wish::gentle. Uzasadnienie pisane od nowa, zeby
+        nie opisywalo stopni, ktorych nie ma. */
+    static constexpr double gentlePodcastLufs = -19.0;
+    static constexpr float  gentleDenoiseDb   = -6.0f;
+
+    static void gentle (const Wish& wish, double headroom, Decision& d)
+    {
+        auto& p = d.params;
+        char b[400];
+        std::vector<std::string> why;
+
+        if (wish.where == Destination::Podcast) p.targetLufs = gentlePodcastLufs;
+        d.squashDb = std::max (0.0, p.targetLufs - d.freeTargetLufs);
+
+        std::snprintf (b, sizeof (b),
+            "Miks łagodny: głośność %.1f LUFS, szczyt najwyżej %.1f dBTP. Przy tej głośności "
+            "ogranicznik szczytów ma do zdjęcia %.1f dB.", p.targetLufs, wish.ceilingDbTp, d.squashDb);
+        why.push_back (b);
+
+        p.highpassHz = 70.0;
+        p.useRider = false;
+        p.levelerThreshDb = (float) std::clamp (d.speechDb - 2.0, -60.0, -6.0);
+        p.levelerRatio = 2.0f;
+        p.peakRatio = 1.0f;
+        std::snprintf (b, sizeof (b),
+            "Kompresja 2:1 od %.1f dBFS, tuż pod głośną mową (%.1f dBFS). Bez dodatkowego "
+            "ściskania szczytów i bez jazdy suwakiem.", p.levelerThreshDb, d.speechDb);
+        why.push_back (b);
+
+        if (p.useDenoise)
+        {
+            p.denoiseDb = std::max (p.denoiseDb, gentleDenoiseDb);
+            std::snprintf (b, sizeof (b),
+                "Odszumianie lekkie, najwyżej %.0f dB: tło jest %.0f dB pod mową. Mocniejsze "
+                "(10 dB) w odsłuchu już psuło głos.", -p.denoiseDb, headroom);
+        }
+        else
+            std::snprintf (b, sizeof (b),
+                "Bez odszumiania: tło jest %.0f dB pod mową albo nie ma go z czego zmierzyć.", headroom);
+        why.push_back (b);
+
+        if (p.deHum)
+        {
+            std::snprintf (b, sizeof (b), "Wycinam przydźwięk %.0f Hz.", p.humHz);
+            why.push_back (b);
+        }
+
+        p.useGate = false; p.usePlosive = false; p.useDeClick = false;
+        p.useTame = false; p.useDeEsser = false; p.useTiltMatch = false;
+        p.useSaturation = false;
+        p.lowDb = p.mudDb = p.presenceDb = p.airDb = 0.0f;
+        std::snprintf (b, sizeof (b),
+            "Bez bramy, tłumienia głosek, de-essera i korekty barwy (filtr dołu tylko od %.0f Hz): "
+            "w odsłuchu na prawdziwym głosie dokładały więcej szkody niż pożytku.", p.highpassHz);
+        why.push_back (b);
+
+        d.because = why;
     }
 
 private:
