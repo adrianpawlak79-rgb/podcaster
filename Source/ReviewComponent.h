@@ -49,6 +49,7 @@
 #include "StepBar.h"
 #include "Recorder.h"
 #include "Wav.h"
+#include "CutReviewPanel.h"
 #include <limits>
 
 //==============================================================================
@@ -225,6 +226,10 @@ public:
         startHandle.setName (PL("Początek wybranego fragmentu"));
         endHandle.setName (PL("Koniec wybranego fragmentu"));
         addAndMakeVisible (startHandle); addAndMakeVisible (endHandle);
+        addChildComponent(cutPanel);
+        cutPanel.onError = [this](const juce::String& error) { note=error; repaint(); };
+        cutPanel.onListen = [this](double from, double to) { listenCut(from,to); };
+        cutPanel.onApply = [this](const auto& list) { applyProposals(list); };
         updateAbText();
         startTimerHz (30);
     }
@@ -271,6 +276,7 @@ public:
         signalThreadShouldExit();
         waitForThreadToExit(-1);
         ready.store(false);
+        seamPlayer.clear(); seamPlaying=false;
         player.clear();
         recorder.attachPlayer (nullptr);
 
@@ -278,6 +284,7 @@ public:
         words.clear(); assessment.clear(); reviewSummary.clear(); resized();
         for (auto* b : { &playButton, &abButton, &saveButton, &editToggle, &nextButton,
                          &markStart, &markEnd, &cutButton, &undoButton }) b->setEnabled (false);
+        cutPanel.load(wavFile, {}, 48000);
         file  = wavFile;
         saved = juce::File();
         note.clear();
@@ -336,6 +343,7 @@ public:
 
         review.setTake (std::move (mono), sr, std::move (events));
 
+        cutPanel.load(file, review.rawAudio(), sr);
         beforeEnv.build (review.rawAudio(), sr, 1400);
         afterEnv = {};
 
@@ -352,7 +360,9 @@ public:
         repaint();
     }
 
-    void setEditMode (bool enabled) { doneMode = false; editMode = enabled; detailsMode = false; resized(); repaint(); }
+    void setEditMode (bool enabled) { if(enabled && !cutPanel.empty()) {
+        note=PL("Najpierw zatwierdź poprawki po R. Ich czasy odnoszą się do pełnego nagrania."); repaint(); return;
+    } doneMode = false; editMode = enabled; detailsMode = false; resized(); repaint(); }
 
     // Podglad przechodzi ta sama droga zapisu co zwykly przycisk.
     void previewDone() { saveSelection(); }
@@ -361,7 +371,7 @@ public:
 
     void end()
     {
-        player.pause();
+        player.pause(); seamPlayer.pause(); seamPlaying=false;
         recorder.attachPlayer (nullptr);
     }
 
@@ -380,6 +390,7 @@ public:
             return false;
         }
 
+        if (cutPanel.isVisible() && cutPanel.keyPressed(k)) return true;
         if (c == juce::KeyPress::spaceKey)     { togglePlay(); return true; }
         if (c == juce::KeyPress::tabKey)       { toggleAb();   return true; }
         if (c == juce::KeyPress::escapeKey)    { if (onClose) onClose(); return true; }
@@ -426,6 +437,7 @@ public:
         const double t = (e.position.x - strip.getX()) / juce::jmax (1, strip.getWidth())
                        * review.seconds();
 
+        stopSeam();
         player.seekSec (t);
 
         if (editMode)
@@ -518,6 +530,7 @@ public:
     //==========================================================================
     void resized() override
     {
+        cutPanel.setVisible(!doneMode && !editMode && !cutPanel.empty());
         if (doneMode) { layoutDone(); return; }
         doneEditButton.setVisible (false); newTakeButton.setVisible (false);
         savedPath.setVisible (false); savedName.setVisible (false);
@@ -544,8 +557,10 @@ public:
         tools.removeFromLeft (12); tools.removeFromRight (12); feedbackArea = tools;
         main.removeFromTop (8);
         summaryArea = main;
-        words.setVisible (detailsMode);
+        cutPanel.setBounds(main);
+        words.setVisible (detailsMode && cutPanel.empty());
         words.setBounds (main);
+        detailsToggle.setEnabled(cutPanel.empty());
         detailsToggle.setButtonText (detailsMode ? PL("Ukryj szczegóły") : PL("Szczegóły miksu"));
 
         auto side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24);
@@ -570,7 +585,8 @@ public:
         if (editMode) { paintEdit (g); return; }
         g.fillAll (Ink::bg());
         zs::ScreenFrame::paint (g, getLocalBounds(), file.getFileNameWithoutExtension(),
-            PL("Spacja — odtwarzanie · Tab — przed / po · Esc — wróć"));
+            cutPanel.empty() ? PL("Spacja — odtwarzanie · Tab — przed / po · Esc — wróć")
+                             : PL("Spacja — szew · Enter — wytnij · Backspace — zostaw · ↑↓ — miejsca · Esc — wróć"));
         auto side = zs::ScreenFrame::sidebar (getLocalBounds());
         g.setColour (Ink::bar()); g.fillRect (side);
         g.setColour (Ink::edge()); g.drawVerticalLine (side.getX(), (float) side.getY(), (float) side.getBottom());
@@ -589,7 +605,7 @@ public:
         drawVerdict (g, side.removeFromTop (84));
         g.setColour (Ink::textNext()); g.setFont (juce::Font (zs::type::small));
         if (note.isNotEmpty()) g.drawFittedText (note, feedbackArea, juce::Justification::centredLeft, 2);
-        if (!detailsMode && review.stage() == zs::TakeReview::Stage::Ready)
+        if (cutPanel.empty() && !detailsMode && review.stage() == zs::TakeReview::Stage::Ready)
         {
             g.setColour (Ink::textNext()); g.setFont (juce::Font (zs::type::small));
             g.drawFittedText (PL("Miks został dobrany automatycznie. Odsłuchaj, zanim zapiszesz."),
@@ -803,7 +819,7 @@ private:
     }
     //==========================================================================
     /** Rosnie z oknem — liczby i uzasadnienie w zs::ui::review (UiRules.h). */
-    int waveHeight() const { const int h=zs::ui::review::waveHeight(getHeight()); return editMode ? juce::jmax(120,h-(middleMode?72:16)) : h; }
+    int waveHeight() const { if(!cutPanel.empty() && !editMode) return getHeight()<720 ? 0 : 80; const int h=zs::ui::review::waveHeight(getHeight()); return editMode ? juce::jmax(120,h-(middleMode?72:16)) : h; }
 
     juce::Rectangle<int> waveArea() const
     {
@@ -875,6 +891,7 @@ private:
     //==========================================================================
     void togglePlay()
     {
+        stopSeam();
         if (review.stage() != zs::TakeReview::Stage::Ready) return;
 
         if (player.isPlaying()) player.pause();
@@ -1177,6 +1194,8 @@ private:
         if (ready.exchange (false))
             adoptResult();
 
+        cutPanel.setEnabled(review.stage() == zs::TakeReview::Stage::Ready);
+        if(seamPlaying && !seamPlayer.isPlaying()) stopSeam();
         folderButton.setEnabled (doneMode ? saved.existsAsFile() : (file.existsAsFile() || saved.existsAsFile()));
 
         if (review.stage() != zs::TakeReview::Stage::Ready)
@@ -1210,6 +1229,72 @@ private:
     }
 
     //==========================================================================
+    void stopSeam() {
+        seamPlayer.pause(); seamPlaying=false; recorder.attachPlayer(&player);
+    }
+    void listenCut(double from, double to) {
+        if(review.stage()!=zs::TakeReview::Stage::Ready) return;
+        player.pause(); seamPlayer.pause();
+        const auto& raw=review.rawAudio();
+        const double total=raw.size()/sr;
+        from=juce::jlimit(0.0,total,from); to=juce::jlimit(from,total,to);
+        std::vector<float> fragment;
+        // To tylko odsluch: 3 s z obu stron, srodek pominiety. Plik bez zmian.
+        auto append=[&](double a,double b) {
+            const size_t first=juce::jmin(raw.size(),(size_t)(a*sr));
+            const size_t last=juce::jmin(raw.size(),(size_t)(b*sr));
+            fragment.insert(fragment.end(),raw.begin()+first,raw.begin()+last);
+        };
+        append(juce::jmax(0.0,from-3),from); append(to,juce::jmin(total,to+3));
+        const double rate=recorder.currentSampleRate()>0?recorder.currentSampleRate():sr;
+        if(std::abs(rate-sr)>.1) {
+            mix::Resampler convert; convert.prepare((int)sr,(int)rate,64);
+            std::vector<float> converted; convert.render(fragment,converted); fragment=std::move(converted);
+        }
+        seamPlayer.setMaterial(fragment,fragment,rate);
+        recorder.attachPlayer(&seamPlayer); seamPlaying=true; seamPlayer.play();
+    }
+    void applyProposals(const std::vector<tw::CutProposal>& proposals) {
+        if(review.stage()!=zs::TakeReview::Stage::Ready || !cutPanel.decided()) return;
+        player.pause(); stopSeam();
+        const auto result=zs::applyCutList(file,proposals);
+        if(result.error.isNotEmpty()) { note=PL("Nie udało się zastosować poprawek: ")+result.error; repaint(); return; }
+        if(!result.applied) {
+            if(!tw::acceptedCuts(proposals).empty()) {
+                note=PL("Nie udało się zastosować poprawek. Sprawdź plik nagrania."); repaint(); return;
+            }
+            // Wszystkie decyzje "zostaw": archiwum decyzji i pelnego nagrania,
+            // aby reczny montaz nie odziedziczyl listy ze starymi czasami.
+            const auto dir=file.getParentDirectory().getChildFile("surowe");
+            const auto raw=dir.getNonexistentChildFile(file.getFileNameWithoutExtension(),".wav",false);
+            if(!dir.createDirectory() || !file.copyFileTo(raw)
+               || !zs::cutListFile(file).moveFileTo(zs::cutListFile(raw))) {
+                note=PL("Nie udało się zachować pełnego nagrania i listy w folderze surowe."); repaint(); return;
+            }
+            cutPanel.load(file,review.rawAudio(),sr); resized();
+            note=PL("Wycięto 0 fragmentów. Obie wersje pozostają w nagraniu. Pełne nagranie jest w folderze surowe.");
+            juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon,PL("Poprawki po R"),note);
+            repaint(); return;
+        }
+        juce::String message=PL("Wycięto ")+juce::String(result.cuts)+PL(" fragmentów (")
+            +juce::String(result.removedSec,2)+PL(" s). Pełne nagranie jest w folderze surowe.");
+        if(result.audibleSeams>0) message+=PL(" Przy ")+juce::String(result.audibleSeams)
+            +PL(" szwach tło się zmieniło — posłuchaj tych miejsc.");
+        // Archiwizacja TSV jest wykonywana przez applyCutList. Jesli sie nie
+        // udala, nie wolno proponowac starych czasow na juz przycietym pliku.
+        const bool staleList=zs::cutListFile(file).existsAsFile() && !zs::writeCutList(file,{});
+        if(staleList) {
+            message+=PL(" Nie udało się usunąć starej listy cięć — sprawdź plik .ciecia.tsv przed ponownym otwarciem.");
+        }
+        load(file,{},false);
+        if(staleList) { cutPanel.load(juce::File(),{},sr); resized(); }
+        note=message;
+        juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon,PL("Poprawki po R"),message);
+        repaint();
+    }
+    CutReviewPanel cutPanel;
+    zs::Audition seamPlayer;
+    bool seamPlaying=false;
     Recorder& recorder;
 
     juce::AudioFormatManager formats;

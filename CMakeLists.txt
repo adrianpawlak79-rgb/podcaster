@@ -113,3 +113,11 @@ target_compile_definitions(ZsSymulacja PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=
     JUCE_STANDALONE_APPLICATION=1 JUCE_USE_WINRT_MIDI=0)
 target_link_libraries(ZsSymulacja PRIVATE juce::juce_audio_utils juce::juce_gui_extra
     PUBLIC juce::juce_recommended_config_flags)
+
+# Panel decyzji po R: przyciski, klawiatura i zapis listy bez urzadzen audio.
+juce_add_console_app(CieciaPanelTest PRODUCT_NAME "ciecia-panel-test")
+target_sources(CieciaPanelTest PRIVATE Tests/ciecia-panel-test.cpp)
+target_include_directories(CieciaPanelTest PRIVATE Source)
+target_compile_definitions(CieciaPanelTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1)
+target_link_libraries(CieciaPanelTest PRIVATE juce::juce_audio_formats juce::juce_gui_basics
+    PUBLIC juce::juce_recommended_config_flags)
