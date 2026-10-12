@@ -361,7 +361,11 @@ public:
     }
 
     void setEditMode (bool enabled) { if(enabled && !cutPanel.empty()) {
-        note=PL("Najpierw zatwierdź poprawki po R. Ich czasy odnoszą się do pełnego nagrania."); repaint(); return;
+        // Montaz czeka na decyzje po R — wracamy do listy decyzji, nie zostajemy
+        // na ekranie "Plik zapisany", gdzie tego komunikatu nie widac (test 12.10:
+        // "Wroc do montazu" wygladal na martwy).
+        note=PL("Najpierw zatwierdź poprawki po R. Ich czasy odnoszą się do pełnego nagrania.");
+        doneMode = false; editMode = false; detailsMode = false; resized(); repaint(); return;
     } doneMode = false; editMode = enabled; detailsMode = false; resized(); repaint(); }
 
     // Podglad przechodzi ta sama droga zapisu co zwykly przycisk.
