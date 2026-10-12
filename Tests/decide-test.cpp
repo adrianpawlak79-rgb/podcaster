@@ -95,7 +95,7 @@ static void addRoom (std::vector<float>& x, float amp, unsigned seed)
 
 /** Pelna logika doboru (bez lagodnego profilu) — to, co sprawdzaja sekcje 1-9. */
 static mix::Decide::Wish zs_podcast() { mix::Decide::Wish w; w.where = mix::Decide::Destination::Podcast; return w; }
-static mix::Decide::Wish full() { mix::Decide::Wish w; w.gentle = false; return w; }
+static mix::Decide::Wish full() { mix::Decide::Wish w; w.studio = false; return w; }
 
 int main (int argc, char** argv)
 {
@@ -311,7 +311,7 @@ int main (int argc, char** argv)
                num (gapIn) + " -> " + num (gapOut));
 
         // Kreator mowil "za blisko": mniejszy margines, wiec mocniej przy tym samym nagraniu.
-        mix::Decide::Wish w; w.gentle = false;
+        mix::Decide::Wish w; w.studio = false;
         w.room.known = true;
         w.room.proximityDb = 0.0;
         const auto light = pushBand (x, sr, VoiceTone::Low, 2.5, lowAt);
@@ -330,7 +330,7 @@ int main (int argc, char** argv)
         auto weak = clean;   addTone (weak,   sr, 50.0, 0.0003f);   // ok. -70 dBFS
         auto strong = clean; addTone (strong, sr, 50.0, 0.05f);
 
-        mix::Decide::Wish w; w.gentle = false;
+        mix::Decide::Wish w; w.studio = false;
         w.room.known = true;
         w.room.humHz = 50.0;
         w.room.humExcessDb = 18.0;
@@ -355,7 +355,7 @@ int main (int argc, char** argv)
         auto x = speech (base, sr, 20.0);
         addRoom (x, 0.004f, 3);
 
-        mix::Decide::Wish quiet, same; quiet.gentle = same.gentle = false;
+        mix::Decide::Wish quiet, same; quiet.studio = same.studio = false;
         quiet.room.known = true; quiet.room.noiseFloorDb = -75.0;
         same.room.known  = true;
 
@@ -369,9 +369,9 @@ int main (int argc, char** argv)
                "tlo jak przy sprawdzaniu: cisza", "");
     }
 
-    // ---- 10. miks lagodny (domyslny) ---------------------------------------------
+    // ---- 10. miks studyjny (domyslny) -------------------------------------------
     {
-        std::printf ("\n10. miks lagodny — domyslny od odsluchu 12.10\n");
+        std::printf ("\n10. miks studyjny — lancuch v3 z odsluchu 12.10\n");
 
         auto x = speech (base, sr, 70.0);
         addRoom (x, 0.003f, 7);                 // tlo ok. 30-40 dB pod mowa
@@ -379,15 +379,25 @@ int main (int argc, char** argv)
         const auto& p = d.params;
 
         check (p.targetLufs == -19.0, "podcast: -19 LUFS", num (p.targetLufs, " LUFS"));
-        check (! p.useGate && ! p.usePlosive && ! p.useDeClick && ! p.useTame && ! p.useDeEsser
-               && ! p.useTiltMatch && ! p.useSaturation && ! p.useRider,
-               "bez bramy, glosek, trzaskow, sybilantow, barwy i suwaka", "");
-        check (p.lowDb == 0.0f && p.mudDb == 0.0f && p.presenceDb == 0.0f && p.airDb == 0.0f,
-               "korekta barwy wylaczona", "");
-        check (! p.useDenoise || p.denoiseDb >= -6.0f, "odszumianie najwyzej 6 dB", num (p.denoiseDb));
-        check (p.levelerRatio == 2.0f && p.peakRatio == 1.0f, "kompresja 2:1, bez sciskania szczytow", "");
-        check (p.highpassHz == 70.0, "filtr dolu 70 Hz", num (p.highpassHz, " Hz"));
-        check (! says (d, "Brama") && says (d, "łagodny"), "uzasadnienie nie opisuje stopni, ktorych nie ma", "");
+        check (p.highpassHz == 75.0 && p.steepHighpass && p.preEq.size() == 3, "filtr dolu 75 Hz 24 dB/okt i trzy pasma odejmowania", "");
+        check (p.useGate && p.gateRatio == 2.0f && p.gateHoldMs >= 100.0 && p.gateThreshDb < d.speechDb - 20.0,
+               "ekspander lagodny, ponad 20 dB pod mowa", num (p.gateThreshDb - d.speechDb));
+        check (p.levelerRatio == 2.5f && p.peakRatio == 4.0f && p.peakThreshDb > p.levelerThreshDb, "dwa kompresory: wolny i szczytowy", "");
+        check (! p.useTame && p.useDeEsser && p.essMaxCutDb >= -3.0f, "de-esser lagodny zamiast tlumienia odchylen", "");
+        check (p.notchEq.size() <= 5, "najwyzej piec wyciec rezonansow", num ((double) p.notchEq.size(), ""));
+        bool narrow = true;
+        for (const auto& n : p.notchEq) narrow = narrow && n.hz >= 2000.0 && n.hz <= 7000.0 && n.db <= -2.0f && n.db >= -5.0f;
+        check (narrow, "wyciecia w 2-7 kHz, 2-5 dB", "");
+        check (! p.usePlosive && ! p.useDeClick && ! p.useTiltMatch && ! p.useSaturation && ! p.useRider,
+               "bez glosek, trzaskow, cofania barwy, nasycenia i suwaka", "");
+        check (! says (d, "Brama") && says (d, "studyjny"), "uzasadnienie opisuje ten miks", "");
+
+        // ton 3 kHz o 10 dB ponad widmem: ma byc znaleziony jako rezonans
+        auto r = x; addTone (r, sr, 3000.0, 0.02f);
+        const auto dr = mix::Decide::listen (r, sr, zs_podcast());
+        bool found = false;
+        for (const auto& n : dr.params.notchEq) found = found || std::fabs (n.hz - 3000.0) < 20.0;
+        check (found, "sztuczny rezonans 3 kHz znaleziony", "");
 
         mix::Decide::Wish w = full(); w.where = mix::Decide::Destination::Podcast;
         check (mix::Decide::listen (x, sr, w).params.targetLufs == -16.0, "pelna logika bez zmian: -16 LUFS", "");

@@ -108,6 +108,12 @@ public:
 
         // ---- filtry
         double highpassHz   = 80.0;
+        bool   steepHighpass = false;  ///< 24 dB/okt Butterwortha zamiast dwoch Q 0,71
+
+        /** Wolne pasma korektora. pre: przed dynamika (odejmowanie, np. bloto);
+            notch: po wyrownywaczu, waskie wyciecia rezonansow (zamiast soothe). */
+        struct Bell { double hz = 1000.0, q = 1.0; float db = 0.0f; };
+        std::vector<Bell> preEq, notchEq;
         bool   deHum        = true;
         double humHz        = 50.0;
 
@@ -116,6 +122,8 @@ public:
         bool   autoGate     = true;
         float  gateThreshDb = -45.0f;
         float  gateFloorDb  = -14.0f;
+        float  gateRatio    = 3.0f;
+        double gateAttackMs = 2.0, gateHoldMs = 180.0, gateReleaseMs = 250.0, gateLookaheadMs = 5.0;
 
         bool   useRider     = true;
         float  riderRangeDb = 9.0f;
@@ -130,6 +138,7 @@ public:
 
         float  levelerThreshDb = -26.0f;
         float  levelerRatio    = 2.0f;
+        double levelerAttackMs = 30.0, levelerReleaseMs = 300.0;
 
         /** Tlumienie tego, co wystaje ponad wlasna srednia — po kompresji,
             bo to ona podnosi sybilanty. Prog jest liczony z nagrania, wiec
@@ -142,12 +151,15 @@ public:
         bool   useDeEsser   = true;
         float  essThreshDb  = -12.0f;
         float  essMaxCutDb  = -12.0f;
+        double essShelfHz   = 6000.0;
 
         // ---- barwa (Decide ustawia je z pomiaru glosu, VoiceTone.h)
         float  lowDb        = 0.0f;    // polka 150 Hz: dudnienie, efekt zblizeniowy
         float  mudDb        = -2.0f;   // 250 Hz
         float  presenceDb   = 1.5f;    // 3 kHz
         float  airDb        = 1.0f;    // 10 kHz
+        double presenceHz   = 3000.0, presenceQ = 0.9;
+        double airHz        = 10000.0;
 
         /** Cofanie barwy, ktora dolozyla kompresja. Domyslnie wlaczone —
             to nie jest efekt, tylko naprawa skutku ubocznego. */
@@ -159,6 +171,7 @@ public:
 
         float  peakThreshDb = -12.0f;
         float  peakRatio    = 4.0f;
+        double peakAttackMs = 5.0, peakReleaseMs = 80.0;
 
         // ---- wyjscie
         double targetLufs   = -16.0;
@@ -172,21 +185,33 @@ public:
     {
         sr = sampleRate;
 
-        hp1.setCoeffs (design::highpass (params.highpassHz, sr, 0.7071));
-        hp2.setCoeffs (design::highpass (params.highpassHz, sr, 0.7071));
+        hp1.setCoeffs (design::highpass (params.highpassHz, sr, params.steepHighpass ? 0.5412 : 0.7071));
+        hp2.setCoeffs (design::highpass (params.highpassHz, sr, params.steepHighpass ? 1.3066 : 0.7071));
+
+        pre.assign (params.preEq.size(), {});
+        for (size_t i = 0; i < pre.size(); ++i)
+            pre[i].setCoeffs (design::peaking (params.preEq[i].hz, sr, params.preEq[i].q, params.preEq[i].db));
+        notch.assign (params.notchEq.size(), {});
+        for (size_t i = 0; i < notch.size(); ++i)
+            notch[i].setCoeffs (design::peaking (params.notchEq[i].hz, sr, params.notchEq[i].q, params.notchEq[i].db));
 
         for (int i = 0; i < 3; ++i)
             hum[i].setCoeffs (design::notch (params.humHz * (i + 1), sr, 25.0));
 
         low.setCoeffs      (design::lowShelf (150.0, sr, params.lowDb));
         mud.setCoeffs      (design::peaking (250.0, sr, 1.0, params.mudDb));
-        presence.setCoeffs (design::peaking (3000.0, sr, 0.9, params.presenceDb));
-        air.setCoeffs      (design::highShelf (10000.0, sr, params.airDb));
+        presence.setCoeffs (design::peaking (params.presenceHz, sr, params.presenceQ, params.presenceDb));
+        air.setCoeffs      (design::highShelf (params.airHz, sr, params.airDb));
 
         plosive.prepare (sr);
 
         gate.params.thresholdDb = params.gateThreshDb;
         gate.params.floorDb     = params.gateFloorDb;
+        gate.params.ratio       = params.gateRatio;
+        gate.params.attackMs    = params.gateAttackMs;
+        gate.params.holdMs      = params.gateHoldMs;
+        gate.params.releaseMs   = params.gateReleaseMs;
+        gate.params.lookaheadMs = params.gateLookaheadMs;
         gate.prepare (sr);
 
         rider.params.rangeDb     = params.riderRangeDb;
@@ -198,13 +223,14 @@ public:
         leveler.params.thresholdDb = params.levelerThreshDb;
         leveler.params.ratio       = params.levelerRatio;
         leveler.params.kneeDb      = 8.0f;
-        leveler.params.attackMs    = 30.0;
-        leveler.params.releaseMs   = 300.0;
+        leveler.params.attackMs    = params.levelerAttackMs;
+        leveler.params.releaseMs   = params.levelerReleaseMs;
         leveler.params.rmsDetector = true;
         leveler.prepare (sr);
 
         ess.params.thresholdDb = params.essThreshDb;
         ess.params.maxCutDb    = params.essMaxCutDb;
+        ess.params.shelfHz     = params.essShelfHz;
         ess.prepare (sr);
 
         sat.params.amount  = params.saturation;
@@ -214,8 +240,8 @@ public:
         peaker.params.thresholdDb = params.peakThreshDb;
         peaker.params.ratio       = params.peakRatio;
         peaker.params.kneeDb      = 4.0f;
-        peaker.params.attackMs    = 5.0;
-        peaker.params.releaseMs   = 80.0;
+        peaker.params.attackMs    = params.peakAttackMs;
+        peaker.params.releaseMs   = params.peakReleaseMs;
         peaker.prepare (sr);
 
         limiter.params.ceilingDb = params.ceilingDbTp;
@@ -230,6 +256,8 @@ public:
         hp1.reset(); hp2.reset();
         for (auto& h : hum) h.reset();
         low.reset(); mud.reset(); presence.reset(); air.reset();
+        for (auto& b : pre) b.reset();
+        for (auto& b : notch) b.reset();
         plosive.reset(); gate.reset(); rider.reset();
         leveler.reset(); ess.reset(); sat.reset(); peaker.reset();
         tilt.reset();
@@ -246,6 +274,8 @@ public:
         if (params.deHum)
             for (auto& h : hum)
                 y = h.process (y);
+
+        for (auto& b : pre) y = b.process (y);
 
         if (params.usePlosive)
         {
@@ -267,6 +297,8 @@ public:
 
         y = leveler.process (y);
         rep.levelMaxGrDb = std::min (rep.levelMaxGrDb, leveler.gainReductionDb());
+
+        for (auto& b : notch) y = b.process (y);
 
         if (params.useDeEsser)
         {
@@ -549,8 +581,8 @@ private:
         Biquad l, m, p, a;
         l.setCoeffs (design::lowShelf  (150.0,   sr, params.lowDb));
         m.setCoeffs (design::peaking   (250.0,   sr, 1.0, params.mudDb));
-        p.setCoeffs (design::peaking   (3000.0,  sr, 0.9, params.presenceDb));
-        a.setCoeffs (design::highShelf (10000.0, sr, params.airDb));
+        p.setCoeffs (design::peaking   (params.presenceHz, sr, params.presenceQ, params.presenceDb));
+        a.setCoeffs (design::highShelf (params.airHz, sr, params.airDb));
 
         return 20.0 * std::log10 (std::max (1.0e-9, l.magnitudeAt (hz, sr)
                                                   * m.magnitudeAt (hz, sr)
@@ -604,6 +636,7 @@ private:
     double sr = 48000.0;
 
     Biquad hp1, hp2, hum[3], low, mud, presence, air;
+    std::vector<Biquad> pre, notch;
     TiltMatch tilt;
     DePlosive plosive;
     Gate gate;
