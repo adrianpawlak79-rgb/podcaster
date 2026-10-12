@@ -218,20 +218,29 @@ public:
                 cut.sec = pausesBefore[i].second; cut.inPause = true; found = true;
                 break;
             }
-            if (! found) return PreRollPlan{};      // nie wiemy, gdzie konczy sie poprzedni wers
+            if (! found) return onlyCandidates (p); // nie wiemy, gdzie konczy sie poprzedni wers
         }
         else if (heard != nullptr)
-            return PreRollPlan{};    // rozpoznawanie nie uslyszalo poprzedniego wersu: sam znacznik nie wystarczy
+            return onlyCandidates (p);    // rozpoznawanie nie uslyszalo poprzedniego wersu: sam znacznik nie wystarczy
 
-        if (! cut.inPause) return PreRollPlan{};    // bez ciszy nie ma gdzie ciac — nie zgadujemy
+        if (! cut.inPause) return onlyCandidates (p);    // bez ciszy nie ma gdzie ciac — nie zgadujemy
 
-        if (! render (p, history, sr, historyStartSec, historyStartSec + cut.sec)) return PreRollPlan{};
+        if (! render (p, history, sr, historyStartSec, historyStartSec + cut.sec)) return onlyCandidates (p);
         p.inPause = cut.inPause;
 
         double best = 1.0e9;
         for (size_t i = 0; i < p.candidates.size(); ++i)
             if (std::fabs (p.candidates[i] - p.toSec) < best) { best = std::fabs (p.candidates[i] - p.toSec); p.chosen = (int) i; }
         return p;
+    }
+
+    /** Bez propozycji (i bez dzwieku), ale z lista pauz przed R — czlowiek
+        moze wskazac miejsce sam (PunchAim). */
+    static PreRollPlan onlyCandidates (const PreRollPlan& p)
+    {
+        PreRollPlan q;
+        q.candidates = p.candidates;
+        return q;
     }
 
     /** Ten sam pre-roll, ale konczacy sie w podanym miejscu (czas w nagraniu)
@@ -259,6 +268,69 @@ public:
         }
         return true;
     }
+};
+
+//==============================================================================
+/** Wskazanie miejsca ciecia po R — zawsze, przed czytaniem.
+
+    Pomysl Adriana (12.10, po tescie): zamiast zgadywac i pytac po nagraniu
+    ("0 pewnych, 1 do wskazania" bylo niezrozumiale), program po R staje i
+    pokazuje pod prompterem przebieg ostatnich sekund ze znacznikiem w
+    proponowanej pauzie. Czlowiek przesuwa go strzalkami (← →), zmienia wers
+    (↑ ↓), slucha (spacja) i zatwierdza (Enter albo R) — dopiero wtedy gra
+    pre-roll i odliczanie. Kazde ciecie jest wiec wskazane przez czlowieka
+    (cutByHand), a po nagraniu zostaje tylko odsluch szwow.
+
+    Nagranie przez caly czas idzie dalej; czas wskazywania lezy w kawalku,
+    ktory i tak wypadnie. */
+struct PunchAim
+{
+    bool        active = false;
+    PreRollPlan plan;            ///< pauzy przed R i wybrana; audio puste do zatwierdzenia
+    double      keySec  = 0.0;   ///< chwila R (czas w nagraniu)
+    double      viewSec = 10.0;  ///< ile sekund przed R widac na pasku
+
+    void begin (PreRollPlan p, double key)
+    {
+        plan = std::move (p);
+        plan.audio.clear();
+        keySec = key;
+        active = true;
+    }
+
+    void end() { active = false; plan = {}; }
+
+    bool hasCut() const noexcept { return plan.chosen >= 0 && plan.chosen < (int) plan.candidates.size(); }
+
+    /** Wybrane miejsce ciecia (czas w nagraniu); -1 = jeszcze nie wskazane. */
+    double cutSec() const noexcept { return hasCut() ? plan.candidates[(size_t) plan.chosen] : -1.0; }
+
+    /** O pauze wczesniej (-1) / pozniej (+1). Bez propozycji pierwsza
+        strzalka wybiera ostatnia pauze przed R — najblizsza pomylki, wiec
+        zabiera najmniej. Zwraca, czy wybor sie zmienil. */
+    bool move (int by)
+    {
+        const int n = (int) plan.candidates.size();
+        if (n == 0 || by == 0) return false;
+        const int next = hasCut() ? std::clamp (plan.chosen + by, 0, n - 1) : n - 1;
+        if (next == plan.chosen) return false;
+        plan.chosen = next;
+        return true;
+    }
+
+    /** Ta sama pauza w nowym planie (po zmianie wersu ↑ ↓): nowa propozycja,
+        ale gdy jej brak — zostaje to, co czlowiek juz wskazal. */
+    void replan (PreRollPlan p)
+    {
+        const double had = cutSec();
+        p.audio.clear();
+        if (p.chosen < 0 && had >= 0.0)
+            for (size_t i = 0; i < p.candidates.size(); ++i)
+                if (std::fabs (p.candidates[i] - had) < 1.0e-6) p.chosen = (int) i;
+        plan = std::move (p);
+    }
+
+    double viewFrom() const noexcept { return keySec - viewSec; }
 };
 
 //==============================================================================
