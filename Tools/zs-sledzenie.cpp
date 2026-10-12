@@ -28,6 +28,7 @@
 #include "Wav.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -131,6 +132,13 @@ static Score measure (const tw::PrompterText& text, const std::vector<Hyp>& hyps
     lineLog.begin();
     std::vector<double> delays;     // oddanie przez Vosk - poczatek slowa we wzorcu
 
+    // ZS_R=1: dokad cofnie R wcisniete w tej chwili (PrompterComponent::repeatLine)
+    // — na wersach promptera, nie wierszach pliku. Liczone tylko bez
+    // kompensacji opoznienia, czyli tak, jak dziala program.
+    const bool probeR = std::getenv ("ZS_R") != nullptr && latency == 0.0;
+    const auto pspans = tw::lineSpans (text);
+    int rAll = 0, rOk = 0, rBack = 0, rAhead = 0, rStartAll = 0, rStartOk = 0, rStartBack = 0;
+
     for (double now = 0.0; now <= last; now += 0.1)
     {
         while (h < hyps.size() && hyps[h].t <= now)
@@ -171,6 +179,16 @@ static Score measure (const tw::PrompterText& text, const std::vector<Hyp>& hyps
         if (std::getenv ("ZS_SLAD") != nullptr && latency > 0.0)
             std::printf ("slad %6.1f  wzorzec %3d  pokazane %3d  trafienie %3d  tempo %.2f\n",
                          now, truth, shown, tr.lastHitWord(), tr.wordsPerSec());
+
+        if (probeR && truth >= 0 && shown >= 0)
+        {
+            const int want = tw::lineOfWord (pspans, truth);
+            const int got  = tw::lineOfWord (pspans, tw::repeatLineStart (pspans, shown));
+            const bool atStart = now - truthAt[(size_t) pspans[(size_t) want].firstWord] < 1.0
+                              && truthAt[(size_t) pspans[(size_t) want].firstWord] >= 0.0;
+            ++rAll; if (got == want) ++rOk; else if (got < want) ++rBack; else ++rAhead;
+            if (atStart) { ++rStartAll; if (got == want) ++rStartOk; else if (got < want) ++rStartBack; }
+        }
 
         ++n;
         if (err <= 1) ++in1;
@@ -219,6 +237,13 @@ static Score measure (const tw::PrompterText& text, const std::vector<Hyp>& hyps
         if (gCuts != nullptr && ! cutErr.empty())
             std::printf ("  punkt ciecia przed slowem (do 1 s wczesniej): %d z %zu\n\n", cutOk, cutErr.size());
     }
+
+    if (probeR && rAll > 0)
+        std::printf ("R: chwil %d — wlasciwy wers %.1f%%, za daleko wstecz %.1f%%, do przodu %.1f%%; "
+                     "w 1. sekundzie wersu (%d chwil): wlasciwy %.1f%%, wstecz %.1f%%\n",
+                     rAll, 100.0 * rOk / rAll, 100.0 * rBack / rAll, 100.0 * rAhead / rAll,
+                     rStartAll, rStartAll ? 100.0 * rStartOk / rStartAll : 0.0,
+                     rStartAll ? 100.0 * rStartBack / rStartAll : 0.0);
 
     std::sort (delays.begin(), delays.end());
     const double med = delays.empty() ? 0.0 : delays[delays.size() / 2];
@@ -290,6 +315,65 @@ int main (int argc, char** argv)
             i = j;
         }
         std::fprintf (stderr, "dopasowane slowa: %d z %d\n", found, words);
+        return 0;
+    }
+
+    // R w pauzie po pomylce (Tools/zs-r-pauzy.py): r.tsv = "czas_R  wiersz_zrodla  gdzie".
+    // Hipotezy ida do WordTracker jak w programie (bez kompensacji opoznienia),
+    // w chwili R liczymy to, co PrompterComponent::repeatLine: poczatek wersu
+    // promptera, w ktorym stoi biezace slowo.
+    if (argc == 5 && std::string (argv[1]) == "--r")
+    {
+        tw::PrompterText t;
+        t.set (readAll (argv[2]));
+        const auto spans = tw::lineSpans (t);
+
+        std::vector<Hyp> hs;
+        {
+            std::istringstream in (readAll (argv[3]));
+            for (std::string line; std::getline (in, line);)
+            {
+                std::istringstream ls (line);
+                Hyp h; std::string kind;
+                if (! (ls >> h.t >> kind)) continue;
+                std::string rest; std::getline (ls, rest);
+                h.final = kind == "F";
+                h.words = split (rest);
+                hs.push_back (h);
+            }
+        }
+        struct Probe { double t; int line; std::string where; };
+        std::vector<Probe> probes;
+        {
+            std::istringstream in (readAll (argv[4]));
+            for (Probe p; in >> p.t >> p.line >> p.where;) probes.push_back (p);
+        }
+
+        // Kazda proba osobno, od poczatku nagrania: po prawdziwym R czlowiek czyta
+        // wers jeszcze raz, a tu nagranie idzie dalej — wspolny tracker po
+        // jumpTo mylilby sie na kolejnych probach z powodu samego pomiaru.
+        std::map<std::string, std::array<int, 3>> res;     // gdzie -> {dobrze, wstecz, naprzod}
+        for (const auto& p : probes)
+        {
+            tw::WordTracker tr;
+            tr.begin (&t);
+            for (size_t h = 0; h < hs.size() && hs[h].t <= p.t; ++h)
+            {
+                tr.hypothesis (hs[h].t, hs[h].words);
+                if (hs[h].final) tr.endUtterance();
+            }
+            const int shown = std::max (0, tr.word (p.t));
+            const int to = tw::repeatLineStart (spans, shown);
+            const int gotLine = t.all()[(size_t) to].line;      // wiersz zrodla, do ktorego cofa R
+            auto& r = res[p.where];
+            if (gotLine == p.line) ++r[0]; else if (gotLine < p.line) ++r[1]; else ++r[2];
+        }
+        for (const auto& r : res)
+        {
+            const int n = r.second[0] + r.second[1] + r.second[2];
+            std::printf ("%s: %d/%d dobrze, %d wstecz, %d naprzod;  ", r.first.c_str(), r.second[0], n, r.second[1], r.second[2]);
+        }
+        std::printf ("\n");
         return 0;
     }
 

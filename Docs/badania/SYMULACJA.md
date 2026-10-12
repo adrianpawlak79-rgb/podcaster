@@ -88,3 +88,32 @@ Uwagi:
   wobec 70/88/78%) — taki zapis jest bezpieczny.
 - Słowa, których model nie zna (np. „powojów”, „zraszających”), Vosk pomija — dopasowanie
   83–91% słów tekstu.
+
+## Czy R trafia we właściwy wers z rozpoznawaniem mowy (12.10.2026)
+
+Dwa pomiary na tych samych nagraniach lektorów, przez prawdziwe hipotezy Vosk i `WordTracker`
+(tak jak program, bez kompensacji opóźnienia); R cofa tak jak `PrompterComponent::repeatLine`.
+
+**1. R w losowej chwili czytania** (`ZS_R=1 zs-sledzenie …`, co 0,1 s; lektor czyta dalej):
+właściwy wers ok. 79% (65–88%), o wers za daleko wstecz ok. 18%; **w pierwszej sekundzie
+wersu tylko ok. 45%** — rozpoznawanie jest 0,6–0,8 s z tyłu i „siedzi” jeszcze w poprzednim
+wersie. To górna granica trudności, bo nikt nie wciska R bez przerwania.
+
+**2. R po przerwaniu** (`Tools/zs-r-pauzy.py` + `zs-sledzenie --r`): po wybranym słowie
+wstawiamy 1 s ciszy („pomylił się i przerwał”), R pada 0,5 s w tę ciszę. Pierwsze słowo
+każdego wersu i słowo ze środka; 11 nagrań, 383 próby:
+
+| gdzie pomyłka | właściwy wers | o wers wstecz | o wers naprzód |
+|---|---|---|---|
+| na pierwszym słowie wersu | **176/196 = 90%** | 17 | 3 |
+| w środku wersu | **180/187 = 96%** | 1 | 6 |
+
+Co znaczą błędy:
+- **wstecz** — prompter wraca o wers za daleko; człowiek czyta jeszcze raz poprzedni wers
+  i ten z pomyłką. Wycięcie zabiera oba stare podejścia, więc **plik i tak jest poprawny**,
+  kosztem kilku sekund czytania więcej.
+- **naprzód** (9 z 383, 2%) — prompter pokazuje następny wers; pomyłka zostaje w nagraniu,
+  bo wersu „naprzód” jeszcze nie było. Widać to od razu na ekranie (strzałka ↑ poprawia).
+
+Sprawdzone i odrzucone: R do ostatniego **usłyszanego** słowa zamiast pozycji promptera —
+wynik identyczny (po 1,5 s ciszy prompter i tak stoi na ostatnim usłyszanym słowie).

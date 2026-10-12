@@ -537,8 +537,6 @@ private:
             const auto& w = script.all()[(size_t) i];
 
             const bool lastWord = i == script.wordCount() - 1;
-            const bool newSourceLine = ! lastWord
-                && script.all()[(size_t) (i + 1)].line != w.line;
 
             // szerokosc tego, co juz sie uzbieralo, z nastepnym slowem wlacznie
             const int through = lastWord ? i : i + 1;
@@ -547,12 +545,9 @@ private:
                             script.all()[(size_t) through].to
                               - script.all()[(size_t) first].from).c_str());
 
-            const int words = i - first + 1;
-
             const bool tooWide  = f.getStringWidth (probe) > width;
-            const bool breathes = w.breathAfter >= 0.5f && words >= 3;
 
-            if (lastWord || newSourceLine || tooWide || breathes)
+            if (tw::lineEndsAfter (script, first, i, tooWide))
             {
                 Line line;
                 line.firstWord = first;

@@ -22,7 +22,7 @@
     Ten test pilnuje obu rzeczy naraz.
 */
 
-#include "../Source/DSP/PrompterText.h"
+#include "../Source/DSP/PrompterLines.h"
 
 #include <cstdio>
 #include <cstring>
@@ -49,12 +49,9 @@ static std::vector<std::string> breakLines (const tw::PrompterText& t, size_t ma
     {
         const auto& w = t.all()[(size_t) i];
 
-        const bool last = i == t.wordCount() - 1;
-        const bool newLine = ! last && t.all()[(size_t) (i + 1)].line != w.line;
         const bool tooWide = (w.to - t.all()[(size_t) first].from) > maxChars;
-        const bool breathes = w.breathAfter >= 0.5f && (i - first + 1) >= 3;
 
-        if (last || newLine || tooWide || breathes)
+        if (tw::lineEndsAfter (t, first, i, tooWide))  // ta sama zasada co na ekranie
         {
             std::string line = src.substr (t.all()[(size_t) first].from,
                                            w.to - t.all()[(size_t) first].from);
