@@ -1,0 +1,17 @@
+OK plik testowy
+OK Pending blokuje zastosowanie
+OK przycisk nieaktywny
+OK Przywroc zapisuje Rejected
+OK Wytnij zapisuje Accepted
+OK strzalki i Spacja wybieraja trzeci fragment
+OK Enter akceptuje i odblokowuje zastosowanie
+OK Tnij tu zapisane w TSV
+OK przeciagniecie przyciaga do pauzy i zapisuje Pending
+OK przesuniecie wymaga ponownego Tnij tu
+OK Backspace zostawia obie wersje
+OK decyzje zachowane po ponownym otwarciu
+OK decyzje i odsluch nie zmieniaja WAV
+OK dopiero Zastosuj wycina zaakceptowane (scalone) fragmenty
+OK surowe i lista zarchiwizowane
+OK po sukcesie panel znika
+OK blad zapisu cofa decyzje i pokazuje komunikat

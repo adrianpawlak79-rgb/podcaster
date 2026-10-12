@@ -587,6 +587,17 @@ public:
     /** --preview-ui ... prompter-znaczki: znaczki przy wersach i odliczanie po R. */
     void previewMarks() { if (prompter != nullptr) prompter->previewMarks(); }
 
+    void previewCuts(const juce::File& wav) {
+        if(!wav.existsAsFile()) return;
+        // Wylacznie kopia podgladu; nie dopisujemy przykladow do pliku czlowieka.
+        auto dir=juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("zs-preview-ciecia");
+        dir.createDirectory(); auto copy=dir.getChildFile("przyklad.wav"); wav.copyFileTo(copy);
+        std::vector<tw::CutProposal> list(3);
+        list[0].from=1; list[0].to=2; list[0].sure=true; list[0].state=tw::CutProposal::State::Accepted;
+        list[1].from=3; list[1].to=4; list[1].sure=true; list[1].state=tw::CutProposal::State::Accepted;
+        list[2].from=5; list[2].to=6; list[2].why="Nie rozpoznano początku powtórzonego wersu.";
+        zs::writeCutList(copy,list); previewReview(copy);
+    }
     void previewReview (const juce::File& wav, bool edit = false, bool done = false)
     {
         if (wav.existsAsFile()) { openReview (wav, true, true); if (review) { review->setEditMode(edit); if (done) review->previewDone(); } }
