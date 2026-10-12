@@ -256,7 +256,7 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
             {
                 double startSec = 0.0;
                 const auto hist = rec.recentAudio (30.0, startSec);
-                plan = tw::PreRoll().plan (lineLog.marks(), hist, sr, startSec);
+                plan = tw::PreRoll().plan (lineLog.marks(), hist, sr, startSec, &heard);
                 lamp.afterCut();
             }
             keys.push_back ({ now, plan, sourceLineOf (line) });

@@ -36,6 +36,7 @@
 #pragma once
 
 #include "CutPoint.h"
+#include "Punch.h"
 #include "LineLog.h"
 
 #include <algorithm>
@@ -127,8 +128,21 @@ public:
 
     /** marks: zapis wersow; ostatni to wlasnie wcisniete R.
         history: ostatnie sekundy nagrania, zaczynajace sie w historyStartSec. */
+    /** heard: slowa uslyszane przez rozpoznawanie mowy (PrompterComponent).
+
+        Test Adriana na Windowsie (12.10, "Nic dwa razy"): 2 z 5 pre-rolli
+        konczyly sie zle — raz w srodku slowa ("ucznia-"), bo cisza nie zostala
+        znaleziona, a pre-roll i tak gral do zgadnietego miejsca; dwa razy w
+        pauzie po myslniku W POPRZEDNIM wersie ("Jestes - | a wiec musisz
+        minac"). Dlatego:
+          - miejsce ciecia jest ZAWSZE w pauzie; bez pauzy nie ma pre-rollu;
+          - gdy wiadomo, kiedy padlo ostatnie slowo poprzedniego wersu, bierzemy
+            pierwsza pauze PO nim — pauzy w srodku poprzedniego wersu odpadaja. */
+    double heardLagSec = 0.58;     ///< jak w Punch::heardLagSec
+
     PreRollPlan plan (const std::vector<LineMark>& marks,
-                      const std::vector<float>& history, double sr, double historyStartSec) const
+                      const std::vector<float>& history, double sr, double historyStartSec,
+                      const std::vector<HeardWord>* heard = nullptr) const
     {
         PreRollPlan p;
         if (marks.empty() || history.empty() || sr <= 0.0) return p;
@@ -156,16 +170,60 @@ public:
         CutFinder finder;
         finder.params = cutParams;
         finder.analyse (history.data(), history.size(), sr);
-        const auto cut = finder.find (lineSec);
+        auto cut = finder.find (lineSec);
 
-        // pauzy przed R — do przesuwania strzalkami
+        // pauzy przed R — do przesuwania strzalkami (czas w nagraniu)
         const double keyRel = r.sec - historyStartSec;
+        std::vector<std::pair<double, double>> pausesBefore;      // [od, ciecie] wzgledem pamieci
+        std::vector<double> resumeAfter;                           // gdzie po niej wraca mowa
         for (const auto& pz : finder.pauses())
         {
             if (pz.second > keyRel) break;
             const double c = std::max (pz.first, pz.second - cutParams.leadInSec);
-            if (c >= minSec) p.candidates.push_back (historyStartSec + c);
+            if (c >= minSec)
+            {
+                p.candidates.push_back (historyStartSec + c);
+                pausesBefore.push_back ({ pz.first, c });
+                resumeAfter.push_back (pz.second);
+            }
         }
+
+        // Ostatnie uslyszane slowo POPRZEDNIEGO wersu: ciecie w pierwszej pauzie,
+        // po ktorej mowa wraca pozniej niz to slowo (czas slowa jest szacowany —
+        // moze wypasc w srodku slowa albo juz w pauzie). Znacznik wersu tu nie
+        // pomaga: to chwila, w ktorej prompter przelaczyl wers, a ten potrafi
+        // przelaczyc o sekunde za wczesnie (drugi test Adriana: 4 z 6 pre-rolli
+        // konczyly sie 0,8–1,1 s przed koncem poprzedniego wersu).
+        double prevLast = -1.0e9;
+        if (heard != nullptr)
+            for (const auto& h : *heard)
+                if (h.word < r.firstWord && h.sec <= r.sec)
+                    prevLast = std::max (prevLast, h.sec - heardLagSec - historyStartSec);
+        if (prevLast > -1.0e8)
+        {
+            // pierwsze uslyszane slowo powtarzanego wersu po poprzednim — pauza nie
+            // moze byc pozniej, bo pre-roll zawieralby poczatek pomylki
+            double curFirst = 1.0e9;
+            for (const auto& h : *heard)
+                if (h.word >= r.firstWord && h.word <= r.lastWord && h.sec <= r.sec
+                    && h.sec - heardLagSec - historyStartSec > prevLast)
+                    curFirst = std::min (curFirst, h.sec - heardLagSec - historyStartSec);
+
+            bool found = false;
+            for (size_t i = 0; i < pausesBefore.size(); ++i)
+            {
+                const double resumes = resumeAfter[i];
+                if (resumes <= prevLast + 0.05) continue;
+                if (pausesBefore[i].first > curFirst + 0.30) break;
+                cut.sec = pausesBefore[i].second; cut.inPause = true; found = true;
+                break;
+            }
+            if (! found) return PreRollPlan{};      // nie wiemy, gdzie konczy sie poprzedni wers
+        }
+        else if (heard != nullptr)
+            return PreRollPlan{};    // rozpoznawanie nie uslyszalo poprzedniego wersu: sam znacznik nie wystarczy
+
+        if (! cut.inPause) return PreRollPlan{};    // bez ciszy nie ma gdzie ciac — nie zgadujemy
 
         if (! render (p, history, sr, historyStartSec, historyStartSec + cut.sec)) return PreRollPlan{};
         p.inPause = cut.inPause;

@@ -125,6 +125,52 @@ int main()
         }
     }
 
+    // ---- 1c. test Adriana: pauza po myslniku W POPRZEDNIM wersie ---------------------------
+    // "Jestes – a wiec musisz minac | Miniesz – a wiec to jest piekne": po "Jestes –"
+    // dluga pauza (0,6 s), miedzy wersami krotka (0,25 s). Stare szukanie ciszy bralo
+    // pauze po myslniku i pre-roll konczyl sie w srodku poprzedniego wersu.
+    std::printf ("\n  1c. pauza po myslniku w poprzednim wersie\n");
+    {
+        Gen h;
+        std::vector<tw::LineMark> m;
+        h.silence (2.5);
+        const double a0 = h.now(); h.syllables (2, 140); h.silence (1.0);   // "Jestes –"
+        const double a1 = h.now(); h.syllables (2, 140);                    // "musisz minac"
+        const double aEnd = h.now(); h.silence (0.25);
+        const double b0 = h.now(); h.syllables (3, 300);                    // "Miniesz –" z pomylka
+        const double k = h.now() + 0.3;
+        h.silence (2.5);
+        m.push_back (mark (0, a0 + 0.78, tw::LineSource::Words));
+        m.push_back (mark (1, b0 + 0.78, tw::LineSource::Words));
+        m.push_back (mark (1, k, tw::LineSource::Retake));
+
+        const auto old = pre.plan (m, h.x, sr, 0.0);
+        check (! old.audio.empty() && old.toSec < a1, "bez slow (jak dotad): pre-roll konczy sie po myslniku — blad z testu",
+               num (old.toSec - a1));
+
+        // rozpoznawanie uslyszalo ostatnie slowo poprzedniego wersu (5) z opoznieniem 0,58 s
+        const double lag = pre.heardLagSec;
+        const std::vector<tw::HeardWord> heard { { a0 + 0.1 + lag, 0 }, { a1 + lag, 2 }, { aEnd - 0.2 + lag, 3 } };
+        const auto now = pre.plan (m, h.x, sr, 0.0, &heard);
+        check (! now.audio.empty() && now.toSec > aEnd && now.toSec <= b0,
+               "ze slowami: koniec pre-rollu miedzy wersami, nie po myslniku", num (now.toSec - b0));
+        check (now.inPause, "i w ciszy");
+
+        // rozpoznawanie zaliczylo do poprzedniego wersu slowo tuz przed R — po nim
+        // nie ma juz pauzy przed R, wiec nie zgadujemy
+        const std::vector<tw::HeardWord> late { { k - 0.7 + lag, 3 } };
+        check (pre.plan (m, h.x, sr, 0.0, &late).audio.empty(), "brak pauzy po poprzednim wersie: bez pre-rollu");
+    }
+
+    // bez pauzy (ciagla mowa) — bez pre-rollu, zamiast konczyc w srodku slowa
+    {
+        Gen c;
+        c.silence (2.5); c.syllables (40, 140);
+        std::vector<tw::LineMark> m { mark (0, 3.5, tw::LineSource::Words), mark (1, 6.0, tw::LineSource::Words),
+                                      mark (1, 7.5, tw::LineSource::Retake) };
+        check (pre.plan (m, c.x, sr, 0.0).audio.empty(), "brak ciszy przed wersem: bez pre-rollu (nie w srodku slowa)");
+    }
+
     // ---- 2. pamiec zaczyna sie pozniej niz nagranie -------------------------------------
     std::printf ("\n  2. pamiec ostatnich sekund\n");
     {

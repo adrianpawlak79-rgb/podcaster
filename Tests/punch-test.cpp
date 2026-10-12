@@ -299,6 +299,12 @@ int main()
         check (pl.size() == 1 && std::fabs (pl[0].from - (bad - 0.10)) < 1e-9 && ! pl[0].byHand,
                "ciecie zaczyna sie tam, gdzie skonczyl sie pre-roll");
 
+        // miejsce z pre-rollu w srodku mowy (nie strzalkami) — nie tniemy
+        m.back().cutFrom = bad + 0.30;  m.back().cutByHand = false;
+        std::vector<tw::SkippedCut> sk3;
+        check (pp.plan (m, cuts, &sk3).empty() && sk3.size() == 1, "pre-roll nie w ciszy: nie tnie",
+               sk3.empty() ? "" : sk3[0].why);
+
         m.back().cutFrom = l1 - 0.15;  m.back().cutByHand = true;     // czlowiek cofnal o wers
         pl = pp.plan (m, cuts);
         check (pl.size() == 1 && std::fabs (pl[0].from - (l1 - 0.15)) < 1e-9 && pl[0].byHand, "strzalkami przesuniete: tam");

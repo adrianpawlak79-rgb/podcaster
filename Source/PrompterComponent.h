@@ -244,7 +244,7 @@ public:
         if (! settings.roomCheck().headphonesLeak())
         {
             preRollHistory = recorder.recentAudio (30.0, preRollStartSec);
-            plan = tw::PreRoll().plan (lineLog.marks(), preRollHistory, recorder.currentSampleRate(), preRollStartSec);
+            plan = tw::PreRoll().plan (lineLog.marks(), preRollHistory, recorder.currentSampleRate(), preRollStartSec, &heardWords);
         }
 
         // koniec pre-rollu = miejsce ciecia, ktore czlowiek wlasnie uslyszy

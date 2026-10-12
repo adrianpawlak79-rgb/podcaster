@@ -91,6 +91,15 @@ public:
             if (r.cutFrom >= 0.0 && r.cutFrom < r.sec)
             {
                 const double f = r.cutFrom;
+                // Miejsce z pre-rollu (nie strzalkami) musi lezec w pauzie — inaczej nie tniemy.
+                bool inPause = r.cutByHand;
+                for (const auto& pz : cuts.pauses())
+                    if (f >= pz.first - 0.02 && f <= pz.second + 0.02) inPause = true;
+                if (! inPause)
+                {
+                    if (skipped != nullptr) skipped->push_back ({ { f, resume }, "pre-roll nie skończył się w ciszy" });
+                    continue;
+                }
                 if (resume > f) out.push_back ({ f, resume, r.firstWord, r.lastWord, false, r.cutByHand });
                 continue;
             }
