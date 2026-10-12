@@ -261,12 +261,19 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
             const int from = tw::repeatLineStart (spans, follower.currentWord());
             follower.repeatFrom (from);
             const int line = tw::lineOfWord (spans, from);
-            lineLog.restart (markFor (line, now, tw::LineSource::Retake), tw::LineSource::Retake);
+            // jak PrompterComponent::repeatLine: wycina tylko z rozpoznawaniem mowy
+            const auto why = tw::retakeSource (ideal);
+            lineLog.restart (markFor (line, now, why), why);
 
-            double startSec = 0.0;
-            const auto hist = rec.recentAudio (30.0, startSec);
-            keys.push_back ({ now, tw::PreRoll().plan (lineLog.marks(), hist, sr, startSec), sourceLineOf (line) });
-            lamp.afterCut();
+            tw::PreRollPlan plan;
+            if (why == tw::LineSource::Retake)
+            {
+                double startSec = 0.0;
+                const auto hist = rec.recentAudio (30.0, startSec);
+                plan = tw::PreRoll().plan (lineLog.marks(), hist, sr, startSec);
+                lamp.afterCut();
+            }
+            keys.push_back ({ now, plan, sourceLineOf (line) });
         }
 
         frames.push_back ({ now, sourceLineOf (tw::lineToShow (spans, script, follower.syllablePosition())), view.state });
@@ -400,6 +407,12 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
                     if (s.line == t.line) { lineStart = s.from; break; }
                     prevEnd = s.to;
                 }
+            if (! ideal)
+            {
+                rep.check (key.plan.audio.empty(), "R " + f1 (t.from) + " s", "pre-roll: " + std::string (key.plan.audio.empty() ? "nie gra" : "gra"),
+                           "nie gra | bez modelu mowy R tylko cofa tekst");
+                continue;
+            }
             const bool lineOk = key.line == t.line;
             const bool inGap = ! key.plan.audio.empty() && key.plan.toSec >= prevEnd - 0.05 && key.plan.toSec <= lineStart + 0.02;
             rep.check (lineOk && inGap, "R " + f1 (t.from) + " s",
@@ -427,10 +440,19 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
         }
         rep.line ("| | co | wynik | próg |");
         rep.line ("|---|---|---|---|");
-        rep.check (punched.applied, "plik po wycięciu powstał", punched.applied ? "tak, cięć: " + std::to_string (punched.cuts) : "nie: " + punched.error.toStdString(), "tak");
-        rep.check (mistakeCut >= 0.95 * mistake, "wycięte z pomyłek", f2 (mistakeCut) + " z " + f2 (mistake) + " s", "≥ 95%");
-        rep.check (goodCut <= 0.05, "wycięte z dobrego czytania", f2 (goodCut) + " s", "≤ 0,05 s");
-        rep.check (punched.audibleSeams == 0, "słyszalne szwy (zmiana tła)", std::to_string (punched.audibleSeams), "0");
+        if (! ideal)
+        {
+            // bez modelu mowy R tylko cofa tekst (tw::retakeSource) — nic nie moze zniknac samo
+            rep.check (! punched.applied && goodCut <= 0.0, "bez modelu mowy R niczego nie wycina",
+                       punched.applied ? "wycięto " + f2 (cutTotal) + " s" : "nic", "nic | pomyłki zostają do Montażu");
+        }
+        else
+        {
+            rep.check (punched.applied, "plik po wycięciu powstał", punched.applied ? "tak, cięć: " + std::to_string (punched.cuts) : "nie: " + punched.error.toStdString(), "tak");
+            rep.check (mistakeCut >= 0.95 * mistake, "wycięte z pomyłek", f2 (mistakeCut) + " z " + f2 (mistake) + " s", "≥ 95%");
+            rep.check (goodCut <= 0.05, "wycięte z dobrego czytania", f2 (goodCut) + " s", "≤ 0,05 s");
+            rep.check (punched.audibleSeams == 0, "słyszalne szwy (zmiana tła)", std::to_string (punched.audibleSeams), "0");
+        }
         rep.line();
         rep.line ("Razem wycięto " + f2 (cutTotal) + " s (pomyłki + pauzy po R).");
         rep.line();

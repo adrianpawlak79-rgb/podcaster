@@ -53,6 +53,19 @@ inline const char* sourceName (LineSource s)
          : s == LineSource::Retake ? "powtorka" : "klawisz";
 }
 
+/** Co robi R: wycina pomylke (Retake) czy tylko cofa tekst (Key).
+
+    Wyciecie opiera sie na tym, KTORY wers wedlug promptera jest czytany. Z
+    rozpoznawaniem mowy (Vosk) prompter trafia we wlasciwy wers w ok. 82%
+    chwil; na samych sylabach — w 13% (mediana, 12 nagran lektorow,
+    Docs/badania/SYMULACJA.md). Bez modelu mowy R cofalby wiec do zlego
+    wersu i wycinal dobre czytanie. Wtedy R tylko przesuwa tekst; pomylke
+    czlowiek usuwa sam na ekranie Montaz. */
+inline LineSource retakeSource (bool followsSpeech)
+{
+    return followsSpeech ? LineSource::Retake : LineSource::Key;
+}
+
 struct LineMark
 {
     double      sec       = 0.0;   ///< czas w nagraniu

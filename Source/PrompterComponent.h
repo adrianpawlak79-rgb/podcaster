@@ -198,7 +198,10 @@ public:
     /** "Powtorz wers" (R albo przycisk): na poczatek wersu, ktory jest w
         ustach, i czekamy na glos. Nagranie leci dalej w calosci; po
         zatrzymaniu nieudane podejscie wycina sie samo (punch and roll,
-        finishTake → PunchFile.h), a pelne nagranie zostaje w "surowe". */
+        finishTake → PunchFile.h), a pelne nagranie zostaje w "surowe".
+
+        Tylko z rozpoznawaniem mowy (tw::retakeSource): bez niego prompter
+        zbyt czesto nie wie, ktory wers jest czytany, i R tylko cofa tekst. */
     void repeatLine()
     {
         if (spans.empty()) return;
@@ -207,9 +210,17 @@ public:
         follower.repeatFrom (from);
         words.jumpTo (from, recorder.recordedSeconds());
         shownLine = tw::lineOfWord (spans, from);
-        markRestart (shownLine, tw::LineSource::Retake);
-        startPreRoll();
-        if (onRetake) onRetake();
+        const auto why = tw::retakeSource (listening);
+        markRestart (shownLine, why);
+        if (why == tw::LineSource::Retake)
+        {
+            startPreRoll();
+            if (onRetake) onRetake();
+        }
+        else if (recorder.isRecording())
+        {
+            noCutNoticeAt = juce::Time::getMillisecondCounterHiRes();
+        }
         regrade();
         repaint();
     }
@@ -366,6 +377,7 @@ public:
         drawScript (g, r);
         if (follower.isLost()) drawLostBanner (g, bottom);
         drawCountdown (g, r);
+        drawNoCutNotice (g, r);
     }
 
 private:
@@ -584,6 +596,25 @@ private:
             m.text      = lines[(size_t) shown].text.toStdString();
         }
         return m;
+    }
+
+    /** R bez rozpoznawania mowy: przez kilka sekund mowimy, ze nic nie
+        zostanie wyciete samo — zeby nikt nie liczyl na czysty plik. */
+    void drawNoCutNotice (juce::Graphics& g, juce::Rectangle<int> r)
+    {
+        if (noCutNoticeAt < 0.0) return;
+        if (juce::Time::getMillisecondCounterHiRes() - noCutNoticeAt > 5000.0) { noCutNoticeAt = -1.0; return; }
+
+        auto box = r.withSizeKeepingCentre (juce::jmin (r.getWidth() - 40, 640), 64)
+                    .withY (r.getY() + (int) (r.getHeight() * 0.62f)).toFloat();
+        g.setColour (Ink::raised().withAlpha (0.94f));
+        g.fillRoundedRectangle (box, 10.0f);
+        g.setColour (Ink::yellow());
+        g.drawRoundedRectangle (box.reduced (1.0f), 10.0f, 1.5f);
+        g.setColour (Ink::textNow());
+        g.setFont (juce::Font (zs::type::small + 1.0f));
+        g.drawFittedText (PL ("Bez rozpoznawania mowy R tylko cofa tekst. Pomyłkę usuniesz na ekranie Montaż."),
+                          box.reduced (14.0f, 6.0f).toNearestInt(), juce::Justification::centred, 2);
     }
 
     /** Odliczanie po R: duza liczba na srodku tekstu, potem "Czytaj". */
@@ -831,7 +862,8 @@ private:
     std::vector<tw::Event> liveEvents;                 ///< zdarzenia lampki tego nagrania
     std::map<int, tw::LineGrade> grades;               ///< firstWord -> znaczek
     tw::Countdown countdown;             ///< po R, razem z pre-rollem
-    double countdownStart = -1.0, countdownTotal = 0.0;   ///< ms; -1 = nie odliczamy
+    double countdownStart = -1.0, countdownTotal = 0.0;
+    double noCutNoticeAt = -1.0;                       ///< ms; R bez modelu mowy   ///< ms; -1 = nie odliczamy
     bool layoutDirty = true, running = false;
 
     /* Gdzie obraz JEST i gdzie ma dojechac, w numerach wersow. */

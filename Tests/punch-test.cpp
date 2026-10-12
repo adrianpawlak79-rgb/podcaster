@@ -185,6 +185,15 @@ int main()
                "reszta na czasie czystego pliku");
     }
 
+    // ---- R bez modelu mowy: tylko cofa tekst ---------------------------------------
+    {
+        check (tw::retakeSource (true) == tw::LineSource::Retake, "z rozpoznawaniem mowy R wycina");
+        check (tw::retakeSource (false) == tw::LineSource::Key, "na samych sylabach R tylko cofa tekst");
+        std::vector<tw::LineMark> m { mark (0, 1.5, tw::LineSource::Syllables),
+                                      mark (0, 3.0, tw::retakeSource (false)) };
+        check (punch.plan (m, cuts).empty(), "i wtedy po zatrzymaniu nic nie jest wyciete");
+    }
+
     std::printf ("\n%s\n\n", fails == 0 ? "wszystko przeszlo" : "SA BLEDY");
     return fails;
 }
