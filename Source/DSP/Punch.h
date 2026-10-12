@@ -206,6 +206,56 @@ public:
         return out;
     }
 
+    //==========================================================================
+    /** PEWNE czy DO WSKAZANIA (pomysl Adriana, 12.10): automat tnie sam tylko
+        to, czego jest pewien; reszte pokazuje czlowiekowi, ktory wskazuje
+        miejsce na nagraniu (jak punkt wejscia w studyjnym punch-in).
+
+        Pewne = przeszlo straznika (guard) ORAZ:
+          - zadne slowo poprzedniego wersu nie padlo po poczatku wyciecia
+            (z zapasem na opoznienie rozpoznawania) — inaczej ciecie mogloby
+            trafic w pauze po przecinku w poprzednim wersie; pomiar: aktorzy
+            pauzuja w srodku wersu do 2 s, wiec sama dlugosc pauzy nic nie mowi;
+          - powtarzany wers nie zaczyna sie podobnie jak inny wers w poblizu
+            (ambiguousFirstWords) — rozpoznawanie myli takie wersy;
+          - cale wyciecie lezy blisko R (najwyzej maxSureSec) — dlugie
+            wyciecie to wiecej miejsc, gdzie cos moze pojsc zle. */
+    double prevLineSlackSec = 0.30;
+    double maxSureSec       = 8.0;     ///< pomylka + pauza po R to zwykle 3-6 s
+
+    struct Verdict { Removal cut; bool sure = false; std::string why; };
+
+    std::vector<Verdict> review (const std::vector<Removal>& plan, const std::vector<HeardWord>& heard,
+                                 const CutFinder* speech, const std::vector<int>& ambiguousFirstWords = {}) const
+    {
+        std::vector<Verdict> out;
+        for (const auto& c : plan)
+        {
+            std::vector<SkippedCut> sk;
+            const auto ok = guard ({ c }, heard, &sk, speech);
+            Verdict v;
+            v.cut = c;
+            if (ok.empty()) { v.why = sk.empty() ? "straznik" : sk[0].why; out.push_back (v); continue; }
+
+            bool prevAfter = false;
+            for (const auto& h : heard)
+                if (c.lineFirst >= 0 && h.word < c.lineFirst && h.sec - heardLagSec > c.from - prevLineSlackSec
+                    && h.sec - heardLagSec < c.to)
+                    prevAfter = true;
+
+            if (prevAfter)
+                v.why = "poprzedni wers mógł jeszcze trwać w miejscu cięcia";
+            else if (std::find (ambiguousFirstWords.begin(), ambiguousFirstWords.end(), c.lineFirst) != ambiguousFirstWords.end())
+                v.why = "inny wers zaczyna się podobnie — rozpoznawanie mogło je pomylić";
+            else if (c.to - c.from > maxSureSec)
+                v.why = "długie wycięcie";
+            else
+                v.sure = true;
+            out.push_back (v);
+        }
+        return out;
+    }
+
     /** Gdzie wznowic po R: koniec pierwszej pauzy po R, 0,15 s przed mowa. */
     double resumeAfter (double keySec, const CutFinder& cuts) const
     {

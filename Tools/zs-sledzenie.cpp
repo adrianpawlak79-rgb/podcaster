@@ -463,7 +463,7 @@ int main (int argc, char** argv)
         tw::Punch punch;
         const auto planned = punch.plan (log.marks(), cuts);
         const auto guarded = punch.guard (planned, heard, nullptr, &cuts);
-        const auto& guardedRef = guarded;
+        const std::vector<tw::Removal>* sureRef = nullptr;   // ZS_NIEBEZP wypisuje niebezpieczne PEWNE
 
         // ocena kazdego R: ciecie, ktore pokrywa jego chwile
         auto judge = [&] (const std::vector<tw::Removal>& rm, int& good, int& partial, int& none, int& danger)
@@ -477,7 +477,7 @@ int main (int argc, char** argv)
                 if (c->from < p.okFrom - 0.05 || c->to > p.okTo + 0.05)
                 {
                     ++danger;
-                    if (std::getenv ("ZS_NIEBEZP") && &rm == &guardedRef)
+                    if (std::getenv ("ZS_NIEBEZP") && &rm == sureRef)
                         std::printf ("  NIEBEZP przy R %.2f: ciecie %.2f-%.2f, wolno %.2f-%.2f (pomylka od %.2f, powtorka od %.2f)\n",
                                      p.t, c->from, c->to, p.okFrom, p.okTo, p.mistakeFrom, p.rereadFrom);
                     continue;
@@ -492,7 +492,7 @@ int main (int argc, char** argv)
                 if (! covers)
                 {
                     ++danger;
-                    if (std::getenv ("ZS_NIEBEZP") && &rm == &guardedRef)
+                    if (std::getenv ("ZS_NIEBEZP") && &rm == sureRef)
                         std::printf ("  NIEBEZP ciecie bez R: %.2f-%.2f\n", r.from, r.to);
                 }
             }
@@ -512,9 +512,21 @@ int main (int argc, char** argv)
         int g0, p0, n0, d0, g1, p1, n1, d1;
         judge (planned, g0, p0, n0, d0);
         judge (guarded, g1, p1, n1, d1);
+        // PEWNE / DO WSKAZANIA (Punch::review): oceniamy tylko pewne
+        const auto verdicts = punch.review (planned, heard, &cuts, tw::similarlyStartingLines (t, spans));
+        std::vector<tw::Removal> sure;
+        int unsure = 0;
+        std::map<std::string, int> whyCount;
+        for (const auto& v : verdicts) { if (v.sure) sure.push_back (v.cut); else { ++unsure; ++whyCount[v.why]; } }
+        int g2, p2, n2, d2;
+        sureRef = &sure;
+        judge (sure, g2, p2, n2, d2);
         std::printf ("R %zu: bez straznika dobrze %d, czesciowo %d, bez ciecia %d, NIEBEZPIECZNE %d; "
-                     "ze straznikiem dobrze %d, czesciowo %d, bez ciecia %d, NIEBEZPIECZNE %d\n",
-                     probes.size(), g0, p0, n0, d0, g1, p1, n1, d1);
+                     "ze straznikiem dobrze %d, czesciowo %d, bez ciecia %d, NIEBEZPIECZNE %d; "
+                     "PEWNE dobrze %d, czesciowo %d, NIEBEZPIECZNE %d, do wskazania %d\n",
+                     probes.size(), g0, p0, n0, d0, g1, p1, n1, d1, g2, p2, d2, unsure);
+        if (std::getenv ("ZS_DLACZEGO"))
+            for (const auto& w : whyCount) std::printf ("   do wskazania: %s — %d\n", w.first.c_str(), w.second);
         return 0;
     }
 
