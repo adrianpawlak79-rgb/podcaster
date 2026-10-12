@@ -60,7 +60,21 @@ int main()
     const auto rawBytes = wav.getSize();
 
     const double line1Raw = marks[1].sec, line3Raw = marks[4].sec;
-    auto res = zs::applyPunch (wav, marks);
+    // co uslyszalo rozpoznawanie (z opoznieniem 0,58 s): pomylka 12-13, potem wers 2 od nowa
+    const double lag = tw::Punch().heardLagSec;
+    const std::vector<tw::HeardWord> heard { { bad + 0.2 + lag, 12 }, { bad + 0.4 + lag, 13 },
+                                             { good + 0.1 + lag, 12 }, { good + 0.3 + lag, 13 }, { good + 0.6 + lag, 14 } };
+
+    // najpierw straznik: gdyby po R czytano od razu wers 3, pomylka zostaje, plik nietkniety
+    {
+        auto copy = marks;
+        const std::vector<tw::HeardWord> skipLine { heard[0], heard[1], { good + 0.1 + lag, 18 } };
+        const auto noCut = zs::applyPunch (wav, copy, skipLine);
+        ok (! noCut.applied && noCut.skipped.size() == 1 && wav.getSize() == rawBytes,
+            "po R nie przeczytano wersu jeszcze raz: nic nie wyciete (" + juce::String::fromUTF8 (noCut.skipped.empty() ? "" : noCut.skipped[0].why.c_str()) + ")");
+    }
+
+    auto res = zs::applyPunch (wav, marks, heard);
 
     ok (res.applied && res.cuts == 1, "jedno R -> jedno wyciecie (" + juce::String (res.removedSec, 2) + " s)");
     ok (res.rawCopy.existsAsFile() && res.rawCopy.getParentDirectory().getFileName() == "surowe",
@@ -90,7 +104,7 @@ int main()
     // drugi raz to samo nagranie bez R: nic
     std::vector<tw::LineMark> plain { marks[0], marks[1] };
     plain[0].source = plain[1].source = tw::LineSource::Words;
-    ok (! zs::applyPunch (wav, plain).applied, "bez R plik zostaje, jak byl");
+    ok (! zs::applyPunch (wav, plain, heard).applied, "bez R plik zostaje, jak byl");
 
     dir.deleteRecursively();
     std::cout << "\n" << (errors == 0 ? "wszystko przeszlo" : "SA BLEDY") << " (" << checks << " sprawdzen)\n\n";

@@ -21,6 +21,7 @@
 
 #include "DSP/LineLog.h"
 #include "DSP/CutPoint.h"
+#include "DSP/Punch.h"
 #include "DSP/WordTracker.h"
 #include "DSP/PrompterLines.h"
 #include "DSP/SyllableClock.h"
@@ -374,6 +375,146 @@ int main (int argc, char** argv)
             std::printf ("%s: %d/%d dobrze, %d wstecz, %d naprzod;  ", r.first.c_str(), r.second[0], n, r.second[1], r.second[2]);
         }
         std::printf ("\n");
+        return 0;
+    }
+
+    // Pelna proba wyciecia na prawdziwym glosie (Tools/zs-r-pauzy.py --powtorka).
+    // To samo, co program: hipotezy -> WordTracker (pozycja, uslyszane slowa),
+    // LineLog (wersy co 0,1 s, R jako Retake + jumpTo), po zatrzymaniu CutFinder,
+    // Punch::plan i Punch::guard. r.tsv: czas_R wiersz wolno_od wolno_do pomylka_od powtorka_od.
+    if (argc == 6 && std::string (argv[1]) == "--r-ciecie")
+    {
+        tw::PrompterText t;
+        t.set (readAll (argv[2]));
+        const auto spans = tw::lineSpans (t);
+
+        std::vector<Hyp> hs;
+        {
+            std::istringstream in (readAll (argv[3]));
+            for (std::string line; std::getline (in, line);)
+            {
+                std::istringstream ls (line);
+                Hyp h; std::string kind;
+                if (! (ls >> h.t >> kind)) continue;
+                std::string rest; std::getline (ls, rest);
+                h.final = kind == "F";
+                h.words = split (rest);
+                hs.push_back (h);
+            }
+        }
+        struct Probe { double t; int line; double okFrom, okTo, mistakeFrom, rereadFrom; };
+        std::vector<Probe> probes;
+        {
+            std::istringstream in (readAll (argv[4]));
+            for (Probe p; in >> p.t >> p.line >> p.okFrom >> p.okTo >> p.mistakeFrom >> p.rereadFrom;) probes.push_back (p);
+        }
+        wavio::Audio a;
+        if (! wavio::read (argv[5], a).empty()) { std::fprintf (stderr, "nie moge czytac %s\n", argv[5]); return 1; }
+        const auto x = a.toMono();
+        tw::CutFinder cuts;
+        cuts.analyse (x.data(), x.size(), a.sampleRate);
+        const double endSec = (double) x.size() / a.sampleRate;
+
+        tw::WordTracker tr;
+        tr.begin (&t);
+        tw::LineLog log;
+        log.begin();
+        std::vector<tw::HeardWord> heard;
+        int lastHeard = -1;
+        size_t h = 0, next = 0;
+        auto markFor = [&] (int line, double sec, tw::LineSource src)
+        {
+            tw::LineMark m; m.sec = sec; m.shown = line; m.source = src;
+            m.firstWord = spans[(size_t) line].firstWord; m.lastWord = spans[(size_t) line].lastWord;
+            return m;
+        };
+
+        for (double now = 0.0; now <= endSec; now += 0.1)
+        {
+            while (h < hs.size() && hs[h].t <= now)
+            {
+                const int before = tr.hitCount();
+                tr.hypothesis (hs[h].t, hs[h].words);
+                if (hs[h].final) tr.endUtterance();
+                if (tr.hitCount() > before && tr.lastHitWord() >= 0)       // PrompterComponent::noteHeard
+                {
+                    const int w = tr.lastHitWord();
+                    if (lastHeard >= 0 && w > lastHeard && w - lastHeard <= 3)
+                        for (int k = lastHeard + 1; k < w; ++k) heard.push_back ({ now, k });
+                    heard.push_back ({ now, w });
+                    lastHeard = w;
+                }
+                ++h;
+            }
+            const int shown = std::max (0, tr.word (now));
+            if (tr.hitCount() > 0)
+                log.observe (markFor (tw::lineToShow (spans, t, tw::syllableAtWord (t, shown)), now, tw::LineSource::Words));
+
+            if (next < probes.size() && now >= probes[next].t)
+            {
+                const int to = tw::repeatLineStart (spans, shown);      // PrompterComponent::repeatLine
+                tr.jumpTo (to, now);
+                lastHeard = -1;
+                log.restart (markFor (tw::lineOfWord (spans, to), now, tw::LineSource::Retake), tw::LineSource::Retake);
+                ++next;
+            }
+        }
+
+        tw::Punch punch;
+        const auto planned = punch.plan (log.marks(), cuts);
+        const auto guarded = punch.guard (planned, heard, nullptr, &cuts);
+        const auto& guardedRef = guarded;
+
+        // ocena kazdego R: ciecie, ktore pokrywa jego chwile
+        auto judge = [&] (const std::vector<tw::Removal>& rm, int& good, int& partial, int& none, int& danger)
+        {
+            good = partial = none = danger = 0;
+            for (const auto& p : probes)
+            {
+                const tw::Removal* c = nullptr;
+                for (const auto& r : rm) if (r.from <= p.t && r.to >= p.t - 1.0) c = &r;
+                if (c == nullptr) { ++none; continue; }
+                if (c->from < p.okFrom - 0.05 || c->to > p.okTo + 0.05)
+                {
+                    ++danger;
+                    if (std::getenv ("ZS_NIEBEZP") && &rm == &guardedRef)
+                        std::printf ("  NIEBEZP przy R %.2f: ciecie %.2f-%.2f, wolno %.2f-%.2f (pomylka od %.2f, powtorka od %.2f)\n",
+                                     p.t, c->from, c->to, p.okFrom, p.okTo, p.mistakeFrom, p.rereadFrom);
+                    continue;
+                }
+                if (c->from <= p.mistakeFrom + 0.05 && c->to >= p.rereadFrom - 0.05) ++good; else ++partial;
+            }
+            // ciecie, ktore nie pokrywa zadnego R, tez jest niebezpieczne
+            for (const auto& r : rm)
+            {
+                bool covers = false;
+                for (const auto& p : probes) if (r.from <= p.t && r.to >= p.t - 1.0) covers = true;
+                if (! covers)
+                {
+                    ++danger;
+                    if (std::getenv ("ZS_NIEBEZP") && &rm == &guardedRef)
+                        std::printf ("  NIEBEZP ciecie bez R: %.2f-%.2f\n", r.from, r.to);
+                }
+            }
+        };
+        if (std::getenv ("ZS_DEBUG"))
+        {
+            for (const auto& p : probes)
+            {
+                std::printf ("R %.2f wiersz %d  wolno %.2f-%.2f  pomylka od %.2f  powtorka od %.2f\n", p.t, p.line, p.okFrom, p.okTo, p.mistakeFrom, p.rereadFrom);
+                for (const auto& r : planned) if (r.from <= p.t && r.to >= p.t - 1.0) std::printf ("   plan %.2f-%.2f\n", r.from, r.to);
+                std::printf ("   slyszane:");
+                for (const auto& hw : heard) if (hw.sec > p.okFrom - 1.0 && hw.sec < p.rereadFrom + 3.0) std::printf (" %d@%.2f", hw.word, hw.sec);
+                std::printf ("\n");
+            }
+            for (const auto& m : log.marks()) std::printf ("mark %.2f wers %d %s\n", m.sec, m.shown, tw::sourceName (m.source));
+        }
+        int g0, p0, n0, d0, g1, p1, n1, d1;
+        judge (planned, g0, p0, n0, d0);
+        judge (guarded, g1, p1, n1, d1);
+        std::printf ("R %zu: bez straznika dobrze %d, czesciowo %d, bez ciecia %d, NIEBEZPIECZNE %d; "
+                     "ze straznikiem dobrze %d, czesciowo %d, bez ciecia %d, NIEBEZPIECZNE %d\n",
+                     probes.size(), g0, p0, n0, d0, g1, p1, n1, d1);
         return 0;
     }
 

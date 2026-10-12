@@ -209,6 +209,7 @@ public:
         const int from = tw::repeatLineStart (spans, follower.currentWord());
         follower.repeatFrom (from);
         words.jumpTo (from, recorder.recordedSeconds());
+        lastHeard = -1;                       // od teraz slowa ida od poczatku wersu
         shownLine = tw::lineOfWord (spans, from);
         const auto why = tw::retakeSource (listening);
         markRestart (shownLine, why);
@@ -421,6 +422,8 @@ private:
                 scrollNow = scrollTarget = 0.0f;
                 shownLine = 0;
                 lineLog.begin();
+                heardWords.clear();
+                lastHeard = -1;
                 liveEvents.clear();
                 grades.clear();
                 startSpeech();
@@ -455,8 +458,10 @@ private:
             VoskEngine::Hypothesis h;
             while (speech->nextHypothesis (h))
             {
+                const int hitsBefore = words.hitCount();
                 words.hypothesis (now, h.words);
                 if (h.final) words.endUtterance();
+                noteHeard (now, hitsBefore);
             }
 
             if (words.hasLock (now))
@@ -653,19 +658,26 @@ public:
         if (lineLog.marks().empty() || wav == juce::File()) return res;
 
         auto marks = lineLog.marks();
-        res = zs::applyPunch (wav, marks);
+        res = zs::applyPunch (wav, marks, heardWords, settings.punchAutoCut());
 
         tw::LineLog out;
         out.begin();
         for (const auto& m : marks) out.restart (m, m.source);
 
         juce::String text = juce::String::fromUTF8 (out.toText().c_str());
+        if (! res.applied)
+            for (const auto& c : res.plan)
+                text = "# pomylka do wyciecia na ekranie Montaz: " + juce::String (c.from, 2) + "-" + juce::String (c.to, 2)
+                     + " s (R; automatyczne wycinanie wylaczone)\n" + text;
         if (res.applied)
             text = "# wyciete pomylki (klawisz R): " + juce::String (res.cuts) + ", razem "
                  + juce::String (res.removedSec, 1) + " s; surowe nagranie: " + res.rawCopy.getFileName()
                  + " w folderze surowe"
                  + (res.audibleSeams > 0 ? "; szwy z inna cisza (posluchaj): " + juce::String (res.audibleSeams) : juce::String())
                  + "\n" + text;
+        for (const auto& s : res.skipped)
+            text = "# NIE wyciete (" + juce::String (s.cut.from, 2) + "-" + juce::String (s.cut.to, 2) + " s): "
+                 + juce::String::fromUTF8 (s.why.c_str()) + " — wytnij recznie na ekranie Montaz\n" + text;
 
         wav.getSiblingFile (wav.getFileNameWithoutExtension() + ".wersy.txt")
            .replaceWithText (text, false, false, "\n");
@@ -675,6 +687,20 @@ public:
     }
 
 private:
+    /** Slowa tekstu, ktore rozpoznawanie naprawde uslyszalo — do straznika
+        wyciecia (Punch::guard). Trafienie przesuwa sie zwykle o slowo albo dwa;
+        brakujace po drodze slowa (rozpoznane w jednej hipotezie) dopisujemy. */
+    void noteHeard (double now, int hitsBefore)
+    {
+        if (! recorder.isRecording() || words.hitCount() <= hitsBefore) return;
+        const int w = words.lastHitWord();
+        if (w < 0) return;
+        if (lastHeard >= 0 && w > lastHeard && w - lastHeard <= 3)
+            for (int k = lastHeard + 1; k < w; ++k) heardWords.push_back ({ now, k });
+        heardWords.push_back ({ now, w });
+        lastHeard = w;
+    }
+
     /* Ktory wers podswietlic i w ktorym lezy slowo — DSP/PrompterLines.h,
        zeby sprawdzal to test, a nie oko. */
     int lineToShow() const { return tw::lineToShow (spans, script, follower.syllablePosition()); }
@@ -855,6 +881,8 @@ private:
     std::vector<tw::LineSpan> spans;     ///< te same wersy, same numery slow
     tw::LineLog lineLog;                 ///< kiedy zaczal sie ktory wers (zapis obok nagrania)
     std::vector<tw::Event> liveEvents;                 ///< zdarzenia lampki tego nagrania
+    std::vector<tw::HeardWord> heardWords;             ///< co uslyszalo rozpoznawanie (straznik wyciecia)
+    int lastHeard = -1;
     std::map<int, tw::LineGrade> grades;               ///< firstWord -> znaczek
     tw::Countdown countdown;             ///< po R, razem z pre-rollem
     double countdownStart = -1.0, countdownTotal = 0.0;

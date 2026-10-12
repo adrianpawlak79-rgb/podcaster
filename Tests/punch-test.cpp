@@ -185,6 +185,68 @@ int main()
                "reszta na czasie czystego pliku");
     }
 
+    // ---- STRAZNIK: nie wycinamy niczego, czego nie przeczytano jeszcze raz ------------
+    {
+        tw::Punch pg;
+        const double lag = pg.heardLagSec;
+        auto heard = [&] (std::vector<std::pair<double, int>> spoken)
+        {
+            std::vector<tw::HeardWord> h;
+            for (auto& x : spoken) h.push_back ({ x.first + lag, x.second });   // rozpoznanie oddaje z opoznieniem
+            return h;
+        };
+        std::vector<tw::SkippedCut> sk;
+
+        // zwykle R: wers 2 (slowa 10-15), pomylka na 11, R, czytanie od 10
+        const std::vector<tw::Removal> one { { 5.0, 8.0, 10, 15 } };
+        auto ok = pg.guard (one, heard ({ { 3.0, 8 }, { 4.5, 9 }, { 5.15, 10 }, { 5.6, 11 }, { 8.15, 10 }, { 8.5, 11 }, { 9.0, 12 } }), &sk);
+        check (ok.size() == 1 && sk.empty(), "zwykle R: wycina");
+
+        // R cofnelo o wers za daleko (wycina wers 1 = slowa 5-9 i pomylke), czlowiek idzie za prompterem
+        const std::vector<tw::Removal> back { { 2.0, 8.0, 5, 15 } };
+        sk.clear();
+        ok = pg.guard (back, heard ({ { 2.15, 5 }, { 3.0, 7 }, { 4.5, 9 }, { 5.15, 10 }, { 5.6, 11 },
+                                       { 8.15, 5 }, { 9.0, 7 }, { 10.5, 9 }, { 11.0, 10 } }), &sk);
+        check (ok.size() == 1, "R za daleko, czlowiek czyta poprzedni wers jeszcze raz: wycina");
+
+        // to samo, ale czlowiek czyta od razu wers 2 — wers 1 by zginal
+        sk.clear();
+        ok = pg.guard (back, heard ({ { 2.15, 5 }, { 3.0, 7 }, { 4.5, 9 }, { 5.15, 10 }, { 5.6, 11 },
+                                       { 8.15, 10 }, { 8.5, 11 }, { 9.0, 12 } }), &sk);
+        check (ok.empty() && sk.size() == 1, "R za daleko, czlowiek czyta tylko swoj wers: NIE wycina",
+               sk.empty() ? "" : sk[0].why);
+
+        // pomylka na PIERWSZYM slowie wersu, tuz przy poczatku wyciecia; koncowka
+        // poprzedniego wersu oddana z opoznieniem wpada w wyciecie — nie przeszkadza
+        sk.clear();
+        ok = pg.guard (one, heard ({ { 4.7, 8 }, { 5.05, 9 }, { 5.15, 10 }, { 8.15, 10 }, { 8.5, 11 } }), &sk);
+        check (ok.size() == 1 && sk.empty(), "pomylka na pierwszym slowie wersu: wycina",
+               sk.empty() ? "" : sk[0].why);
+
+        // rozpoznawanie przypisalo cos w wycinanym kawalku do INNEGO wersu (podobne wersy)
+        sk.clear();
+        ok = pg.guard (one, heard ({ { 5.15, 10 }, { 6.5, 21 }, { 8.15, 10 } }), &sk);
+        check (ok.empty() && sk.size() == 1, "w wycinanym kawalku slowo innego wersu: NIE wycina",
+               sk.empty() ? "" : sk[0].why);
+
+        sk.clear();
+        ok = pg.guard (one, heard ({ { 5.6, 11 } }), &sk);
+        check (ok.empty() && sk.size() == 1, "po wznowieniu nic nie uslyszane: nie wycina");
+
+        sk.clear();
+        ok = pg.guard (one, heard ({ { 8.15, 10 } }), &sk);
+        check (ok.empty() && sk.size() == 1, "w wycinanym kawalku nic nie uslyszane: nie wycina");
+
+        // ciagla mowa bez pauz: przed wersem nie ma ciszy
+        Gen c;
+        c.syllables (60, 140);
+        tw::CutFinder cf; cf.analyse (c.x.data(), c.x.size(), c.sr);
+        std::vector<tw::LineMark> m { mark (0, 3.0, tw::LineSource::Words), mark (0, 6.0, tw::LineSource::Retake) };
+        std::vector<tw::SkippedCut> sk2;
+        check (pg.plan (m, cf, &sk2).empty() && sk2.size() == 1, "bez ciszy przed wersem: nie tnie na oko",
+               sk2.empty() ? "" : sk2[0].why);
+    }
+
     // ---- R bez modelu mowy: tylko cofa tekst ---------------------------------------
     {
         check (tw::retakeSource (true) == tw::LineSource::Retake, "z rozpoznawaniem mowy R wycina");

@@ -182,6 +182,7 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
     if (err.isNotEmpty()) { rep.line ("Nagrywanie nie ruszylo: " + err.toStdString()); ++rep.fails; return; }
 
     std::vector<tw::Event> events;
+    std::vector<tw::HeardWord> heard;
     struct Frame { double t; int sourceLine; int lamp; };
     std::vector<Frame> frames;
     struct Key { double t; tw::PreRollPlan plan; int line; };
@@ -223,6 +224,9 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
                     const double span = (t.what == "pomylka" ? 0.6 : 1.0) * (b - a + 1);
                     const double word = a + span * (now - lagSec - t.from) / (t.to - t.from);
                     follower.syncTo (tw::syllableAtWord (script, word));
+                    // co "uslyszalo rozpoznawanie": slowo, ktore wlasnie sie skonczylo
+                    const int w = (int) word - 1;
+                    if (w >= a && (heard.empty() || heard.back().word != w)) heard.push_back ({ now, w });
                     break;
                 }
         const int shown = tw::lineToShow (spans, script, follower.syllablePosition());
@@ -268,7 +272,7 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
     // ---- po zatrzymaniu ------------------------------------------------------------
     auto marks = lineLog.marks();
     const auto grades = tw::LineGrader().grade (marks, events, true);
-    const auto punched = zs::applyPunch (raw, marks);
+    const auto punched = zs::applyPunch (raw, marks, heard);
     const auto cleanEvents = punched.applied ? tw::Punch().remapEvents (events, punched.plan) : events;
 
     std::vector<float> clean;
