@@ -156,11 +156,11 @@ int main()
         check (sm.size() == 1 && ! sm[0].audible, "to samo tlo po obu stronach: szew nieslyszalny",
                sm.empty() ? "" : num (sm[0].levelDiffDb, " dB"));
 
-        // po R ktos wlaczyl wentylator: tlo +8 dB od miejsca wznowienia
+        // w pauzie po R ktos wlaczyl wentylator: tlo +8 dB, od 0,5 s przed wznowieniem
         auto loud = g.x;
         std::mt19937 r2 (9); std::normal_distribution<float> n2 (0.0f, 1.0f);
         if (! plan.empty())
-            for (size_t i = (size_t) (plan[0].to * g.sr); i < loud.size(); ++i) loud[i] += 0.0025f * n2 (r2);
+            for (size_t i = (size_t) ((plan[0].to - 0.5) * g.sr); i < loud.size(); ++i) loud[i] += 0.0025f * n2 (r2);
         const auto sm2 = punch.seams (loud, g.sr, plan);
         check (sm2.size() == 1 && sm2[0].audible, "tlo glosniejsze po R: szew oznaczony jako slyszalny",
                sm2.empty() ? "" : num (sm2[0].levelDiffDb, " dB"));
