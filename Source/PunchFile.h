@@ -42,7 +42,8 @@ struct PunchResult
     heard: slowa uslyszane przez rozpoznawanie mowy — bez nich nic nie
     wycinamy (Punch::guard: tniemy tylko to, co przeczytano jeszcze raz). */
 inline PunchResult applyPunch (const juce::File& wav, std::vector<tw::LineMark>& marks,
-                               const std::vector<tw::HeardWord>& heard, bool reallyCut = true)
+                               const std::vector<tw::HeardWord>& heard, bool reallyCut = true,
+                               const std::vector<int>& ambiguousLines = {})
 {
     PunchResult res;
 
@@ -71,7 +72,13 @@ inline PunchResult applyPunch (const juce::File& wav, std::vector<tw::LineMark>&
     tw::CutFinder finder;
     finder.analyse (mono.data(), mono.size(), sr);
     tw::Punch punch;
-    const auto plan = punch.guard (punch.plan (marks, finder, &res.skipped), heard, &res.skipped, &finder);
+    // tylko PEWNE (Punch::review); reszta — do wskazania przez czlowieka
+    std::vector<tw::Removal> plan;
+    for (const auto& v : punch.review (punch.plan (marks, finder, &res.skipped), heard, &finder, ambiguousLines))
+    {
+        if (v.sure) plan.push_back (v.cut);
+        else res.skipped.push_back ({ v.cut, v.why });
+    }
     if (plan.empty()) return res;
 
     // Tylko propozycja: gdzie wycialbym — plik zostaje nietkniety (Settings::punchAutoCut).

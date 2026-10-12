@@ -109,6 +109,12 @@ struct PreRollPlan
     std::vector<float> audio;     ///< puste = samo odliczanie
     double fromSec = 0.0, toSec = 0.0;   ///< czas w nagraniu
     bool   inPause = false;       ///< szew znaleziony w pauzie, nie zgadniety
+
+    /** Wszystkie pauzy przed R, w ktorych mozna ciac (czas w nagraniu,
+        rosnaco), i ktora z nich wybral program. Strzalki w czasie
+        odliczania przesuwaja wybor (PrompterComponent). */
+    std::vector<double> candidates;
+    int chosen = -1;
 };
 
 class PreRoll
@@ -152,18 +158,39 @@ public:
         finder.analyse (history.data(), history.size(), sr);
         const auto cut = finder.find (lineSec);
 
-        const double to   = cut.sec;
+        // pauzy przed R — do przesuwania strzalkami
+        const double keyRel = r.sec - historyStartSec;
+        for (const auto& pz : finder.pauses())
+        {
+            if (pz.second > keyRel) break;
+            const double c = std::max (pz.first, pz.second - cutParams.leadInSec);
+            if (c >= minSec) p.candidates.push_back (historyStartSec + c);
+        }
+
+        if (! render (p, history, sr, historyStartSec, historyStartSec + cut.sec)) return PreRollPlan{};
+        p.inPause = cut.inPause;
+
+        double best = 1.0e9;
+        for (size_t i = 0; i < p.candidates.size(); ++i)
+            if (std::fabs (p.candidates[i] - p.toSec) < best) { best = std::fabs (p.candidates[i] - p.toSec); p.chosen = (int) i; }
+        return p;
+    }
+
+    /** Ten sam pre-roll, ale konczacy sie w podanym miejscu (czas w nagraniu)
+        — po strzalce. Kandydaci i wybor zostaja w p. */
+    bool render (PreRollPlan& p, const std::vector<float>& history, double sr, double historyStartSec, double cutSec) const
+    {
+        const double to   = cutSec - historyStartSec;
         const double from = std::max (0.0, to - lengthSec);
-        if (to - from < minSec) return p;
+        if (to - from < minSec) return false;
 
         const size_t a = (size_t) std::lround (from * sr);
         const size_t b = std::min (history.size(), (size_t) std::lround (to * sr));
-        if (b <= a) return p;
+        if (b <= a) return false;
 
         p.audio.assign (history.begin() + (long) a, history.begin() + (long) b);
         p.fromSec = historyStartSec + from;
         p.toSec   = historyStartSec + to;
-        p.inPause = cut.inPause;
 
         const size_t fade = std::min (p.audio.size() / 2, (size_t) std::lround (fadeSec * sr));
         for (size_t k = 0; k < fade; ++k)
@@ -172,7 +199,7 @@ public:
             p.audio[k] *= g;
             p.audio[p.audio.size() - 1 - k] *= g;
         }
-        return p;
+        return true;
     }
 };
 

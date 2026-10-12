@@ -105,6 +105,26 @@ int main()
                "ten sam punkt co szew w Punch", plan.empty() ? "brak ciecia" : num (plan[0].from - p.toSec));
     }
 
+    // ---- 1b. strzalki: inne pauzy przed R ------------------------------------------------
+    std::printf ("\n  1b. strzalki w czasie odliczania\n");
+    {
+        auto p = pre.plan (marks, g.x, sr, 0.0);
+        check (p.candidates.size() == 2 && p.chosen == 1, "dwie pauzy przed R (miedzy wersami), wybrana ostatnia", std::to_string (p.candidates.size()));
+        check (p.chosen >= 0 && std::fabs (p.candidates[(size_t) p.chosen] - p.toSec) < 0.011, "wybrana = ta, na ktorej konczy sie pre-roll");
+        bool before = true;
+        for (double c : p.candidates) if (c > key) before = false;
+        check (before, "wszystkie przed R");
+        if (p.chosen > 0)
+        {
+            const double want = p.candidates[(size_t) p.chosen - 1];
+            const bool ok = pre.render (p, g.x, sr, 0.0, want);
+            // przed ta pauza nagranie ma niecale 2 s — pre-roll gra tyle, ile jest
+            check (ok && std::fabs (p.toSec - want) < 0.011 && (double) p.audio.size() / sr > pre.minSec
+                   && (double) p.audio.size() / sr <= 2.0 + 1e-6,
+                   "strzalka w lewo: pre-roll konczy sie pauze wczesniej", num (p.toSec - want));
+        }
+    }
+
     // ---- 2. pamiec zaczyna sie pozniej niz nagranie -------------------------------------
     std::printf ("\n  2. pamiec ostatnich sekund\n");
     {

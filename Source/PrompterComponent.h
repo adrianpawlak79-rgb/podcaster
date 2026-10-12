@@ -163,6 +163,11 @@ public:
             case zs::ui::KeyAction::None:          break;
         }
 
+        // W czasie odliczania po R strzalki w bok przesuwaja MIEJSCE CIECIA
+        // (koniec pre-rollu) do poprzedniej / nastepnej pauzy — slychac je od razu.
+        if ((c == juce::KeyPress::leftKey || c == juce::KeyPress::rightKey) && movePunchPoint (c == juce::KeyPress::leftKey ? -1 : +1))
+            return true;
+
         if (c == juce::KeyPress::upKey)    { nudge (-4); return true; }
         if (c == juce::KeyPress::downKey)  { nudge (+4); return true; }
         if (c == juce::KeyPress::leftKey)  { nudge (-1); return true; }
@@ -233,18 +238,49 @@ public:
     {
         if (! recorder.isRecording()) return;
 
-        double startSec = 0.0;
         tw::PreRollPlan plan;
+        preRollHistory.clear();
+        punchMovedByHand = false;
         if (! settings.roomCheck().headphonesLeak())
         {
-            const auto history = recorder.recentAudio (30.0, startSec);
-            plan = tw::PreRoll().plan (lineLog.marks(), history, recorder.currentSampleRate(), startSec);
+            preRollHistory = recorder.recentAudio (30.0, preRollStartSec);
+            plan = tw::PreRoll().plan (lineLog.marks(), preRollHistory, recorder.currentSampleRate(), preRollStartSec);
         }
 
+        // koniec pre-rollu = miejsce ciecia, ktore czlowiek wlasnie uslyszy
+        if (! plan.audio.empty()) lineLog.setLastCut (plan.toSec, false);
+        playPreRollPlan (std::move (plan));
+    }
+
+    void playPreRollPlan (tw::PreRollPlan plan)
+    {
         const double sec = (double) plan.audio.size() / juce::jmax (1.0, recorder.currentSampleRate());
-        recorder.playPreRoll (std::move (plan.audio));
+        recorder.playPreRoll (plan.audio);
+        preRoll = std::move (plan);
         countdownStart = juce::Time::getMillisecondCounterHiRes();
         countdownTotal = countdown.totalFor (sec);
+    }
+
+    /** Strzalka w czasie odliczania: miejsce ciecia o pauze wczesniej / pozniej.
+        Pre-roll gra od nowa i konczy sie w nowym miejscu; czlowiek je wskazal,
+        wiec ciecie jest pewne (Punch::review). */
+    bool movePunchPoint (int by)
+    {
+        if (countdownStart < 0.0 || preRoll.candidates.empty() || preRoll.chosen < 0 || preRollHistory.empty())
+            return false;
+
+        const int next = juce::jlimit (0, (int) preRoll.candidates.size() - 1, preRoll.chosen + by);
+        if (next == preRoll.chosen) return true;
+
+        auto p = preRoll;
+        if (! tw::PreRoll().render (p, preRollHistory, recorder.currentSampleRate(), preRollStartSec, p.candidates[(size_t) next]))
+            return true;
+        p.chosen = next;
+        lineLog.setLastCut (p.toSec, true);
+        punchMovedByHand = true;
+        playPreRollPlan (std::move (p));
+        repaint();
+        return true;
     }
 
 public:
@@ -276,6 +312,8 @@ public:
         follower.nudgeWords (lines[(size_t) shownLine].firstWord - follower.currentWord());
         countdownStart = juce::Time::getMillisecondCounterHiRes();
         countdownTotal = 2.0;
+        preRoll.candidates = { 1.0, 2.0 };        // podpowiedz strzalek na zrzucie
+        preRoll.chosen = 1;
         repaint();
     }
 
@@ -327,6 +365,8 @@ private:
     {
         recorder.playPreRoll ({});
         countdownStart = -1.0;
+        preRoll = {};
+        preRollHistory.clear();
     }
 
 public:
@@ -626,6 +666,7 @@ private:
         if (label.empty()) { countdownStart = -1.0; return; }
 
         const bool go = label == "Czytaj";
+        const bool canMove = ! preRoll.candidates.empty() && preRoll.chosen >= 0;
         // Pod celownikiem, nie na nim: wers do przeczytania ma byc widoczny
         // przez cale odliczanie.
         const int h = 120, w = juce::jmin (r.getWidth() - 40, 300);
@@ -638,6 +679,14 @@ private:
         g.setColour (go ? Ink::green() : Ink::textNow());
         g.setFont (juce::Font (go ? 56.0f : 84.0f, juce::Font::bold));
         g.drawText (juce::String (label), box.toNearestInt(), juce::Justification::centred);
+
+        if (canMove && ! go)
+        {
+            g.setColour (Ink::textDim());
+            g.setFont (juce::Font (zs::type::small));
+            g.drawText (PL (punchMovedByHand ? "miejsce cięcia: Twoje   ·   ← →" : "← → przesuń miejsce cięcia"),
+                        box.removeFromBottom (24.0f).toNearestInt(), juce::Justification::centred);
+        }
     }
 
     void markRestart (int shown, tw::LineSource why = tw::LineSource::Key)
@@ -658,7 +707,8 @@ public:
         if (lineLog.marks().empty() || wav == juce::File()) return res;
 
         auto marks = lineLog.marks();
-        res = zs::applyPunch (wav, marks, heardWords, settings.punchAutoCut());
+        res = zs::applyPunch (wav, marks, heardWords, settings.punchAutoCut(),
+                              tw::similarlyStartingLines (script, tw::lineSpans (script)));
 
         tw::LineLog out;
         out.begin();
@@ -886,7 +936,11 @@ private:
     std::map<int, tw::LineGrade> grades;               ///< firstWord -> znaczek
     tw::Countdown countdown;             ///< po R, razem z pre-rollem
     double countdownStart = -1.0, countdownTotal = 0.0;
-    double noCutNoticeAt = -1.0;                       ///< ms; R bez modelu mowy   ///< ms; -1 = nie odliczamy
+    double noCutNoticeAt = -1.0;                       ///< ms; R bez modelu mowy
+    tw::PreRollPlan preRoll;                           ///< ostatni pre-roll (kandydaci do strzalek)
+    std::vector<float> preRollHistory;                 ///< pamiec nagrania z chwili R
+    double preRollStartSec = 0.0;
+    bool punchMovedByHand = false;   ///< ms; -1 = nie odliczamy
     bool layoutDirty = true, running = false;
 
     /* Gdzie obraz JEST i gdzie ma dojechac, w numerach wersow. */

@@ -132,6 +132,17 @@ int main()
                "uszkodzony plik: nic, a nie smieci");
     }
 
+    // ---- punkt ciecia ostatniego R (pre-roll, strzalki)
+    {
+        tw::LineLog lg; lg.begin();
+        tw::LineMark a; a.firstWord = 0; a.sec = 1.0; lg.observe (a);
+        lg.setLastCut (0.5, true);
+        check (lg.marks().back().cutFrom < 0.0, "punkt ciecia tylko przy R");
+        tw::LineMark r = a; r.sec = 3.0; lg.restart (r, tw::LineSource::Retake);
+        lg.setLastCut (0.8, true);
+        check (lg.marks().back().cutFrom == 0.8 && lg.marks().back().cutByHand, "R pamieta punkt ciecia i to, ze wskazal go czlowiek");
+    }
+
     std::printf ("\n%s\n\n", fails == 0 ? "wszystko przeszlo" : "SA BLEDY");
     return fails;
 }
