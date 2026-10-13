@@ -144,8 +144,11 @@ inline std::vector<int> stepWidths (int total, int count, int gap)
 //==============================================================================
 namespace frame
 {
-    constexpr int header = 64, steps = 62, footer = 42;
+    // Kroki w lewej kolumnie (projekt ChatGPT, 13.10) — pasek kroków u góry zniknął,
+    // tekst promptera ma więcej wysokości.
+    constexpr int header = 64, steps = 0, footer = 42;
     constexpr int margin = 28, sidePadding = 22;
+    inline int navWidth (int width) { return std::clamp (width / 7, 176, 224); }
     inline int sideWidth (int width) { return std::clamp (width / 4, 260, 316); }
 }
 

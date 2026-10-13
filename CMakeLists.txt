@@ -39,8 +39,12 @@ target_compile_definitions(ZieloneSwiatlo PUBLIC
     JUCE_USE_WINRT_MIDI=0
     JUCE_STRICT_REFCOUNTEDPOINTER=1)
 
+# Ekran startowy: zdjecie od ChatGPT (Adrian: zostaje oryginal)
+# (Docs/projekt/szata-chatgpt/).
+juce_add_binary_data(ZsObrazy SOURCES Resources/splash.jpg)
+
 target_link_libraries(ZieloneSwiatlo
-    PRIVATE juce::juce_audio_utils juce::juce_gui_extra
+    PRIVATE ZsObrazy juce::juce_audio_utils juce::juce_gui_extra
     PUBLIC  juce::juce_recommended_config_flags)
 
 #==============================================================================

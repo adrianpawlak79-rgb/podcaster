@@ -498,7 +498,7 @@ public:
         const bool rec = recorder.isRecording();
         refreshHomeVisibility();
         settingsButton.setBounds (getWidth() - 196, 14, 174, 36);
-        flow.setBounds (22, zs::ui::frame::header + 8, getWidth() - 44, zs::StepBar::preferredHeight);
+        flow.setBounds (zs::ScreenFrame::stepsArea (getLocalBounds()));
         if (settingsOpen) { layoutHardwareSettings(); return; }
         if (preparation) { layoutPreparation(); return; }
         preparationButton.setBounds (getWidth() - 380, 14, 174, 36);

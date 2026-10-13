@@ -350,7 +350,12 @@ public:
             drawStrip (g, area, preRollHistory, preRollStartSec, preRollRate, now - liveStripSec, now, false);
             return;
         }
-        if (! recorder.isRecording()) return;
+        if (! recorder.isRecording())
+        {
+            static const std::vector<float> none;
+            drawStrip (g, area, none, 0.0, 48000.0, -liveStripSec, 0.0, false);
+            return;
+        }
         double start = 0.0;
         const double rate = recorder.currentSampleRate();
         const auto live = recorder.recentAudio (liveStripSec, start);
@@ -368,10 +373,8 @@ public:
         const double sr = juce::jmax (1.0, rate);
         const int retakeFirst = ! aiming || lineLog.marks().empty() ? std::numeric_limits<int>::max()
                                                                     : lineLog.marks().back().firstWord;
-        auto box = area.reduced (24, 0).removeFromBottom (aiming ? juce::jmin (170, area.getHeight() / 3)
-                                                                 : juce::jmin (124, area.getHeight() / 4))
-                       .translated (0, -12).toFloat();
-        g.setColour (Ink::raised());
+        auto box = area.toFloat();
+        g.setColour (Ink::panel());
         g.fillRoundedRectangle (box, 10.0f);
         g.setColour (Ink::edge());
         g.drawRoundedRectangle (box.reduced (0.5f), 10.0f, 1.0f);
@@ -448,6 +451,14 @@ public:
             lastRight = x + wdt;
         }
 
+        if (! aiming && ! recorder.isRecording() && ! previewLive)
+        {
+            g.setColour (Ink::textDim());
+            g.setFont (juce::Font (zs::type::small));
+            g.drawText (PL ("Tu zobaczysz falę nagrania  ·  Spacja — zacznij nagrywać"),
+                        hint.toNearestInt(), juce::Justification::centredLeft);
+            return;
+        }
         if (! aiming)
         {
             // kropka nagrywania i czas — ze to naprawde sie nagrywa
@@ -572,9 +583,17 @@ public:
         preRollHistory.assign ((size_t) (12.0 * sr), 0.0f);
         const double words[][2] = { { 2.2, 2.6 }, { 2.7, 3.3 }, { 3.4, 3.8 }, { 4.6, 5.0 }, { 5.1, 5.7 },
                                     { 5.8, 6.4 }, { 7.3, 7.7 }, { 7.8, 8.5 }, { 9.6, 10.0 }, { 10.1, 10.6 } };
+        // jak mowa: szum z obwiednia sylab, nie gladkie sinusy (wyglada jak fala z DAW)
+        uint32_t seed = 12345u;
+        auto noise = [&seed] { seed = seed * 1664525u + 1013904223u; return (float) ((int) (seed >> 9) - (1 << 22)) / (float) (1 << 22); };
+        for (auto& v : preRollHistory) v = 0.0006f * noise();
         for (auto& w : words)
             for (auto i = (size_t) (w[0] * sr); i < (size_t) (w[1] * sr); ++i)
-                preRollHistory[i] = (float) (0.5 * std::sin ((double) i * 0.05) * std::sin (3.14159 * ((double) i / sr - w[0]) / (w[1] - w[0])));
+            {
+                const double t = (double) i / sr - w[0], len = w[1] - w[0];
+                const double env = std::pow (std::sin (3.14159 * t / len), 0.6) * (0.55 + 0.45 * std::sin (t * 37.0));
+                preRollHistory[i] = (float) (0.06 * env * env) * noise();
+            }
         heardWords.clear();
         const int first = lines.size() > 3 ? lines[2].firstWord : 0;
         for (int k = 0; k < 10; ++k)
@@ -665,10 +684,17 @@ public:
     }
 
     //==========================================================================
+    /* Dwie karty: tekst u gory, fala na dole — osobne okienko, widoczne od
+       wejscia na ekran (Adrian 13.10, uklad z projektu ChatGPT). */
+    static constexpr int stripGap = 12;
+    int stripCardHeight() const { return juce::jlimit (110, 170, getHeight() / 4); }
+    juce::Rectangle<int> textCard() const  { auto r = getLocalBounds(); r.removeFromBottom (stripCardHeight() + stripGap); return r; }
+    juce::Rectangle<int> stripCard() const { return getLocalBounds().removeFromBottom (stripCardHeight()); }
+
     void resized() override
     {
         layoutDirty = true;
-        auto bar = getLocalBounds().removeFromBottom (barHeight).reduced (12, 8);
+        auto bar = textCard().removeFromBottom (barHeight).reduced (12, 8);
         backButton.setBounds (bar.removeFromLeft (64)); bar.removeFromLeft (6);
         smallerButton.setBounds (bar.removeFromLeft (40)); bar.removeFromLeft (6);
         largerButton.setBounds (bar.removeFromLeft (40)); bar.removeFromLeft (6);
@@ -681,10 +707,13 @@ public:
     void paint (juce::Graphics& g) override
     {
         if (layoutDirty) rebuildLines (g);
-        g.fillAll (Ink::panel());
+        g.fillAll (Ink::bg());
+        g.setColour (Ink::panel());
+        g.fillRoundedRectangle (textCard().toFloat(), 10.0f);
         g.setColour (Ink::edge());
-        g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (0.5f), 6.0f, 1.0f);
-        auto r = getLocalBounds();
+        g.drawRoundedRectangle (textCard().toFloat().reduced (0.5f), 10.0f, 1.0f);
+        drawAim (g, stripCard());              // fala: bez lustra, zawsze czytelna
+        auto r = textCard();
         if (!recorder.isRecording()) r.removeFromBottom (barHeight);
         auto bottom = r.removeFromBottom (follower.isLost() ? bottomHeight() : 0);
         // Lustro dotyczy czytanego tekstu; przyciski i lampka sa stale.
@@ -694,7 +723,6 @@ public:
                                                  .translated ((float) getWidth(), 0.0f));
         drawScript (g, r);
         if (follower.isLost()) drawLostBanner (g, bottom);
-        drawAim (g, r);
         drawCountdown (g, r);
         drawNoCutNotice (g, r);
     }

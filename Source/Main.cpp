@@ -2,6 +2,7 @@
     Main.cpp — punkt wejscia programu "Zielone swiatlo".
 */
 
+#include "BinaryData.h"
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "MainComponent.h"
 
@@ -91,6 +92,23 @@ countries: pl
         }
 
         mainWindow = std::make_unique<MainWindow> (getApplicationName(), review, waitForIt);
+
+        // Ekran startowy na 2,5 s (klik zamyka wczesniej) — tylko przy zwyklym
+        // uruchomieniu, nie przy --ocena (zrzuty ekranu przy budowaniu).
+        if (review == juce::File())
+        {
+            auto img = juce::ImageFileFormat::loadFrom (BinaryData::splash_jpg, (size_t) BinaryData::splash_jpgSize);
+            if (img.isValid())
+            {
+                const auto area = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay() != nullptr
+                                ? juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()->userArea
+                                : juce::Rectangle<int> (1280, 800);
+                const int w = juce::jmin (960, area.getWidth() * 2 / 3);
+                img = img.rescaled (w, w * img.getHeight() / img.getWidth(), juce::Graphics::highResamplingQuality);
+                auto* splash = new juce::SplashScreen ("Zielone swiatlo", img, true);
+                splash->deleteAfterDelay (juce::RelativeTime::seconds (2.5), true);
+            }
+        }
     }
 
     void shutdown() override { mainWindow = nullptr; juce::LookAndFeel::setDefaultLookAndFeel(nullptr); }

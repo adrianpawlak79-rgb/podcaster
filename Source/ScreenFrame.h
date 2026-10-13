@@ -10,7 +10,21 @@ struct ScreenFrame
     {
         bounds.removeFromTop (ui::frame::header + ui::frame::steps);
         bounds.removeFromBottom (ui::frame::footer);
+        bounds.removeFromLeft (ui::frame::navWidth (bounds.getWidth()));
         return bounds;
+    }
+    /** Lewa kolumna z krokami. */
+    static juce::Rectangle<int> nav (juce::Rectangle<int> bounds)
+    {
+        const int w = ui::frame::navWidth (bounds.getWidth());
+        bounds.removeFromTop (ui::frame::header);
+        bounds.removeFromBottom (ui::frame::footer);
+        return bounds.removeFromLeft (w);
+    }
+    /** Gdzie stoi pasek krokow (StepBar rysuje sie pionowo, gdy jest wyzszy niz szerszy). */
+    static juce::Rectangle<int> stepsArea (juce::Rectangle<int> bounds)
+    {
+        return nav (bounds).reduced (12, 20).withTrimmedRight (2);
     }
 
     static juce::Rectangle<int> sidebar (juce::Rectangle<int> bounds)
@@ -28,11 +42,19 @@ struct ScreenFrame
     static void paint (juce::Graphics& g, juce::Rectangle<int> bounds,
                        const juce::String& name, const juce::String& hint)
     {
+        const auto navCol = nav (bounds);
         auto header = bounds.removeFromTop (ui::frame::header);
         g.setColour (Ink::bar());
         g.fillRect (header);
         g.fillRect (bounds.removeFromTop (ui::frame::steps));
+        {
+            g.setColour (Ink::bar());
+            g.fillRect (navCol);
+            g.setColour (Ink::edge());
+            g.drawVerticalLine (navCol.getRight() - 1, (float) navCol.getY(), (float) navCol.getBottom());
+        }
         auto footer = bounds.removeFromBottom (ui::frame::footer);
+        g.setColour (Ink::bar());
         g.fillRect (footer);
         g.setColour (Ink::edge());
         g.drawHorizontalLine (header.getBottom() - 1, 0.0f, (float) header.getWidth());

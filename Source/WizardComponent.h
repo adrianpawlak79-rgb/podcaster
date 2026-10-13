@@ -177,7 +177,7 @@ public:
 
     void resized() override
     {
-        flow.setBounds(22,zs::ui::frame::header+8,getWidth()-44,zs::StepBar::preferredHeight);
+        flow.setBounds (zs::ScreenFrame::stepsArea (getLocalBounds()));
         auto side = zs::ScreenFrame::sidebar(getLocalBounds()).reduced(22,24);
         auto results = side.withTrimmedBottom (170);
         results.removeFromTop (32);
