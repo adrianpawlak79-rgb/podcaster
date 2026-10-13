@@ -232,7 +232,7 @@ private:
         if (measuredStep (tw::SetupStep::Level))
             summary << PL("Szczyty mowy\n") << juce::String (result.speechPeakDb, 1) << " dBFS\n\n";
         if (measuredStep (tw::SetupStep::Bleed))
-            summary << PL("Przesłuch słuchawek\n") << juce::String (result.bleedPercent, 1) << "%\n\n";
+            summary << PL("Przesłuch słuchawek\n") << juce::String (result.bleedDb, 0) << " dBFS\n\n";
         return summary.isEmpty() ? PL("Tutaj pojawią się wyniki zakończonych pomiarów tła pokoju i głosu.") : summary.trimEnd();
     }
 

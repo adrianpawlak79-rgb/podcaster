@@ -71,13 +71,13 @@ int main(int argc,char**argv){
     { tw::SetupWizard z; auto f=przejdz(z,mowa,4.0f);
       char s[96]; std::snprintf(s,96,"%+.1f dB",z.result().monitorVsVoiceDb);
       check(z.result().monitorVsVoiceDb>10.0,"+12 dB wykryte jako za glosno",s);
-      check(!f.passed,"zglasza problem",f.headline.c_str()); }
+      check(f.passed && f.headline.find("Odsłuch gra")==0,"mowi, ale nie zatrzymuje (to ustawienie do miksu)",f.headline.c_str()); }
 
     // 4. za cicho: -12 dB
     { tw::SetupWizard z; auto f=przejdz(z,mowa,0.25f);
       char s[96]; std::snprintf(s,96,"%+.1f dB",z.result().monitorVsVoiceDb);
       check(z.result().monitorVsVoiceDb<-10.0,"-12 dB wykryte jako za cicho",s);
-      check(!f.passed,"zglasza problem",f.headline.c_str()); }
+      check(f.passed && f.headline.find("Odsłuch gra")==0,"mowi, ale nie zatrzymuje (to ustawienie do miksu)",f.headline.c_str()); }
 
     // 5. material kalibracyjny to wlasny glos, wyrownany
     { tw::SetupWizard z; przejdz(z,cisza,1.0f);

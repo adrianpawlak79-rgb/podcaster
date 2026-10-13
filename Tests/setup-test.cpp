@@ -144,7 +144,8 @@ static std::vector<float> speechAt (const std::vector<float>& src, double second
 /** Przewija kreator do zadanego kroku i przepuszcza przez niego material. */
 static tw::SetupFinding run (tw::SetupStep want, const std::vector<float>& x,
                              tw::SetupReport* out = nullptr,
-                             const std::vector<float>* ref = nullptr)
+                             const std::vector<float>* ref = nullptr,
+                             double roomNoiseDb = -64.0)
 {
     tw::SetupWizard w;
     w.begin (kSR);
@@ -155,7 +156,7 @@ static tw::SetupFinding run (tw::SetupStep want, const std::vector<float>& x,
         // slusznie uzna, ze w pokoju jest halas, i caly przebieg nie zaliczy.
         Room fill;
         fill.speech = (w.step() != tw::SetupStep::Room);
-        fill.noiseDb = -64.0;
+        fill.noiseDb = roomNoiseDb;
 
         const auto filler = make (fill, tw::SetupWizard::seconds (w.step()) + 0.2, 3);
         w.feed (filler.data(), (int) filler.size());
@@ -214,9 +215,18 @@ int main()
         check (! l.passed, "glosny pokoj nie przechodzi", "tlo " + i2s (rep.noiseFloorDb) + " dBFS");
 
         Room hum; hum.speech = false; hum.noiseDb = -70.0; hum.humDb = -55.0;
-        run (tw::SetupStep::Room, make (hum, 6.2), &rep);
+        const auto h = run (tw::SetupStep::Room, make (hum, 6.2), &rep);
         check (rep.humHz == 50.0, "przydzwiek 50 Hz wykryty",
                i2s (rep.humExcessDb) + " dB ponad sasiedztwo");
+        check (! h.passed, "slyszalne buczenie zatrzymuje",
+               "tlo " + i2s (rep.noiseFloorDb) + " dBFS");
+
+        // Adrian 13.10: tlo -76 dBFS, wentylatory przy otwartej obudowie.
+        // Buczenie jest, ale niesłyszalne — nie zatrzymujemy, tylko mowimy.
+        Room faint; faint.speech = false; faint.noiseDb = -84.0; faint.humDb = -72.0;
+        const auto fh = run (tw::SetupStep::Room, make (faint, 6.2), &rep);
+        check (rep.humHz == 50.0 && fh.passed, "ciche buczenie w cichym pokoju: przechodzi, ale mowi",
+               "tlo " + i2s (rep.noiseFloorDb) + " dBFS, " + i2s (rep.humExcessDb) + " dB");
 
         run (tw::SetupStep::Room, make (quiet, 6.2), &rep);
         check (rep.humHz == 0.0, "bez przydzwieku nic nie zglasza");
@@ -268,10 +278,25 @@ int main()
             // nie da. Tu ma wyjsc tylko tyle, ze blizej znaczy wiecej dolu.
             const double normalLow = rep.proximityDb;
 
-            run (tw::SetupStep::Level, speechAt (speech, 6.2, -12.0, 12.0), &rep);
+            const auto close = run (tw::SetupStep::Level, speechAt (speech, 6.2, -12.0, 12.0), &rep);
             check (rep.proximityDb > normalLow + 3.0,
                    "blizej mikrofonu = wiecej dolu",
                    i2s (normalLow) + " -> " + i2s (rep.proximityDb) + " dB");
+            check (close.passed, "blisko nie zatrzymuje (prog bez kalibracji, miks wyrowna)",
+                   close.headline);
+
+            // Adrian 13.10, SM7B na SSL2: szczyty -22 dBFS, tlo -76 dBFS.
+            // Gain byl na koncu skali, a kreator kazal podkrecic.
+            const auto lowQuiet = run (tw::SetupStep::Level, speechAt (speech, 6.2, -22.0), &rep, nullptr, -82.0);
+            check (lowQuiet.passed, "szczyty -22 przy bardzo cichym tle: wystarczy",
+                   "odstep " + i2s (rep.speechPeakDb - rep.noiseFloorDb) + " dB");
+
+            const auto lowNoisy = run (tw::SetupStep::Level, speechAt (speech, 6.2, -22.0), &rep, nullptr, -50.0);
+            check (! lowNoisy.passed, "szczyty -22 przy zwyklym tle: za cicho",
+                   "odstep " + i2s (rep.speechPeakDb - rep.noiseFloorDb) + " dB");
+
+            const auto tooLow = run (tw::SetupStep::Level, speechAt (speech, 6.2, -34.0), &rep, nullptr, -90.0);
+            check (! tooLow.passed, "szczyty -34 zawsze za cicho, nawet w ciszy", tooLow.headline);
         }
     }
 
@@ -336,9 +361,19 @@ int main()
         for (size_t i = 0; i < n; ++i)
             leaky[i] = g (rng) * 0.001f + (i > d ? ref[i - d] * 0.1f : 0.0f);
 
-        run (tw::SetupStep::Bleed, leaky, &rep, &ref);
-        check (rep.bleedPercent > 4.0, "uciekajace sluchawki wykryte",
-               i2s (rep.bleedPercent) + "%");
+        const auto lf = run (tw::SetupStep::Bleed, leaky, &rep, &ref);
+        check (rep.bleedPercent > 4.0 && ! lf.passed, "uciekajace sluchawki wykryte",
+               i2s (rep.bleedPercent) + "%, " + i2s (rep.bleedDb) + " dBFS");
+
+        // Adrian 13.10: 4,3 % w bardzo cichym pokoju. Korelacja wysoka, bo
+        // nie ma szumu, ktory by ja rozmyl — ale przesluchu nie da sie uslyszec.
+        std::vector<float> faint (n);
+        for (size_t i = 0; i < n; ++i)
+            faint[i] = g (rng) * 0.00016f + (i > d ? ref[i - d] * 0.0001f : 0.0f);
+
+        const auto ff = run (tw::SetupStep::Bleed, faint, &rep, &ref);
+        check (rep.bleedPercent > 4.0 && ff.passed, "slad przesluchu ponizej slyszalnosci przechodzi",
+               i2s (rep.bleedPercent) + "%, " + i2s (rep.bleedDb) + " dBFS");
     }
 
     // ---- 6. caly przebieg ---------------------------------------------------
