@@ -1259,7 +1259,7 @@ private:
         recorder.attachPlayer(&seamPlayer); seamPlaying=true; seamPlayer.play();
     }
     void applyProposals(const std::vector<tw::CutProposal>& proposals) {
-        if(review.stage()!=zs::TakeReview::Stage::Ready || !cutPanel.decided()) return;
+        if(review.stage()!=zs::TakeReview::Stage::Ready || cutPanel.empty()) return;
         player.pause(); stopSeam();
         const auto result=zs::applyCutList(file,proposals);
         if(result.error.isNotEmpty()) { note=PL("Nie udało się zastosować poprawek: ")+result.error; repaint(); return; }

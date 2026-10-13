@@ -34,9 +34,9 @@ int main()
     zs::writeCutList(wav,list);
     juce::MemoryBlock before; wav.loadFileAsData(before);
     CutReviewPanel panel; panel.setSize(900,600); panel.load(wav,audio,10000);
-    check(!panel.decided(),"Pending blokuje zastosowanie");
+    check(!panel.decided(),"jest miejsce do sprawdzenia");
     auto* apply=button(panel,PL("Zastosuj poprawki"));
-    check(apply && !apply->isEnabled(),"przycisk nieaktywny");
+    check(apply && apply->isEnabled(),"Zastosuj dziala od razu (niezatwierdzone zostaja w nagraniu)");
     auto* restore=button(panel,PL("Przywróć")); restore->onClick();
     check(zs::readCutList(wav)[0].state==tw::CutProposal::State::Rejected,"Przywroc zapisuje Rejected");
     auto* cut=button(panel,PL("Wytnij")); cut->onClick();
@@ -48,11 +48,11 @@ int main()
     panel.keyPressed(juce::KeyPress(juce::KeyPress::spaceKey));
     check(heard==1 && heardFrom==4 && heardTo==5,"strzalki i Spacja wybieraja trzeci fragment");
     panel.keyPressed(juce::KeyPress(juce::KeyPress::returnKey));
-    check(panel.decided() && apply->isEnabled(),"Enter akceptuje i odblokowuje zastosowanie");
+    check(panel.decided() && apply->isEnabled(),"Enter akceptuje");
     check(zs::readCutList(wav)[2].state==tw::CutProposal::State::Accepted,"Tnij tu zapisane w TSV");
     // Mysza przesuwamy poczatek w poblize 4.25 s. Pauza 0-4.4 s
     // przyciaga go do 4.25 s; przesuniecie cofa Accepted do Pending.
-    auto* row=button(panel,PL("Tnij tu"))->getParentComponent();
+    auto* row=button(panel,PL("Wytnij"))->getParentComponent();
     const float width=float(row->getWidth()-16);
     auto event=[&](double t) {
         juce::Point<float> pt(8+float((t-1)/7)*width,90);
@@ -64,7 +64,7 @@ int main()
     auto dragged=zs::readCutList(wav)[2];
     check(std::abs(dragged.from-4.25)<.011 && dragged.state==tw::CutProposal::State::Pending,
           "przeciagniecie przyciaga do pauzy i zapisuje Pending");
-    check(!apply->isEnabled(),"przesuniecie wymaga ponownego Tnij tu");
+    check(!panel.decided(),"przesuniecie wymaga ponownego zatwierdzenia");
     panel.keyPressed(juce::KeyPress(juce::KeyPress::returnKey));
     panel.keyPressed(juce::KeyPress(juce::KeyPress::backspaceKey));
     check(zs::readCutList(wav)[2].state==tw::CutProposal::State::Rejected,"Backspace zostawia obie wersje");

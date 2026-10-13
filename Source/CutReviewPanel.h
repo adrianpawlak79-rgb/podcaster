@@ -24,7 +24,10 @@ public:
         addAndMakeVisible(apply);
         apply.setButtonText(tr("Zastosuj poprawki"));
         zs::Look::setKind(apply, zs::ui::ButtonKind::Primary);
-        apply.onClick = [this] { if (decided() && onApply) onApply(list); };
+        // Zastosuj dziala od razu: niezdecydowane miejsca zostaja w nagraniu
+        // (applyCutList tnie tylko zaakceptowane). Adrian 12.10: panel, ktory
+        // blokowal sie do decyzji o wszystkim, byl "skomplikowany".
+        apply.onClick = [this] { if (!empty() && onApply) onApply(list); };
     }
 
     void load(const juce::File& wav, const std::vector<float>& audio, double rate)
@@ -62,17 +65,30 @@ public:
     void paint(juce::Graphics& g) override
     {
         g.setColour(Ink::panel()); g.fillRoundedRectangle(getLocalBounds().toFloat(), 6);
-        int sure = 0; for (const auto& p : list) if (p.sure) ++sure;
-        g.setColour(Ink::textNow()); g.setFont(juce::Font(zs::type::body, juce::Font::bold));
-        g.drawText(tr("Poprawki po R: ") + juce::String(sure) + tr(" pewnych, ")
-                   + juce::String((int)list.size()-sure) + tr(" do wskazania"),
-                   getLocalBounds().reduced(8).removeFromTop(28), juce::Justification::centredLeft);
-        if (!decided()) {
-            g.setColour(Ink::textDim()); g.setFont(juce::Font(zs::type::small));
-            g.drawText(tr("Zdecyduj o wszystkich miejscach do wskazania"),
-                       getLocalBounds().reduced(8).withTrimmedBottom(36).removeFromBottom(25), juce::Justification::centredLeft);
+        int cut = 0, pending = 0;
+        for (const auto& p : list) {
+            if (p.state == tw::CutProposal::State::Accepted) ++cut;
+            if (p.state == tw::CutProposal::State::Pending) ++pending;
         }
+        g.setColour(Ink::textNow()); g.setFont(juce::Font(zs::type::body, juce::Font::bold));
+        g.drawText(tr("Po R: ") + places((int)list.size()) + tr(" do wycięcia"),
+                   getLocalBounds().reduced(8).removeFromTop(28), juce::Justification::centredLeft);
+        g.setColour(Ink::textDim()); g.setFont(juce::Font(zs::type::small));
+        const juce::String hint = pending > 0
+            ? tr("Posłuchaj miejsc oznaczonych „sprawdź”. Czego nie zatwierdzisz, zostanie w nagraniu.")
+            : cut > 0 ? tr("Posłuchaj szwów. „Zastosuj” wytnie ") + places(cut) + tr(" — pełne nagranie zostanie w folderze surowe.")
+                      : tr("Nic nie zostanie wycięte.");
+        g.drawFittedText(hint, getLocalBounds().reduced(8).withTrimmedBottom(36).removeFromBottom(25),
+                         juce::Justification::centredLeft, 1);
     }
+    /** 1 miejsce, 2-4 miejsca, 5 miejsc (12-14 miejsc). */
+    static juce::String places(int n)
+    {
+        const int d = n % 10, dd = n % 100;
+        const char* w = n == 1 ? "miejsce" : (d >= 2 && d <= 4 && (dd < 12 || dd > 14)) ? "miejsca" : "miejsc";
+        return juce::String(n) + " " + tr(w);
+    }
+
     bool keyPressed(const juce::KeyPress& k) override
     {
         if (rows.empty() || !isEnabled()) return false;
@@ -121,7 +137,7 @@ private:
                 if(owner.list[index].sure && owner.list[index].state == tw::CutProposal::State::Accepted) reject();
                 else accept();
             };
-            no.setButtonText(tr("Zostaw obie wersje")); no.onClick = [this] { reject(); };
+            no.setButtonText(tr("Zostaw")); no.onClick = [this] { reject(); };
             for (auto* b : {&listen, &yes, &no}) { b->setWantsKeyboardFocus(false); addAndMakeVisible(b); }
             no.setVisible(!p.sure);
         }
@@ -147,11 +163,14 @@ private:
             auto r=getLocalBounds().reduced(8);
             g.setColour(Ink::textNext()); g.setFont(juce::Font(zs::type::small));
             auto clock=[](double s) { return juce::String::formatted("%d:%02d", (int)s/60,(int)s%60); };
-            juce::String state = p.state==tw::CutProposal::State::Accepted ? tr("Wytnij") : p.state==tw::CutProposal::State::Rejected ? tr("Zostaw") : tr("Do decyzji");
+            juce::String state = p.state==tw::CutProposal::State::Accepted ? tr("zostanie wycięte")
+                               : p.state==tw::CutProposal::State::Rejected ? tr("zostaje w nagraniu") : tr("sprawdź");
             g.drawText(clock(from)+tr("–")+clock(to)+"  ("+juce::String(to-from,2)+" s) · "+state,r.removeFromTop(24),juce::Justification::centredLeft);
             if(p.sure) return;
             g.setColour(Ink::textDim());
-            g.drawFittedText(juce::String::fromUTF8(p.why.c_str()),r.removeFromTop(34),juce::Justification::topLeft,2);
+            // Powod techniczny (p.why) zostaje w pliku .ciecia.tsv; tu zdanie dla czlowieka.
+            g.drawFittedText(tr("Czerwone zostanie wycięte. Posłuchaj, czy nie ma tu dobrych słów — "
+                                "uchwyty przesuwasz myszą."),r.removeFromTop(34),juce::Justification::topLeft,2);
             g.setColour(Ink::textNext().withAlpha(.65f));
             for(int px=0;px<wave.getWidth();px+=2) {
                 if(env.peakDb.empty()) break;
@@ -195,11 +214,11 @@ private:
         update();
     }
     void update() {
-        apply.setEnabled(decided());
-        apply.setTooltip(decided()?juce::String():tr("Zdecyduj o wszystkich miejscach do wskazania"));
+        apply.setEnabled(!empty());
+        apply.setTooltip(decided()?juce::String():tr("Niezatwierdzone miejsca zostaną w nagraniu"));
         for(auto& row : rows) {
             const auto& p=list[row->index];
-            row->yes.setButtonText(p.sure ? (p.state==tw::CutProposal::State::Accepted ? tr("Przywróć") : tr("Wytnij")) : tr("Tnij tu"));
+            row->yes.setButtonText(p.sure ? (p.state==tw::CutProposal::State::Accepted ? tr("Przywróć") : tr("Wytnij")) : tr("Wytnij"));
             row->yes.setEnabled(row->to>row->from); row->repaint();
         }
         repaint();
