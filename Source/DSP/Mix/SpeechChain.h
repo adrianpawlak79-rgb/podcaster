@@ -47,6 +47,7 @@
 #pragma once
 
 #include "Biquad.h"
+#include "Breath.h"
 #include "Colour.h"
 #include "Dynamics.h"
 #include "Level.h"
@@ -78,6 +79,7 @@ struct ChainReport
 
     int    clicksRepaired = 0;
     double denoiseDb      = 0.0;   ///< 0 = odszumianie nie bylo potrzebne
+    int    breaths        = 0;     ///< ile oddechow sciszono (Breath.h)
 
     float  gateMaxGrDb    = 0.0f;
     float  riderMaxDb     = 0.0f;
@@ -105,6 +107,8 @@ public:
         bool   useDenoise   = true;
         float  denoiseDb    = -14.0f;
         bool   usePlosive   = true;
+        bool   useBreath    = false;   ///< sciszanie oddechow (Breath.h)
+        float  breathDb     = -12.0f;
 
         // ---- filtry
         double highpassHz   = 80.0;
@@ -370,6 +374,19 @@ public:
             pre.swap (tmp);
 
             denoised = dn.didProcess() ? params.denoiseDb : 0.0;
+        }
+
+        // Oddechy PO odszumianiu (czysciej widac, co jest oddechem, a co tlem)
+        // i PRZED kompresja — inaczej kompresor podnosi je razem z cichymi
+        // fragmentami (v3 Adriana: oddechy +2-9 dB wzgledem glosu).
+        if (params.useBreath)
+        {
+            BreathControl bc;
+            bc.params.reductionDb = params.breathDb;
+            std::vector<float> tmp;
+            bc.render (pre, tmp, sr);
+            pre.swap (tmp);
+            rep.breaths = bc.found;
         }
 
         // ---- przejscie pierwsze: tylko po to, zeby zmierzyc ------------------

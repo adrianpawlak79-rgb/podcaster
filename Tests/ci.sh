@@ -43,6 +43,7 @@ TESTY=(
   "monitor-test /tmp/mowa.wav"
   "kanal-test /tmp/mowa.wav"
   "decide-test /tmp/mowa.wav"
+  "oddechy-test /tmp/mowa.wav"
   "prompter-test t2.txt t2.wav"
   "wersy-test"
   "start-test"

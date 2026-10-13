@@ -468,6 +468,21 @@ public:
             std::snprintf (b, sizeof (b), "Bez odszumiania: tło jest %.0f dB pod mową albo nie ma go z czego zmierzyć.", headroom);
         why.push_back (b);
 
+        // oddechy: sciszone przed kompresja, nie do zera
+        {
+            BreathControl bc;
+            const auto found = bc.find (in, sr);
+            p.useBreath = ! found.empty();
+            p.breathDb = bc.params.reductionDb;
+            if (p.useBreath)
+                std::snprintf (b, sizeof (b), "Oddechy ściszone o %.0f dB (nie do zera): znalazłem %d w przerwach między słowami.",
+                               -p.breathDb, (int) found.size());
+            else
+                std::snprintf (b, sizeof (b), "Oddechów nie ściszam: nie znalazłem żadnego %.0f dB pod mową w przerwach.",
+                               bc.params.belowSpeechDb);
+            why.push_back (b);
+        }
+
         // ekspander zamiast bramy: lagodnie, z przytrzymaniem, zeby nie zatrzaskiwal ciszy miedzy slowami
         const bool canExpand = headroom > 12.0 && d.noiseFloorDb > -100.0;
         p.useGate = canExpand; p.autoGate = false;
