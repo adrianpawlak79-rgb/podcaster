@@ -41,6 +41,7 @@ countries: pl
             MainComponent preview(fixture,true,true);
             auto mode = args.size() > 2 ? args[2] : juce::String();
             if (mode.endsWith ("-small")) { preview.setSize (960, 640); mode = mode.dropLastCharacters (6); }
+            if (mode.endsWith ("-fhd"))   { preview.setSize (1920, 1080); mode = mode.dropLastCharacters (4); }
             if(mode=="settings") { preview.setSize(960,640);preview.previewSettings(); }
             if(mode=="prompter")preview.previewPrompter();
             if(mode=="small") preview.setSize(960,640);
@@ -101,7 +102,9 @@ countries: pl
 
             setContentOwned (main, true);
             setResizable (true, false);
-            setResizeLimits (960, 640, 2400, 1600);
+            // Gorny limit wiekszy niz monitory: przy 2400 x 1600 okno na ekranie
+            // 2560 x 1440 albo 4K nie dawalo sie zmaksymalizowac do konca.
+            setResizeLimits (960, 640, 8192, 8192);
 
             // Polozenie okna.
             //
@@ -114,7 +117,13 @@ countries: pl
             if (settings != nullptr && settings->windowState().isNotEmpty())
                 restoreWindowStateFromString (settings->windowState());
             else
+            {
+                // Pierwsze uruchomienie: na caly ekran (zmaksymalizowane), jak
+                // programy do dzwieku — prompter i przebieg potrzebuja miejsca.
+                // Potem program pamieta to, co ustawil czlowiek.
                 centreWithSize (getWidth(), getHeight());
+                setFullScreen (true);
+            }
 
             setVisible (true);
         }
