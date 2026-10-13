@@ -148,21 +148,23 @@ public:
     {
         const int c = k.getKeyCode();
 
-        // Po R: wskazywanie miejsca ciecia (tw::PunchAim). R albo Enter
-        // zatwierdza, strzalki wskazuja, spacja odsluchuje. Esc dziala jak zawsze.
-        if (aim.active && c != juce::KeyPress::escapeKey)
+        // Po R (tw::PunchAim). Adrian 13.10 po tescie: "z R-ka masakra, nie wiem,
+        // jak ustawiac". Wiec: gdy program znalazl cisze, nic nie trzeba robic —
+        // pre-roll i odliczanie ruszaja same. Strzalki przesuwaja miejsce i
+        // zaczynaja od nowa; Enter albo R tylko wtedy, gdy program czeka.
+        // Esc i spacja dzialaja jak zawsze (stop).
+        if (aim.active && c != juce::KeyPress::escapeKey && k.getTextCharacter() != ' ')
         {
             const auto ch = k.getTextCharacter();
-            if (ch == 'r' || ch == 'R' || c == juce::KeyPress::returnKey) { confirmAim(); return true; }
+            if (ch == 'r' || ch == 'R' || c == juce::KeyPress::returnKey) { if (! aimCounting) confirmAim(); return true; }
             if (c == juce::KeyPress::leftKey || c == juce::KeyPress::rightKey)
             {
-                if (aim.move (c == juce::KeyPress::leftKey ? -1 : +1)) previewAim();
+                if (aim.move (c == juce::KeyPress::leftKey ? -1 : +1)) startAimCountdown();
                 repaint();
                 return true;
             }
             if (c == juce::KeyPress::upKey)    { aimLine (-1); return true; }
             if (c == juce::KeyPress::downKey)  { aimLine (+1); return true; }
-            if (c == juce::KeyPress::spaceKey) { previewAim(); return true; }
             return true;                       // reszta klawiszy nie miesza w czasie wskazywania
         }
 
@@ -178,6 +180,7 @@ public:
             case zs::ui::KeyAction::StopAndReview: if (onStopRequest) onStopRequest(); return true;
             case zs::ui::KeyAction::RepeatLine:    repeatLine(); return true;
             case zs::ui::KeyAction::LeavePrompter: if (onClose) onClose(); return true;
+            case zs::ui::KeyAction::StartStop:     if (onStartStop) onStartStop(); return true;
             case zs::ui::KeyAction::None:          break;
         }
 
@@ -262,7 +265,27 @@ public:
         aim.begin (tw::PreRoll().plan (lineLog.marks(), preRollHistory, recorder.currentSampleRate(),
                                        preRollStartSec, &heardWords),
                    lineLog.marks().back().sec);
+        aimCounting = false;
+        if (aim.hasCut()) startAimCountdown();       // pewne miejsce: od razu, bez klawisza
         repaint();
+    }
+
+    /** Pre-roll konczacy sie na znaczniku i odliczanie. Czlowiek slyszy
+        dokladnie szew, a nie reagujac — zgadza sie na to miejsce (ciecie pewne). */
+    void startAimCountdown()
+    {
+        if (! aim.hasCut()) return;
+        const double cut = aim.cutSec();
+        lineLog.setLastCut (cut, true);
+        punchMovedByHand = true;
+        auto p = aim.plan;
+        if (! tw::PreRoll().render (p, preRollHistory, preRollRate, preRollStartSec, cut))
+            p.audio.clear();
+        // sluchawki uciekaja do mikrofonu: pre-roll weszlby do nagrania — samo odliczanie
+        if (settings.roomCheck().headphonesLeak()) p.audio.clear();
+        recorder.playPreRoll ({});
+        playPreRollPlan (std::move (p));
+        aimCounting = true;
     }
 
     /** ↑ ↓ przy wskazywaniu: powtarzamy od wersu wczesniej / pozniej. */
@@ -280,7 +303,8 @@ public:
         lineLog.retargetLast (markFor (line, recorder.recordedSeconds(), tw::LineSource::Retake));
         aim.replan (tw::PreRoll().plan (lineLog.marks(), preRollHistory, recorder.currentSampleRate(),
                                         preRollStartSec, &heardWords));
-        previewAim();
+        if (aim.hasCut()) startAimCountdown();
+        else { recorder.playPreRoll ({}); countdownStart = -1.0; aimCounting = false; }
         regrade();
         repaint();
     }
@@ -299,21 +323,13 @@ public:
         a o cieciu zdecyduje sie w Odsluchu. */
     void confirmAim()
     {
-        auto p = aim.plan;
-        const double cut = aim.cutSec();
-        aim.end();
+        if (aim.hasCut()) { startAimCountdown(); repaint(); return; }
+        // bez wskazanego miejsca: czytamy bez ciecia (obie wersje zostaja)
         recorder.playPreRoll ({});
-
-        if (cut >= 0.0)
-        {
-            lineLog.setLastCut (cut, true);
-            punchMovedByHand = true;
-            if (! tw::PreRoll().render (p, preRollHistory, recorder.currentSampleRate(), preRollStartSec, cut))
-                p.audio.clear();
-            // sluchawki uciekaja do mikrofonu: pre-roll weszlby do nagrania — samo odliczanie
-            if (settings.roomCheck().headphonesLeak()) p.audio.clear();
-        }
+        auto p = aim.plan;
+        p.audio.clear();
         playPreRollPlan (std::move (p));
+        aimCounting = true;
         repaint();
     }
 
@@ -361,8 +377,8 @@ public:
         g.drawRoundedRectangle (box.reduced (0.5f), 10.0f, 1.0f);
 
         auto inner = box.reduced (14.0f, 10.0f);
-        auto hint = inner.removeFromBottom (aiming ? 20.0f : 16.0f);
-        auto labels = inner.removeFromBottom (18.0f);
+        auto hint = inner.removeFromBottom (aiming ? 0.0f : 16.0f);
+        auto labels = inner.removeFromBottom (24.0f);
         auto wave = inner;
 
         auto xOf = [&] (double t) { return wave.getX() + (float) ((t - t0) / (t1 - t0)) * wave.getWidth(); };
@@ -410,8 +426,10 @@ public:
             }
         }
 
-        // uslyszane slowa (czas szacowany jak w Punch::guard)
-        g.setFont (juce::Font (zs::type::small));
+        // uslyszane slowa (czas szacowany jak w Punch::guard); wieksze — Adrian
+        // 13.10: "slowa troche za malo widoczne"
+        const juce::Font wordFont (zs::type::body, juce::Font::bold);
+        g.setFont (wordFont);
         float lastRight = -1.0e9f;
         int lastWord = -1;
         const auto& src = script.source();
@@ -423,7 +441,7 @@ public:
             if (t < t0 || t > t1) continue;
             const auto& w = script.all()[(size_t) h.word];
             const auto text = juce::String::fromUTF8 (src.substr (w.from, w.to - w.from).c_str());
-            const float x = xOf (t), wdt = (float) juce::Font (zs::type::small).getStringWidth (text) + 6.0f;
+            const float x = xOf (t), wdt = (float) wordFont.getStringWidth (text) + 8.0f;
             if (x < lastRight) continue;
             g.setColour (h.word >= retakeFirst ? Ink::red() : Ink::textNext());
             g.drawText (text, juce::Rectangle<float> (x, labels.getY(), wdt, labels.getHeight()), juce::Justification::centredLeft);
@@ -442,10 +460,18 @@ public:
             return;
         }
 
-        g.setColour (Ink::textDim());
-        g.drawText (PL (aim.hasCut() ? "← → miejsce cięcia  ·  ↑ ↓ wers  ·  spacja posłuchaj  ·  Enter lub R czytaj"
-                                     : "Nie znalazłem ciszy po poprzednim wersie — wskaż strzałką albo Enter, by czytać bez cięcia"),
-                    hint.toNearestInt(), juce::Justification::centred);
+        // Dymek nad paskiem: jedno zdanie, co sie dzieje i co mozna zrobic.
+        const bool unsure = ! aim.hasCut();
+        auto bubble = juce::Rectangle<float> (box.getX(), box.getY() - 58.0f, box.getWidth(), 50.0f);
+        g.setColour (Ink::raised());
+        g.fillRoundedRectangle (bubble, 10.0f);
+        g.setColour (unsure ? Ink::yellow() : Ink::edge());
+        g.drawRoundedRectangle (bubble.reduced (0.5f), 10.0f, unsure ? 2.0f : 1.0f);
+        g.setColour (unsure ? Ink::yellow() : Ink::textNow());
+        g.setFont (juce::Font (zs::type::body));
+        g.drawFittedText (PL (unsure ? "Nie wiem, gdzie wyciąć pomyłkę.  ← →  wskaż miejsce (usłyszysz je)  ·  Enter — czytaj bez cięcia"
+                                     : "Słyszysz, co zostanie przed poprawką. Czerwone wypadnie.  Źle?  ← →  przesuń  ·  ↑ ↓  inny wers"),
+                          bubble.reduced (14.0f, 4.0f).toNearestInt(), juce::Justification::centred, 2);
     }
 
     /** Po R: w sluchawkach 2 s tego, co w czystym pliku bedzie przed tym
@@ -563,6 +589,9 @@ public:
     /** Tylko zrzut ekranu (--preview-ui prompter-pasek): pasek na zywo. */
     void previewLiveScreen() { previewAimScreen(); aim.end(); previewLive = true; repaint(); }
 
+    /** Spacja: start i stop nagrania (MainComponent::startStop). */
+    std::function<void()> onStartStop;
+
     /** Po R: lampka nie trzyma koloru za wycieta pomylke. */
     std::function<void()> onRetake;
 
@@ -614,6 +643,7 @@ private:
         preRoll = {};
         preRollHistory.clear();
         aim.end();
+        aimCounting = false;
     }
 
 public:
@@ -911,14 +941,14 @@ private:
         if (countdownStart < 0.0) return;
         const double elapsed = (juce::Time::getMillisecondCounterHiRes() - countdownStart) / 1000.0;
         const auto label = countdown.label (elapsed, countdownTotal);
-        if (label.empty()) { countdownStart = -1.0; return; }
+        if (label.empty()) { countdownStart = -1.0; aim.end(); aimCounting = false; return; }
 
         const bool go = label == "Czytaj";
         const bool canMove = ! preRoll.candidates.empty() && preRoll.chosen >= 0;
         // Pod celownikiem, nie na nim: wers do przeczytania ma byc widoczny
         // przez cale odliczanie.
         const int h = 120, w = juce::jmin (r.getWidth() - 40, 300);
-        auto box = juce::Rectangle<int> (r.getCentreX() - w / 2, r.getY() + (int) (r.getHeight() * 0.62f) - h / 2, w, h).toFloat();
+        auto box = juce::Rectangle<int> (r.getCentreX() - w / 2, r.getY() + (int) (r.getHeight() * (aim.active ? 0.36f : 0.62f)) - h / 2, w, h).toFloat();
         g.setColour (Ink::raised().withAlpha (0.94f));
         g.fillRoundedRectangle (box, 12.0f);
         g.setColour (go ? Ink::green() : Ink::edge());
@@ -928,7 +958,7 @@ private:
         g.setFont (juce::Font (go ? 56.0f : 84.0f, juce::Font::bold));
         g.drawText (juce::String (label), box.toNearestInt(), juce::Justification::centred);
 
-        if (canMove && ! go)
+        if (canMove && ! go && ! aim.active)
         {
             g.setColour (Ink::textDim());
             g.setFont (juce::Font (zs::type::small));
@@ -1193,6 +1223,7 @@ private:
     std::vector<float> preRollHistory;                 ///< pamiec nagrania z chwili R
     tw::PunchAim aim;                                  ///< po R: wskazywanie miejsca ciecia
     double preRollRate = 48000.0;                      ///< probkowanie pamieci z chwili R
+    bool aimCounting = false;                          ///< po R: pre-roll i odliczanie juz ida
     double preRollStartSec = 0.0;
     bool punchMovedByHand = false;   ///< ms; -1 = nie odliczamy
     bool layoutDirty = true, running = false;
