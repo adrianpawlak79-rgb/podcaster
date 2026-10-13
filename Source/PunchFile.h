@@ -22,6 +22,7 @@
 #include "DSP/LineLog.h"
 #include "DSP/Punch.h"
 #include "DSP/CutList.h"
+#include "ReadMono.h"
 
 namespace zs
 {
@@ -42,8 +43,9 @@ struct PunchResult
 /** Wspolne: czytanie nagrania do pamieci. */
 struct LoadedTake
 {
-    juce::AudioBuffer<float> buf;
+    juce::AudioBuffer<float> buf;   ///< tylko przy wiecej niz jednym kanale
     std::vector<float> mono;
+    int channels = 1;
     double sr = 0.0;
     int bits = 32;
 };
@@ -59,12 +61,15 @@ inline bool loadTake (const juce::File& wav, LoadedTake& t, juce::String& error)
     const auto len = (int) juce::jmin<juce::int64> (reader->lengthInSamples, std::numeric_limits<int>::max());
     t.sr = reader->sampleRate;
     t.bits = (int) reader->bitsPerSample > 0 ? (int) reader->bitsPerSample : 32;
-    t.buf.setSize (ch, len);
-    if (! reader->read (&t.buf, 0, len, 0, true, true)) { error = "nie moge odczytac nagrania"; return false; }
-
-    t.mono.assign ((size_t) len, 0.0f);
-    for (int c = 0; c < ch; ++c)
-        for (int i = 0; i < len; ++i) t.mono[(size_t) i] += t.buf.getSample (c, i) / (float) ch;
+    t.channels = ch;
+    // mono kawalkami, bez drugiej kopii (ReadMono.h); bufor tylko przy wielu
+    // kanalach — wtedy kazdy kanal jest ciety osobno
+    if (! readMono (*reader, len, t.mono)) { error = "nie moge odczytac nagrania"; return false; }
+    if (ch > 1)
+    {
+        t.buf.setSize (ch, len);
+        if (! reader->read (&t.buf, 0, len, 0, true, true)) { error = "nie moge odczytac nagrania"; return false; }
+    }
     return true;
 }
 
@@ -77,16 +82,19 @@ inline PunchResult cutFile (const juce::File& wav, const LoadedTake& t, const st
     PunchResult res;
     if (plan.empty()) return res;
     tw::Punch punch;
-    const int ch = t.buf.getNumChannels(), len = t.buf.getNumSamples();
+    const int ch = t.channels;
     const double sr = t.sr;
 
-    // ---- czysty dzwiek, kanal po kanale
+    // ---- czysty dzwiek, kanal po kanale (mono: prosto z t.mono, bez kopii)
     std::vector<std::vector<float>> clean ((size_t) ch);
-    for (int c = 0; c < ch; ++c)
-    {
-        std::vector<float> in (t.buf.getReadPointer (c), t.buf.getReadPointer (c) + len);
-        clean[(size_t) c] = punch.render (in, sr, plan);
-    }
+    if (ch == 1) clean[0] = punch.render (t.mono, sr, plan);
+    else
+        for (int c = 0; c < ch; ++c)
+        {
+            const int len = t.buf.getNumSamples();
+            std::vector<float> in (t.buf.getReadPointer (c), t.buf.getReadPointer (c) + len);
+            clean[(size_t) c] = punch.render (in, sr, plan);
+        }
 
     // ---- 3. tymczasowy
     juce::WavAudioFormat wavFormat;

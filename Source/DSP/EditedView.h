@@ -55,10 +55,18 @@ struct EditedView
         const size_t want = (size_t) std::lround (viewSec * rate);
         std::vector<float> out;
         out.reserve (want);
+
+        // Tylko odcinki, ktore zachodza na pamiec (zwykle 0-2). Dawniej kazda
+        // probka sprawdzala wszystkie wycinki sesji: po godzinie z 11 pauzami
+        // klatka paska trwala 5 ms zamiast 2 (Tools/zs-dlugo.cpp).
+        Spans near;
+        for (const auto& sp : spans)
+            if (sp.second > histStart && sp.first < now) near.push_back (sp);
+
         for (size_t k = hist.size(); k-- > 0 && out.size() < want;)
         {
             const double t = histStart + (double) k / rate;
-            if (t > now || hidden (t, spans)) continue;
+            if (t > now || hidden (t, near)) continue;
             out.push_back (hist[k]);
         }
         out.resize (want, 0.0f);
