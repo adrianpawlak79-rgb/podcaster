@@ -135,8 +135,13 @@ public:
             r = r.withSizeKeepingCentre (juce::jmin (r.getWidth(), r.getHeight()),
                                          juce::jmin (r.getWidth(), r.getHeight()));
             g.fillEllipse (r);
-            g.setColour (focusColour (b, p.outline, alpha));
-            g.drawEllipse (r.reduced (1.0f), b.hasKeyboardFocus (true) ? 2.0f : 1.0f);
+            // Plaski, bez obwodki (Adrian 12.10: "plaski i spokojniejszy");
+            // obwodka tylko przy fokusie klawiatury.
+            if (b.hasKeyboardFocus (true) && b.isEnabled())
+            {
+                g.setColour (focusColour (b, p.outline, alpha));
+                g.drawEllipse (r.reduced (1.0f), 2.0f);
+            }
             return;
         }
         g.fillRoundedRectangle (r, radius);
@@ -156,10 +161,10 @@ public:
             auto r = b.getLocalBounds();
             const float d = (float) juce::jmin (r.getWidth(), r.getHeight());
             const float symbol = d * 0.18f;
-            auto ring = juce::Rectangle<float> (symbol, symbol).withCentre (
+            auto dot = juce::Rectangle<float> (symbol, symbol).withCentre (
                 { r.getCentreX() * 1.0f, r.getCentreY() - d * 0.10f });
             g.setColour (text);
-            g.drawEllipse (ring, d * 0.045f);
+            g.fillEllipse (dot);              // pelna kropka nagrywania, nie pierscien (wygladal jak "O")
             g.setFont (juce::Font (juce::jlimit (19.0f, 25.0f, d * 0.12f), juce::Font::bold));
             g.drawText (b.getButtonText(), r.withY (r.getCentreY() + (int) (d * 0.05f))
                           .withHeight ((int) (d * 0.22f)), juce::Justification::centred);
