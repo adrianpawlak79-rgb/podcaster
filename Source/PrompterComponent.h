@@ -317,15 +317,43 @@ public:
         repaint();
     }
 
-    /** Pasek pod prompterem w czasie wskazywania: przebieg ostatnich sekund,
-        uslyszane slowa, pauzy i znacznik. Na czerwono to, co wypadnie. */
+    /** Pasek z fala pod prompterem — przez CALE nagranie (Adrian 13.10: w DAW
+        widzi, jak fala rosnie, i dopiero wtedy ma pewnosc, ze sie nagrywa).
+        Na zywo: ostatnie sekundy i slowa, ktore slyszy rozpoznawanie. Po R ten
+        sam pasek staje i pokazuje miejsce ciecia (tw::PunchAim). */
     void drawAim (juce::Graphics& g, juce::Rectangle<int> area)
     {
-        if (! aim.active) return;
+        if (aim.active)
+        {
+            drawStrip (g, area, preRollHistory, preRollStartSec, preRollRate, aim.viewFrom(), aim.keySec, true);
+            return;
+        }
+        if (previewLive)        // tylko zrzut ekranu
+        {
+            const double now = preRollStartSec + (double) preRollHistory.size() / preRollRate;
+            drawStrip (g, area, preRollHistory, preRollStartSec, preRollRate, now - liveStripSec, now, false);
+            return;
+        }
+        if (! recorder.isRecording()) return;
+        double start = 0.0;
+        const double rate = recorder.currentSampleRate();
+        const auto live = recorder.recentAudio (liveStripSec, start);
+        if (live.empty() || rate <= 0.0) return;
+        const double now = start + (double) live.size() / rate;
+        drawStrip (g, area, live, start, rate, now - liveStripSec, now, false);
+    }
 
-        const double sr = juce::jmax (1.0, preRollRate);
-        const int retakeFirst = lineLog.marks().empty() ? std::numeric_limits<int>::max() : lineLog.marks().back().firstWord;
-        auto box = area.reduced (24, 0).removeFromBottom (juce::jmin (170, area.getHeight() / 3))
+    static constexpr double liveStripSec = 10.0;
+    bool previewLive = false;
+
+    void drawStrip (juce::Graphics& g, juce::Rectangle<int> area, const std::vector<float>& hist,
+                    double histStart, double rate, double t0, double t1, bool aiming)
+    {
+        const double sr = juce::jmax (1.0, rate);
+        const int retakeFirst = ! aiming || lineLog.marks().empty() ? std::numeric_limits<int>::max()
+                                                                    : lineLog.marks().back().firstWord;
+        auto box = area.reduced (24, 0).removeFromBottom (aiming ? juce::jmin (170, area.getHeight() / 3)
+                                                                 : juce::jmin (124, area.getHeight() / 4))
                        .translated (0, -12).toFloat();
         g.setColour (Ink::raised());
         g.fillRoundedRectangle (box, 10.0f);
@@ -333,48 +361,53 @@ public:
         g.drawRoundedRectangle (box.reduced (0.5f), 10.0f, 1.0f);
 
         auto inner = box.reduced (14.0f, 10.0f);
-        auto hint = inner.removeFromBottom (20.0f);
+        auto hint = inner.removeFromBottom (aiming ? 20.0f : 16.0f);
         auto labels = inner.removeFromBottom (18.0f);
         auto wave = inner;
 
-        const double t0 = aim.viewFrom(), t1 = aim.keySec;
         auto xOf = [&] (double t) { return wave.getX() + (float) ((t - t0) / (t1 - t0)) * wave.getWidth(); };
 
         // to, co wypadnie: od znacznika do R
-        if (aim.hasCut())
+        if (aiming && aim.hasCut())
         {
             const float x = juce::jmax (wave.getX(), xOf (aim.cutSec()));
             g.setColour (Ink::red().withAlpha (0.16f));
             g.fillRect (juce::Rectangle<float> (x, wave.getY(), wave.getRight() - x, wave.getHeight()));
         }
 
-        // przebieg: min/max na kolumne
+        // przebieg: szczyt na kolumne w skali decybeli (jak w DAW) — cichy
+        // mikrofon (SM7B, mowa ok. -30 dBFS) w skali liniowej bylby kreska
+        // zielen jest zarezerwowana dla lampki ("zielone swiatlo"), fala neutralna
         g.setColour (Ink::textNext());
         const float mid = wave.getCentreY(), half = wave.getHeight() * 0.48f;
-        float peak = 1.0e-4f;
-        for (auto v : preRollHistory) peak = juce::jmax (peak, std::abs (v));
+        g.drawHorizontalLine ((int) mid, wave.getX(), wave.getRight());
         for (int px = 0; px < (int) wave.getWidth(); ++px)
         {
             const double a = t0 + (t1 - t0) * px / wave.getWidth(), b = t0 + (t1 - t0) * (px + 1) / wave.getWidth();
-            const auto i0 = (long) ((a - preRollStartSec) * sr), i1 = (long) ((b - preRollStartSec) * sr);
-            float lo = 0.0f, hi = 0.0f;
-            for (long i = juce::jmax (0L, i0); i < i1 && i < (long) preRollHistory.size(); ++i)
-            { lo = juce::jmin (lo, preRollHistory[(size_t) i]); hi = juce::jmax (hi, preRollHistory[(size_t) i]); }
-            const float x = wave.getX() + (float) px;
-            g.drawVerticalLine ((int) x, mid - hi / peak * half, mid - lo / peak * half + 1.0f);
+            const auto i0 = (long) ((a - histStart) * sr), i1 = (long) ((b - histStart) * sr);
+            float pk = 0.0f;
+            for (long i = juce::jmax (0L, i0); i < i1 && i < (long) hist.size(); ++i)
+                pk = juce::jmax (pk, std::abs (hist[(size_t) i]));
+            if (pk <= 0.0f) continue;
+            const float h = juce::jlimit (0.0f, 1.0f, (20.0f * std::log10 (pk) + 60.0f) / 54.0f) * half;
+            if (h < 0.5f) continue;
+            g.drawVerticalLine ((int) (wave.getX() + (float) px), mid - h, mid + h + 1.0f);
         }
 
-        // pauzy, w ktorych mozna ciac
-        g.setColour (Ink::textDim());
-        for (auto c : aim.plan.candidates)
-            if (c > t0) g.fillRect (juce::Rectangle<float> (xOf (c) - 1.0f, wave.getBottom() - 6.0f, 2.0f, 6.0f));
-
-        // znacznik
-        if (aim.hasCut() && aim.cutSec() > t0)
+        if (aiming)
         {
-            const float x = xOf (aim.cutSec());
-            g.setColour (Ink::red());
-            g.fillRect (juce::Rectangle<float> (x - 1.5f, wave.getY() - 2.0f, 3.0f, wave.getHeight() + 4.0f));
+            // pauzy, w ktorych mozna ciac
+            g.setColour (Ink::textDim());
+            for (auto c : aim.plan.candidates)
+                if (c > t0) g.fillRect (juce::Rectangle<float> (xOf (c) - 1.0f, wave.getBottom() - 6.0f, 2.0f, 6.0f));
+
+            // znacznik
+            if (aim.hasCut() && aim.cutSec() > t0)
+            {
+                const float x = xOf (aim.cutSec());
+                g.setColour (Ink::red());
+                g.fillRect (juce::Rectangle<float> (x - 1.5f, wave.getY() - 2.0f, 3.0f, wave.getHeight() + 4.0f));
+            }
         }
 
         // uslyszane slowa (czas szacowany jak w Punch::guard)
@@ -395,6 +428,18 @@ public:
             g.setColour (h.word >= retakeFirst ? Ink::red() : Ink::textNext());
             g.drawText (text, juce::Rectangle<float> (x, labels.getY(), wdt, labels.getHeight()), juce::Justification::centredLeft);
             lastRight = x + wdt;
+        }
+
+        if (! aiming)
+        {
+            // kropka nagrywania i czas — ze to naprawde sie nagrywa
+            g.setColour (Ink::red());
+            g.fillEllipse (hint.getX(), hint.getCentreY() - 4.0f, 8.0f, 8.0f);
+            g.setColour (Ink::textDim());
+            g.setFont (juce::Font (zs::type::small));
+            g.drawText (PL ("Nagrywanie · ostatnie 10 s"), hint.withTrimmedLeft (14.0f).toNearestInt(),
+                        juce::Justification::centredLeft);
+            return;
         }
 
         g.setColour (Ink::textDim());
@@ -514,6 +559,9 @@ public:
         aim.begin (plan, 11.0);
         repaint();
     }
+
+    /** Tylko zrzut ekranu (--preview-ui prompter-pasek): pasek na zywo. */
+    void previewLiveScreen() { previewAimScreen(); aim.end(); previewLive = true; repaint(); }
 
     /** Po R: lampka nie trzyma koloru za wycieta pomylke. */
     std::function<void()> onRetake;
