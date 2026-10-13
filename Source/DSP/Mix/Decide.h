@@ -514,8 +514,10 @@ public:
         why.push_back ("Barwa: 3,5 kHz +1,5 dB i półka 9 kHz +4 dB — po odszumianiu, więc nie podnosi syku.");
 
         // Przydzwiek: filtr 75 Hz 24 dB/okt zabiera 50 Hz sam. Osobne wyciecia
-        // na tym nagraniu PODNOSILY szum w pauzach (80-160 Hz o 6 dB, tlo
-        // -64,1 zamiast -67,6 dBFS) — do sprawdzenia w module, poki co wylaczone.
+        // (Q 25 na 50/100/150 Hz) dzwonia ok. 80 ms po kazdym slowie, a ton
+        // podstawowy meskiego glosu (Adrian: ok. 92 Hz) lezy tuz przy 100 Hz —
+        // dzwonienie trzymalo otwarty ekspander: 100-300 ms po slowie +20 dB,
+        // tlo -64,5 zamiast -67,8 dBFS (Docs/badania/MIKS-NA-GLOSIE.md).
         p.deHum = false;
 
         p.usePlosive = false; p.useDeClick = false; p.useTiltMatch = false; p.useSaturation = false;

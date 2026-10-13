@@ -1,9 +1,22 @@
 # Stan prac — Zielone światło
 
-Ostatnia aktualizacja: **11.10.2026**. Aktualizuje Claude po każdym większym kroku.
+Ostatnia aktualizacja: **13.10.2026**. Aktualizuje Claude po każdym większym kroku.
 
 **Procenty to ocena, nie pomiar:** udział rzeczy zrobionych i sprawdzonych.
 Sprawdzenie na prawdziwym mikrofonie na Windowsie liczy się jako osobny, konieczny krok.
+
+## 12–13.10: pierwszy test na Windowsie z SM7B
+
+Test Adriana pokazał, co naprawdę nie działało, i większość jest już poprawiona (#46–#51):
+- **pre-roll** kończył się w środku poprzedniego wersu (4 z 6) — teraz zawsze w ciszy po
+  usłyszanym poprzednim wersie; na tym samym nagraniu 0 złych;
+- **po R człowiek zawsze wskazuje miejsce cięcia** (pasek z falą pod prompterem, strzałki,
+  Enter) — program nie zgaduje, Odsłuch tylko pokazuje szwy (#49, #51);
+- **miks** brzmiał gorzej niż surowe nagranie — teraz domyślny jest łańcuch „v3” Adriana
+  odtworzony naszymi modułami; Adrian: „dużo lepiej” (`Docs/badania/MIKS-NA-GLOSIE.md`);
+- „Wróć do montażu”, płaski przycisk „Nagraj”.
+
+Nic z tego jeszcze nie było ponownie sprawdzone na Windowsie. Następny test: z Klark Teknik CT1.
 
 ## Całość: ok. 63–65% do wersji 1.0 (11.10, późny wieczór)
 
