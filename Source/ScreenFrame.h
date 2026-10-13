@@ -39,8 +39,8 @@ struct ScreenFrame
         g.drawHorizontalLine (bounds.getY(), 0.0f, (float) bounds.getWidth());
         g.drawHorizontalLine (footer.getY(), 0.0f, (float) footer.getWidth());
 
-        // Mikrofon jest rysowany, wiec nie zalezy od znakow w kroju systemowym.
-        g.setColour (Ink::accent());
+        // Mikrofon jest rysowany, wiec nie zalezy od znakow w kroju systemowym. Zielony: to znak programu.
+        g.setColour (Ink::green());
         g.drawRoundedRectangle (28.0f, 21.0f, 8.0f, 16.0f, 4.0f, 2.0f);
         juce::Path mic;
         mic.startNewSubPath (24.0f, 30.0f); mic.lineTo (24.0f, 34.0f);

@@ -159,7 +159,7 @@ private:
         void paint(juce::Graphics& g) override {
             const auto& p=owner.list[index];
             g.setColour(Ink::raised()); g.fillRoundedRectangle(getLocalBounds().toFloat(),4);
-            if(owner.selected==(int)index) { g.setColour(Ink::green()); g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1),4,1); }
+            if(owner.selected==(int)index) { g.setColour(Ink::accent()); g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1),4,1); }
             auto r=getLocalBounds().reduced(8);
             g.setColour(Ink::textNext()); g.setFont(juce::Font(zs::type::small));
             auto clock=[](double s) { return juce::String::formatted("%d:%02d", (int)s/60,(int)s%60); };

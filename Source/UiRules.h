@@ -37,30 +37,50 @@ namespace ui
 {
 
 //==============================================================================
-/* Paleta, ARGB. Znaczenia, nie nazwy kolorow — patrz komentarz w Look.h. */
-namespace colour
+/* Palety, ARGB. Znaczenia, nie nazwy kolorow — patrz komentarz w Look.h.
+
+   Adrian 13.10: "wszystko zielone jest jednostajne i nudne; zielen tylko dla
+   zielonego swiatla". Zielen (#39CF7B) znaczy wiec jedno: DOBRZE — lampka,
+   miernik, znaczek przy wersie, "Czytaj", werdykt. Reszta programu (przyciski,
+   kroki, zaznaczenia) ma akcent palety. Palety A i B zaprojektowal ChatGPT
+   (Docs/projekt/), Klasyczna to dotychczasowa — zostaje do porownania. */
+struct Palette
 {
-    constexpr uint32_t bg        = 0xff141719;
-    constexpr uint32_t bar       = 0xff1b1f21;
-    constexpr uint32_t panel     = 0xff22272a;
-    constexpr uint32_t raised    = 0xff30373a;
-    constexpr uint32_t edge      = 0xff3b4547;
+    const char* name;
+    uint32_t bg, bar, panel, raised, edge;
+    uint32_t textNow, textNext, textPast, textDim;
+    uint32_t accent, onAccent, select;
+    uint32_t green, yellow, red, lostBlue, lostText;
+};
 
-    constexpr uint32_t textNow   = 0xfff1f4f2;
-    constexpr uint32_t textNext  = 0xffb8c2bd;
-    constexpr uint32_t textPast  = 0xff829089;
-    constexpr uint32_t textDim   = 0xff929e97;
+enum class PaletteId { Copper, Console, Classic };
 
-    // Akcent i lampka maja wspolna zielen; lampke odroznia ksztalt i napis.
-    constexpr uint32_t accent    = 0xff39cf7b;
-    constexpr uint32_t onAccent  = 0xff08190f;
-    constexpr uint32_t green     = accent;
-    constexpr uint32_t yellow    = 0xffe8bd4d;
-    constexpr uint32_t red       = 0xffe36a63;
-    constexpr uint32_t clip      = red;
-    constexpr uint32_t lostBlue  = 0xff6789ef;
-    constexpr uint32_t lostText  = 0xffa8c0ff;
+inline const Palette& paletteFor (PaletteId id)
+{
+    // A — Studio Copper: ciepla, "studyjna", pasuje do ekranu startowego ze zdjeciem
+    static const Palette copper { "Studio Copper",
+        0xff080b0e, 0xff0e1318, 0xff141a21, 0xff1e262f, 0xff2b3540,
+        0xfff4f1ea, 0xffc6cbd1, 0xff808b97, 0xff9aa6b2,
+        0xffc47a44, 0xff1a0e06, 0xff8fa8ff,
+        0xff39cf7b, 0xfff4c84a, 0xffef4e57, 0xff6789ef, 0xffa8c0ff };
+    // B — Night Console: chlodna, kazdy kolor znaczy jedno
+    static const Palette console { "Night Console",
+        0xff07090f, 0xff0c111b, 0xff121a28, 0xff1b2537, 0xff2a3549,
+        0xffeef3fa, 0xffc3ccda, 0xff7f8ca2, 0xff9ba8bc,
+        0xff4f7dff, 0xff050a1a, 0xffb08cff,
+        0xff39cf7b, 0xffffd166, 0xffff4d5d, 0xff6789ef, 0xffa8c0ff };
+    // dotychczasowa, cala zielona
+    static const Palette classic { "Klasyczna",
+        0xff141719, 0xff1b1f21, 0xff22272a, 0xff30373a, 0xff3b4547,
+        0xfff1f4f2, 0xffb8c2bd, 0xff829089, 0xff929e97,
+        0xff39cf7b, 0xff08190f, 0xff39cf7b,
+        0xff39cf7b, 0xffe8bd4d, 0xffe36a63, 0xff6789ef, 0xffa8c0ff };
+    return id == PaletteId::Console ? console : id == PaletteId::Classic ? classic : copper;
 }
+
+inline PaletteId& currentPaletteId() { static PaletteId id = PaletteId::Console; return id; }   // Adrian 13.10: granat
+inline void setPalette (PaletteId id) { currentPaletteId() = id; }
+inline const Palette& pal() { return paletteFor (currentPaletteId()); }
 
 /** Kontrast wedlug WCAG 2.x (1..21). Tekst czytany w biegu potrzebuje >= 4,5. */
 inline double contrast (uint32_t a, uint32_t b)
@@ -90,8 +110,9 @@ struct ButtonPaint { uint32_t fill, text, outline; };
 
 inline ButtonPaint paintFor (ButtonKind k)
 {
-    if (k == ButtonKind::Primary || k == ButtonKind::Record) return { colour::accent, colour::onAccent, colour::accent };
-    return { colour::raised, colour::textNow, colour::edge };
+    const auto& c = pal();
+    if (k == ButtonKind::Primary || k == ButtonKind::Record) return { c.accent, c.onAccent, c.accent };
+    return { c.raised, c.textNow, c.edge };
 }
 
 //==============================================================================

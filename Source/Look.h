@@ -28,26 +28,27 @@ struct Ink
 {
     static juce::Colour c (uint32_t argb) { return juce::Colour (argb); }
 
-    static juce::Colour bg()        { return c (ui::colour::bg); }
-    static juce::Colour bar()       { return c (ui::colour::bar); }
-    static juce::Colour panel()     { return c (ui::colour::panel); }
-    static juce::Colour raised()    { return c (ui::colour::raised); }
-    static juce::Colour edge()      { return c (ui::colour::edge); }
+    static juce::Colour bg()        { return c (ui::pal().bg); }
+    static juce::Colour bar()       { return c (ui::pal().bar); }
+    static juce::Colour panel()     { return c (ui::pal().panel); }
+    static juce::Colour raised()    { return c (ui::pal().raised); }
+    static juce::Colour edge()      { return c (ui::pal().edge); }
 
-    static juce::Colour textNow()   { return c (ui::colour::textNow); }
-    static juce::Colour textNext()  { return c (ui::colour::textNext); }
-    static juce::Colour textPast()  { return c (ui::colour::textPast); }
-    static juce::Colour textDim()   { return c (ui::colour::textDim); }
+    static juce::Colour textNow()   { return c (ui::pal().textNow); }
+    static juce::Colour textNext()  { return c (ui::pal().textNext); }
+    static juce::Colour textPast()  { return c (ui::pal().textPast); }
+    static juce::Colour textDim()   { return c (ui::pal().textDim); }
 
-    static juce::Colour accent()    { return c (ui::colour::accent); }
-    static juce::Colour onAccent()  { return c (ui::colour::onAccent); }
+    static juce::Colour accent()    { return c (ui::pal().accent); }
+    static juce::Colour onAccent()  { return c (ui::pal().onAccent); }
+    static juce::Colour select()    { return c (ui::pal().select); }
 
-    static juce::Colour green()     { return c (ui::colour::green); }
-    static juce::Colour yellow()    { return c (ui::colour::yellow); }
-    static juce::Colour red()       { return c (ui::colour::red); }
-    static juce::Colour clip()      { return c (ui::colour::clip); }
-    static juce::Colour lostBlue()  { return c (ui::colour::lostBlue); }
-    static juce::Colour lostText()  { return c (ui::colour::lostText); }
+    static juce::Colour green()     { return c (ui::pal().green); }
+    static juce::Colour yellow()    { return c (ui::pal().yellow); }
+    static juce::Colour red()       { return c (ui::pal().red); }
+    static juce::Colour clip()      { return c (ui::pal().red); }
+    static juce::Colour lostBlue()  { return c (ui::pal().lostBlue); }
+    static juce::Colour lostText()  { return c (ui::pal().lostText); }
 };
 
 //==============================================================================
@@ -61,6 +62,12 @@ public:
         for (const auto& name : { "Segoe UI Variable", "Segoe UI", "DejaVu Sans" })
             if (available.contains (name)) { family = name; break; }
         setDefaultSansSerifTypefaceName (family);
+        applyPalette();
+    }
+
+    /** Kolory komponentow JUCE z biezacej palety (ui::setPalette). */
+    void applyPalette()
+    {
         setColour (juce::ResizableWindow::backgroundColourId, Ink::bg());
         setColour (juce::DocumentWindow::backgroundColourId, Ink::bg());
         setColour (juce::Label::textColourId, Ink::textNow());
@@ -132,16 +139,30 @@ public:
         g.setColour (fill.withMultipliedAlpha (alpha));
         if (kindOf (b) == ui::ButtonKind::Record)
         {
-            r = r.withSizeKeepingCentre (juce::jmin (r.getWidth(), r.getHeight()),
-                                         juce::jmin (r.getWidth(), r.getHeight()));
-            g.fillEllipse (r);
-            // Plaski, bez obwodki (Adrian 12.10: "plaski i spokojniejszy");
-            // obwodka tylko przy fokusie klawiatury.
-            if (b.hasKeyboardFocus (true) && b.isEnabled())
+            // Projekt z ChatGPT (Docs/projekt/): ciemne kolo z obrysem w kolorze
+            // akcentu, cienki pierscien 86 %, czerwona kropka 54 %, wcisniety 96 %.
+            auto c = recordCircle (b);
+            if (down && b.isEnabled()) c = c.withSizeKeepingCentre (c.getWidth() * 0.96f, c.getHeight() * 0.96f);
+            const float D = c.getWidth();
+            const bool on = b.isEnabled();
+
+            if (b.hasKeyboardFocus (true) && on)
             {
-                g.setColour (focusColour (b, p.outline, alpha));
-                g.drawEllipse (r.reduced (1.0f), 2.0f);
+                g.setColour (Ink::select());
+                g.drawEllipse (c.expanded (D * 0.035f), juce::jmax (2.0f, D * 0.028f));
             }
+            g.setColour (on ? (hover ? Ink::raised() : Ink::panel()) : Ink::bar());
+            g.fillEllipse (c);
+            g.setColour (on ? (hover ? Ink::accent().brighter (0.25f) : Ink::accent()) : Ink::edge());
+            g.drawEllipse (c.reduced (D * 0.007f), juce::jmax (1.5f, D * 0.014f));
+            g.setColour (Ink::textNow().withAlpha (on ? 0.9f : 0.45f));
+            g.drawEllipse (c.withSizeKeepingCentre (D * 0.86f, D * 0.86f), juce::jmax (1.2f, D * 0.014f));
+            auto dot = Ink::red();
+            if (! on) dot = dot.withSaturation (0.35f).withAlpha (0.65f);
+            else if (down) dot = dot.darker (0.25f);
+            else if (hover) dot = dot.brighter (0.15f);
+            g.setColour (dot);
+            g.fillEllipse (c.withSizeKeepingCentre (D * 0.54f, D * 0.54f));
             return;
         }
         g.fillRoundedRectangle (r, radius);
@@ -158,16 +179,12 @@ public:
 
         if (kindOf (b) == ui::ButtonKind::Record)
         {
-            auto r = b.getLocalBounds();
-            const float d = (float) juce::jmin (r.getWidth(), r.getHeight());
-            const float symbol = d * 0.18f;
-            auto dot = juce::Rectangle<float> (symbol, symbol).withCentre (
-                { r.getCentreX() * 1.0f, r.getCentreY() - d * 0.10f });
-            g.setColour (text);
-            g.fillEllipse (dot);              // pelna kropka nagrywania, nie pierscien (wygladal jak "O")
-            g.setFont (juce::Font (juce::jlimit (19.0f, 25.0f, d * 0.12f), juce::Font::bold));
-            g.drawText (b.getButtonText(), r.withY (r.getCentreY() + (int) (d * 0.05f))
-                          .withHeight ((int) (d * 0.22f)), juce::Justification::centred);
+            // napis pod kolem, nie na kropce
+            const auto c = recordCircle (b);
+            auto r = b.getLocalBounds().toFloat().withTop (c.getBottom() + 4.0f);
+            g.setColour (Ink::textNow().withMultipliedAlpha (b.isEnabled() ? 1.0f : 0.5f));
+            g.setFont (juce::Font (juce::jlimit (15.0f, 22.0f, c.getWidth() * 0.12f), juce::Font::bold));
+            g.drawText (b.getButtonText(), r.toNearestInt(), juce::Justification::centredTop);
             return;
         }
         auto r = b.getLocalBounds().reduced (12, 0);
@@ -194,6 +211,16 @@ public:
     static constexpr float radius = 8.0f;
 
 private:
+    /** Kolo przycisku Nagraj: u gory pola, pod nim miejsce na napis i na
+        obrys fokusu. */
+    static juce::Rectangle<float> recordCircle (const juce::Button& b)
+    {
+        const auto r = b.getLocalBounds().toFloat();
+        const float label = juce::jmax (24.0f, r.getHeight() * 0.18f);
+        const float D = juce::jmin (r.getWidth(), r.getHeight() - label) * 0.90f;
+        return { r.getCentreX() - D * 0.5f, r.getY() + D * 0.06f, D, D };
+    }
+
     static juce::Colour focusColour (const juce::Button& b, uint32_t outline, float alpha)
     {
         return b.hasKeyboardFocus (true) && b.isEnabled() ? Ink::textNow()
