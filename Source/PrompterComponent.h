@@ -457,7 +457,9 @@ public:
     void layoutTransport()
     {
         auto row = stripLayout (stripCard()).transport.toNearestInt();
-        for (auto* b : { &tRecord, &tPause, &tPlay, &tEnd }) { b->setBounds (row.removeFromLeft (118)); row.removeFromLeft (8); }
+        row.removeFromRight (64);                      // czas nagrania
+        const int w = juce::jlimit (70, 118, (row.getWidth() - 3 * 8) / 4);
+        for (auto* b : { &tRecord, &tPause, &tPlay, &tEnd }) { b->setBounds (row.removeFromLeft (w)); row.removeFromLeft (8); }
     }
 
     //==========================================================================
@@ -621,7 +623,10 @@ public:
             }
         }
 
-        // uslyszane slowa: wieksze, w dwoch rzedach
+        // uslyszane slowa: wieksze, w dwoch rzedach, nie wychodza poza karte
+        {
+        juce::Graphics::ScopedSaveState clipWords (g);
+        g.reduceClipRegion (labels.withX (wave.getX()).withWidth (wave.getWidth()).toNearestInt());
         const float wordRow = labels.getHeight() * 0.5f;
         const juce::Font wordFont (zs::type::body + 2.0f, juce::Font::bold);
         g.setFont (wordFont);
@@ -647,6 +652,8 @@ public:
             g.setColour (Ink::textNow().withAlpha (0.85f));
             g.drawText (text, juce::Rectangle<float> (x, labels.getY() + row * wordRow, wdt, wordRow), juce::Justification::centredLeft);
             rowRight[row] = x + wdt;
+        }
+
         }
 
         // stan i podpowiedz: zawsze widac, czy sie nagrywa
@@ -887,7 +894,7 @@ public:
     /* Dwie karty: tekst u gory, fala na dole — osobne okienko, widoczne od
        wejscia na ekran (Adrian 13.10, uklad z projektu ChatGPT). */
     static constexpr int stripGap = 12;
-    int stripCardHeight() const { return juce::jlimit (210, 300, (int) (getHeight() * 0.40)); }
+    int stripCardHeight() const { return juce::jlimit (176, 300, (int) (getHeight() * 0.38)); }
     juce::Rectangle<int> textCard() const  { auto r = getLocalBounds(); r.removeFromBottom (stripCardHeight() + stripGap); return r; }
     juce::Rectangle<int> stripCard() const { return getLocalBounds().removeFromBottom (stripCardHeight()); }
 
