@@ -12,6 +12,7 @@
 
 #include "../Source/DSP/PreRoll.h"
 #include "../Source/DSP/Punch.h"
+#include "../Source/DSP/EditedView.h"
 
 #include <cmath>
 #include <cstdio>
@@ -223,6 +224,24 @@ int main()
         check (log.marks().size() == m.size() && log.marks().back().firstWord == other.firstWord
                && std::fabs (log.marks().back().sec - k) < 1e-9 && log.marks().back().source == tw::LineSource::Retake,
                "zmiana wersu R: ten sam klawisz i czas, inny wers");
+    }
+
+    // ---- 1e. fala po cieciach ("nadpisanie", Adrian 13.10) ----------------------------
+    std::printf ("\n  1e. fala po cieciach\n");
+    {
+        const double rate = 100.0;                       // 1 probka = 10 ms
+        std::vector<float> h (1000);                     // 0..10 s
+        for (size_t i = 0; i < h.size(); ++i) h[i] = (float) i;
+        const tw::EditedView::Spans spans { { 6.0, 8.0 } };   // pomylka 6-8 s wypada
+        const auto v = tw::EditedView::render (h, 0.0, rate, 10.0, spans, 5.0);
+        check (v.size() == 500, "widok ma zadana dlugosc");
+        check (v.back() == 999.0f, "widok konczy sie na teraz");
+        check (v[299] == 599.0f && v[300] == 800.0f, "za szwem od razu nowe czytanie (6 s -> 8 s)",
+               num (v[299], "") + " | " + num (v[300], ""));
+        check (std::fabs (tw::EditedView::toView (5.0, 10.0, spans) - 7.0) < 1e-9, "czas sprzed szwu przesuniety o wycinek");
+        check (tw::EditedView::hidden (7.0, spans) && ! tw::EditedView::hidden (8.0, spans), "wycinek ukryty, koniec nie");
+        const auto pending = tw::EditedView::render (h, 0.0, rate, 10.0, { { 6.0, 1.0e9 } }, 5.0);
+        check (pending.back() == 599.0f, "w czasie odliczania fala konczy sie na miejscu ciecia");
     }
 
     // ---- 2. pamiec zaczyna sie pozniej niz nagranie -------------------------------------

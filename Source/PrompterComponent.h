@@ -41,6 +41,7 @@
 #include "DSP/Follower.h"
 #include "DSP/LineLog.h"
 #include "DSP/PreRoll.h"
+#include "DSP/EditedView.h"
 #include "DSP/LineGrade.h"
 #include "PunchFile.h"
 #include "DSP/PrompterLines.h"
@@ -286,6 +287,7 @@ public:
         recorder.playPreRoll ({});
         playPreRollPlan (std::move (p));
         aimCounting = true;
+        pendingCut = cut;                      // fala: od tego miejsca "nadpisujemy"
     }
 
     /** ↑ ↓ przy wskazywaniu: powtarzamy od wersu wczesniej / pozniej. */
@@ -339,7 +341,10 @@ public:
         sam pasek staje i pokazuje miejsce ciecia (tw::PunchAim). */
     void drawAim (juce::Graphics& g, juce::Rectangle<int> area)
     {
-        if (aim.active)
+        // Zamrozone tylko wtedy, gdy program czeka na czlowieka. Gdy rusza
+        // odliczanie, fala znowu plynie na zywo (Adrian 13.10: po "Czytaj" nie
+        // widzial swojego glosu), a znacznik ciecia zostaje na niej.
+        if (aim.active && ! aimCounting)
         {
             drawStrip (g, area, preRollHistory, preRollStartSec, preRollRate, aim.viewFrom(), aim.keySec, true);
             return;
@@ -347,7 +352,10 @@ public:
         if (previewLive)        // tylko zrzut ekranu
         {
             const double now = preRollStartSec + (double) preRollHistory.size() / preRollRate;
-            drawStrip (g, area, preRollHistory, preRollStartSec, preRollRate, now - liveStripSec, now, false);
+            const auto view = tw::EditedView::render (preRollHistory, preRollStartSec, preRollRate, now, removedSpans, liveStripSec);
+            viewSpans = &removedSpans; viewNow = now;
+            drawStrip (g, area, view, now - liveStripSec, preRollRate, now - liveStripSec, now, false);
+            viewSpans = nullptr;
             return;
         }
         if (! recorder.isRecording())
@@ -361,7 +369,13 @@ public:
         const auto live = recorder.recentAudio (liveStripSec, start);
         if (live.empty() || rate <= 0.0) return;
         const double now = start + (double) live.size() / rate;
-        drawStrip (g, area, live, start, rate, now - liveStripSec, now, false);
+        // widok po cieciach: wycinki znikaja, nowe czytanie dokleja sie za szwem
+        auto spans = removedSpans;
+        if (aimCounting && pendingCut >= 0.0) spans.push_back ({ pendingCut, 1.0e9 });
+        const auto view = tw::EditedView::render (live, start, rate, now, spans, liveStripSec);
+        viewSpans = &spans; viewNow = now;
+        drawStrip (g, area, view, now - liveStripSec, rate, now - liveStripSec, now, false);
+        viewSpans = nullptr;
     }
 
     static constexpr double liveStripSec = 10.0;
@@ -371,8 +385,9 @@ public:
                     double histStart, double rate, double t0, double t1, bool aiming)
     {
         const double sr = juce::jmax (1.0, rate);
-        const int retakeFirst = ! aiming || lineLog.marks().empty() ? std::numeric_limits<int>::max()
-                                                                    : lineLog.marks().back().firstWord;
+        const bool showCut = aim.active;       // takze na zywo, w czasie odliczania
+        const int retakeFirst = ! showCut || lineLog.marks().empty() ? std::numeric_limits<int>::max()
+                                                                     : lineLog.marks().back().firstWord;
         auto box = area.toFloat();
         g.setColour (Ink::panel());
         g.fillRoundedRectangle (box, 10.0f);
@@ -380,18 +395,32 @@ public:
         g.drawRoundedRectangle (box.reduced (0.5f), 10.0f, 1.0f);
 
         auto inner = box.reduced (14.0f, 10.0f);
-        auto hint = inner.removeFromBottom (aiming ? 0.0f : 16.0f);
-        auto labels = inner.removeFromBottom (24.0f);
+        auto hint = inner.removeFromBottom (showCut ? 0.0f : 16.0f);
+        // slowa w dwoch rzedach na zmiane (Adrian 13.10: czesc slow znikala,
+        // bo blisko siebie nachodzily na siebie) i wieksza czcionka
+        const float wordRow = 22.0f;
+        auto labels = inner.removeFromBottom (wordRow * 2.0f);
         auto wave = inner;
 
         auto xOf = [&] (double t) { return wave.getX() + (float) ((t - t0) / (t1 - t0)) * wave.getWidth(); };
 
-        // to, co wypadnie: od znacznika do R
-        if (aiming && aim.hasCut())
+        // szwy: tu nowe czytanie "nadpisalo" pomylke
+        if (viewSpans != nullptr)
+            for (const auto& sp : *viewSpans)
+            {
+                const double v = tw::EditedView::toView (sp.first, viewNow, *viewSpans);
+                if (v <= t0 || v >= t1) continue;
+                g.setColour (Ink::accent());
+                g.fillRect (juce::Rectangle<float> (xOf (v) - 1.5f, wave.getY() - 2.0f, 3.0f, wave.getHeight() + 4.0f));
+            }
+
+        // to, co wypadnie: od znacznika do R — tylko gdy program czeka (zamrozone)
+        if (aiming && aim.hasCut() && aim.keySec > t0)
         {
             const float x = juce::jmax (wave.getX(), xOf (aim.cutSec()));
+            const float x2 = juce::jmin (wave.getRight(), xOf (aim.keySec));
             g.setColour (Ink::red().withAlpha (0.16f));
-            g.fillRect (juce::Rectangle<float> (x, wave.getY(), wave.getRight() - x, wave.getHeight()));
+            g.fillRect (juce::Rectangle<float> (x, wave.getY(), juce::jmax (0.0f, x2 - x), wave.getHeight()));
         }
 
         // przebieg: szczyt na kolumne w skali decybeli (jak w DAW) — cichy
@@ -431,27 +460,33 @@ public:
 
         // uslyszane slowa (czas szacowany jak w Punch::guard); wieksze — Adrian
         // 13.10: "slowa troche za malo widoczne"
-        const juce::Font wordFont (zs::type::body, juce::Font::bold);
+        const juce::Font wordFont (zs::type::body + 2.0f, juce::Font::bold);
         g.setFont (wordFont);
-        float lastRight = -1.0e9f;
+        float rowRight[2] = { -1.0e9f, -1.0e9f };
         int lastWord = -1;
         const auto& src = script.source();
         for (const auto& h : heardWords)
         {
             if (h.word == lastWord || h.word < 0 || h.word >= script.wordCount()) continue;
             lastWord = h.word;
-            const double t = h.sec - tw::Punch().heardLagSec;
+            double t = h.sec - tw::Punch().heardLagSec;
+            if (viewSpans != nullptr)
+            {
+                if (tw::EditedView::hidden (t, *viewSpans)) continue;
+                t = tw::EditedView::toView (t, viewNow, *viewSpans);
+            }
             if (t < t0 || t > t1) continue;
             const auto& w = script.all()[(size_t) h.word];
             const auto text = juce::String::fromUTF8 (src.substr (w.from, w.to - w.from).c_str());
             const float x = xOf (t), wdt = (float) wordFont.getStringWidth (text) + 8.0f;
-            if (x < lastRight) continue;
-            g.setColour (h.word >= retakeFirst ? Ink::red() : Ink::textNext());
-            g.drawText (text, juce::Rectangle<float> (x, labels.getY(), wdt, labels.getHeight()), juce::Justification::centredLeft);
-            lastRight = x + wdt;
+            const int row = x >= rowRight[0] ? 0 : x >= rowRight[1] ? 1 : -1;
+            if (row < 0) continue;
+            g.setColour (h.word >= retakeFirst ? Ink::red() : Ink::textNow().withAlpha (0.85f));
+            g.drawText (text, juce::Rectangle<float> (x, labels.getY() + row * wordRow, wdt, wordRow), juce::Justification::centredLeft);
+            rowRight[row] = x + wdt;
         }
 
-        if (! aiming && ! recorder.isRecording() && ! previewLive)
+        if (! showCut && ! recorder.isRecording() && ! previewLive)
         {
             g.setColour (Ink::textDim());
             g.setFont (juce::Font (zs::type::small));
@@ -459,7 +494,7 @@ public:
                         hint.toNearestInt(), juce::Justification::centredLeft);
             return;
         }
-        if (! aiming)
+        if (! showCut)
         {
             // kropka nagrywania i czas — ze to naprawde sie nagrywa
             g.setColour (Ink::red());
@@ -606,7 +641,7 @@ public:
     }
 
     /** Tylko zrzut ekranu (--preview-ui prompter-pasek): pasek na zywo. */
-    void previewLiveScreen() { previewAimScreen(); aim.end(); previewLive = true; repaint(); }
+    void previewLiveScreen() { previewAimScreen(); aim.end(); previewLive = true; removedSpans = { { 6.45, 7.25 } }; repaint(); }
 
     /** Spacja: start i stop nagrania (MainComponent::startStop). */
     std::function<void()> onStartStop;
@@ -687,7 +722,7 @@ public:
     /* Dwie karty: tekst u gory, fala na dole — osobne okienko, widoczne od
        wejscia na ekran (Adrian 13.10, uklad z projektu ChatGPT). */
     static constexpr int stripGap = 12;
-    int stripCardHeight() const { return juce::jlimit (110, 170, getHeight() / 4); }
+    int stripCardHeight() const { return juce::jlimit (130, 190, getHeight() / 4); }
     juce::Rectangle<int> textCard() const  { auto r = getLocalBounds(); r.removeFromBottom (stripCardHeight() + stripGap); return r; }
     juce::Rectangle<int> stripCard() const { return getLocalBounds().removeFromBottom (stripCardHeight()); }
 
@@ -768,6 +803,7 @@ private:
                 scrollNow = scrollTarget = 0.0f;
                 shownLine = 0;
                 lineLog.begin();
+                removedSpans.clear(); pendingCut = -1.0;
                 heardWords.clear();
                 lastHeard = -1;
                 liveEvents.clear();
@@ -969,7 +1005,15 @@ private:
         if (countdownStart < 0.0) return;
         const double elapsed = (juce::Time::getMillisecondCounterHiRes() - countdownStart) / 1000.0;
         const auto label = countdown.label (elapsed, countdownTotal);
-        if (label.empty()) { countdownStart = -1.0; aim.end(); aimCounting = false; return; }
+        if (label.empty())
+        {
+            // koniec odliczania: wycinek [ciecie, teraz) znika z fali na zywo
+            if (aimCounting && pendingCut >= 0.0 && recorder.isRecording())
+                removedSpans.push_back ({ pendingCut, recorder.recordedSeconds() });
+            pendingCut = -1.0;
+            countdownStart = -1.0; aim.end(); aimCounting = false;
+            return;
+        }
 
         const bool go = label == "Czytaj";
         const bool canMove = ! preRoll.candidates.empty() && preRoll.chosen >= 0;
@@ -1252,6 +1296,10 @@ private:
     tw::PunchAim aim;                                  ///< po R: wskazywanie miejsca ciecia
     double preRollRate = 48000.0;                      ///< probkowanie pamieci z chwili R
     bool aimCounting = false;                          ///< po R: pre-roll i odliczanie juz ida
+    double pendingCut = -1.0;                          ///< ciecie w trakcie odliczania
+    tw::EditedView::Spans removedSpans;                ///< wycinki tego nagrania (widok fali)
+    const tw::EditedView::Spans* viewSpans = nullptr;  ///< w czasie rysowania paska na zywo
+    double viewNow = 0.0;
     double preRollStartSec = 0.0;
     bool punchMovedByHand = false;   ///< ms; -1 = nie odliczamy
     bool layoutDirty = true, running = false;
