@@ -66,6 +66,7 @@ struct SetupReport
     double proximityDb    = 0.0;   ///< nadmiar dolu = za blisko
     double plosiveExcessDb = 0.0;
     double bleedPercent   = 0.0;
+    double bleedDb        = -140.0;  ///< jak glosno przesluch siedzi w mikrofonie
 
     /* ---- kalibracja odsluchu -------------------------------------------------
 
@@ -96,7 +97,14 @@ public:
         double quietRoomDb   = -58.0;  ///< tlo ponizej tego to dobry pokoj
         double okRoomDb      = -45.0;  ///< ...a ponizej tego da sie pracowac
         double humMarginDb   = 10.0;   ///< o tyle 50 Hz musi wystawac, zeby to byl przydzwiek
-        double peakLowDb     = -18.0;  ///< szczyty mowy ponizej = za cicho
+        double peakLowDb     = -18.0;  ///< szczyty mowy ponizej = za cicho...
+        /* ...chyba ze tlo jest tak ciche, ze glos i tak stoi wysoko nad nim.
+           Adrian 13.10, SM7B na SSL2: szczyty -22 dBFS przy tle -76 dBFS, czyli
+           54 dB odstepu. Kreator kazal podkrecic o 10 dB, a wzmacniacz juz byl
+           na koncu skali; po przysunieciu sie mowil "za blisko". Liczy sie
+           odstep od szumu, bo miks i tak podnosi glos do -16 LUFS. */
+        double snrEnoughDb   = 45.0;   ///< szczyt nad tlem ponad tym = poziom wystarczy
+        double peakFloorDb   = -32.0;  ///< ...ale nizej niz to zawsze za cicho
         double peakHighDb    = -6.0;   ///< ...powyzej = za glosno
         /* PROWIZORKA — do sprawdzenia na prawdziwym mikrofonie.
 
@@ -111,6 +119,10 @@ public:
            Do tego czasu prog stoi miedzy zmierzonymi wartosciami i moze
            przepuszczac zbyt bliskie ustawienie. */
         double proximityDb   = -5.0;   ///< nadmiar dolu ponad tym = za blisko
+        /* Dlatego "za blisko" nie zatrzymuje kreatora, tylko mowi, ze dol jest
+           podbity (Adrian 13.10: kroku nie dalo sie przejsc — raz za cicho, raz
+           za blisko). Mikrofon dynamiczny jak SM7B jest robiony do mowienia z
+           bliska; miks wyrownuje dol (Decide.h dostaje proximityDb). */
         /* Zmierzone, nie wybrane: czysta mowa bez plozyw daje 10 dB nadmiaru,
            to samo nagranie z doklejonym uderzeniem 65 Hz — 32 dB. Prog stoi
            miedzy nimi, blizej dolnej granicy, bo lepiej raz zapytac o popfiltr
@@ -119,7 +131,14 @@ public:
            Do sprawdzenia na prawdziwym glosie: syntezator ma slabe zwarcia,
            wiec czlowiek bez plozyw moze mierzyc sie wyzej niz te 10 dB. */
         double plosiveDb     = 18.0;   ///< uderzenie ponad tym = trzeba popfiltr
-        double bleedPercent  = 4.0;    ///< przesluch ponad tym bedzie slychac
+        double bleedPercent  = 4.0;    ///< (tylko opis) korelacja ze sluchawkami
+        /* Sama korelacja nie mowi, czy przesluch BEDZIE SLYCHAC. Adrian 13.10:
+           4,3 % przy tle -76 dBFS — to przesluch okolo -100 dBFS, niesłyszalny,
+           a kreator kazal sciszac. W cichym pokoju kazdy slad ma wysoka
+           korelacje, bo nie ma czym jej rozmyc. Decyduje poziom: przesluch
+           ma stac co najmniej 45 dB pod szczytami glosu. */
+        double bleedBelowVoiceDb = 45.0;
+        double bleedMaxDb    = -65.0;  ///< gdy glosu jeszcze nie mierzylismy
     };
 
     Limits limits;
@@ -504,16 +523,26 @@ private:
                        "Wyłącz ją w ustawieniach urządzenia; inaczej poziom będzie "
                        "pływał w trakcie całego nagrania.";
         }
+        else if (report.humHz > 0.0 && report.noiseFloorDb > limits.quietRoomDb)
+        {
+            // Adrian 13.10: "zbyt ogolnikowe — u mnie to wentylatory, pokrywa
+            // otwarta". Mowimy, CO moze buczec, i ze da sie to znalezc po kolei.
+            f.passed = false;
+            f.headline = "Coś buczy nisko i równo (" + std::to_string ((int) report.humHz) + " Hz).";
+            f.detail = "Najczęściej: wentylatory komputera (zwłaszcza przy zdjętej obudowie), "
+                       "zasilacz laptopa, kabel mikrofonu obok ładowarki albo listwy, "
+                       "lodówka lub klimatyzacja za ścianą. Wyłączaj albo odsuwaj po kolei "
+                       "i kliknij \"Jeszcze raz\" — zobaczysz, co to było.";
+        }
         else if (report.humHz > 0.0)
         {
-            f.passed = false;
-            f.headline = "Słychać przydźwięk z sieci.";
-            f.detail = "Zwykle pomaga wypięcie zasilacza laptopa albo przełożenie "
-                       "kabla mikrofonowego z dala od zasilaczy i ładowarek. "
-                       "Program potrafi to wyciąć przy miksie, ale lepiej, żeby "
-                       "tego nie było.";
-            f.measured += ", " + std::to_string ((int) report.humHz) + " Hz wystaje o "
-                        + db (report.humExcessDb, 0).substr (0, 4) + " dB";
+            // Bardzo ciche tlo (np. -75 dBFS): buczenie jest, ale go nie uslyszysz.
+            // Nie zatrzymujemy, tylko mowimy; miks i tak je wytnie, jesli zostanie.
+            f.passed = true;
+            f.headline = "Cicho jak trzeba.";
+            f.detail = "W tle jest bardzo ciche, równe buczenie " + std::to_string ((int) report.humHz)
+                     + " Hz (wentylator, zasilacz albo kabel). Przy tym poziomie nie przeszkadza; "
+                       "jeśli zostanie w nagraniu, miks je wytnie.";
         }
         else if (report.noiseFloorDb > limits.okRoomDb)
         {
@@ -535,6 +564,9 @@ private:
             f.detail = "Ten pokój nadaje się do nagrywania.";
         }
 
+        if (report.humHz > 0.0)
+            f.measured += ", " + std::to_string ((int) report.humHz) + " Hz wystaje o "
+                        + db (report.humExcessDb, 0).substr (0, 4) + " dB";
         return f;
     }
 
@@ -568,7 +600,10 @@ private:
             f.detail = "Przykręć wzmocnienie o " + std::to_string ((int) -report.gainAdviceDb)
                      + " dB. Zostaw zapas na to, że za chwilę się zaśmiejesz.";
         }
-        else if (report.speechPeakDb < limits.peakLowDb)
+        else if (report.speechPeakDb < limits.peakLowDb
+                 && (report.speechPeakDb < limits.peakFloorDb
+                     || report.noiseFloorDb < -120.0   // pokoju nie mierzylismy
+                     || report.speechPeakDb - report.noiseFloorDb < limits.snrEnoughDb))
         {
             f.passed = false;
             f.headline = "Za cicho.";
@@ -578,11 +613,20 @@ private:
         }
         else if (report.proximityDb > limits.proximityDb)
         {
-            f.passed = false;
-            f.headline = "Jesteś za blisko.";
-            f.detail = "Dół jest podbity o " + std::to_string ((int) report.proximityDb)
-                     + " dB ponad normę — to efekt zbliżeniowy. Odsuń się o dłoń; "
-                       "głos będzie brzmiał naturalniej i mniej będzie plozyw.";
+            f.passed = true;
+            f.headline = "Poziom jest dobry, jesteś blisko.";
+            f.detail = "Dół jest podbity (efekt zbliżeniowy). Przy mikrofonie dynamicznym "
+                       "to normalne i miks to wyrówna. Jeśli głos dudni albo strzelają "
+                       "\"p\" i \"b\", odsuń się o 2–3 cm.";
+        }
+        else if (report.speechPeakDb < limits.peakLowDb)
+        {
+            f.passed = true;
+            f.headline = "Poziom wystarczy.";
+            f.detail = "Szczyty są niskie, ale tło jest bardzo ciche (głos stoi "
+                     + std::to_string ((int) (report.speechPeakDb - report.noiseFloorDb))
+                     + " dB nad nim), więc miks podniesie głos bez szumu. "
+                       "Jeśli masz zapas na gałce, możesz podkręcić o kilka dB.";
         }
         else
         {
@@ -671,7 +715,7 @@ private:
         // Ile z tego, co gralo w sluchawkach, wrocilo do mikrofonu. Liczymy
         // korelacje przy najlepszym dopasowaniu opoznienia, bo dzwiek ma do
         // przebycia droge przez powietrze.
-        double best = 0.0;
+        double best = 0.0, micMean = 0.0;
 
         if (! reference.empty() && ! buffer.empty())
         {
@@ -683,6 +727,7 @@ private:
 
             double micEnergy = 0.0;
             for (size_t i = 0; i < n; ++i) micEnergy += (double) buffer[i] * buffer[i];
+            micMean = micEnergy / (double) n;
 
             if (refEnergy > 1.0e-12 && micEnergy > 1.0e-12)
             {
@@ -699,13 +744,21 @@ private:
         }
 
         report.bleedPercent = best * 100.0;
+        // czesc energii mikrofonu wyjasniona przez sluchawki = r^2
+        report.bleedDb = best * best * micMean > 1.0e-14
+                           ? 10.0 * std::log10 (best * best * micMean) : -140.0;
+
+        const double allowed = report.speechPeakDb > -100.0
+                                 ? report.speechPeakDb - limits.bleedBelowVoiceDb
+                                 : limits.bleedMaxDb;
 
         SetupFinding f;
-        char m[64];
-        std::snprintf (m, sizeof (m), "przesłuch %.1f%%", report.bleedPercent);
+        char m[96];
+        std::snprintf (m, sizeof (m), "przesłuch %.0f dBFS (głos %.0f dBFS)",
+                       report.bleedDb, report.speechPeakDb);
         f.measured = m;
 
-        if (report.bleedPercent > limits.bleedPercent)
+        if (report.bleedDb > allowed)
         {
             f.passed = false;
             f.headline = "Słuchawki uciekają do mikrofonu.";
@@ -788,20 +841,22 @@ private:
                        report.monitorVsVoiceDb);
         f.measured = m;
 
+        // Adrian 13.10: "tutaj ustawiamy do nagrywania" — glosnosc odsluchu jest
+        // potrzebna przy ocenie miksu, a do nagrywania ciche sluchawki sa wrecz
+        // lepsze (krok 5 kaze je sciszac). Mierzymy i mowimy, ale nie zatrzymujemy.
         if (report.monitorVsVoiceDb > 6.0)
         {
-            f.passed = false;
-            f.headline = "Głośniki grają głośniej, niż mówisz.";
-            f.detail = "Przy takim odsłuchu każde nagranie wyda Ci się za głośne, "
-                       "a Ty będziesz je ściszał w miksie — i u słuchacza wyjdzie za cicho. "
-                       "Skręć, aż nagranie będzie brzmiało jak rozmowa w tym pokoju.";
+            f.passed = true;
+            f.headline = "Odsłuch gra głośniej, niż mówisz.";
+            f.detail = "Do nagrywania to nie przeszkadza. Przy ocenie miksu ścisz, "
+                       "bo każde nagranie wyda Ci się za głośne.";
         }
         else if (report.monitorVsVoiceDb < -8.0)
         {
-            f.passed = false;
-            f.headline = "Głośniki grają dużo ciszej, niż mówisz.";
-            f.detail = "Przy cichym odsłuchu nie słychać ani szumu tła, ani plozyw — "
-                       "usłyszysz je dopiero u kogoś innego. Podgłośnij.";
+            f.passed = true;
+            f.headline = "Odsłuch gra ciszej, niż mówisz.";
+            f.detail = "Do nagrywania w porządku. Przy ocenie miksu podgłośnij — "
+                       "przy cichym odsłuchu nie słychać szumu tła ani plozyw.";
         }
         else
         {
