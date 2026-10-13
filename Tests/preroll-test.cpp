@@ -211,6 +211,14 @@ int main()
         check (blind.move (-1) && std::fabs (blind.cutSec() - blind.plan.candidates.back()) < 1e-9,
                "pierwsza strzalka: ostatnia pauza przed R (zabiera najmniej)");
 
+        // propozycja bez pewnosci (zolty znacznik): ostatnia pauza przed poczatkiem wersu
+        tw::PunchAim g2;
+        g2.begin (pre.plan (m, h.x, sr, 0.0, &none), k);
+        check (g2.guess (b0) && g2.guessed && g2.cutSec() <= b0 + 0.05 && g2.cutSec() > a1,
+               "zgadywanie: ostatnia pauza przed poczatkiem wersu", num (g2.cutSec() - b0));
+        g2.move (-1);
+        check (! g2.guessed, "po strzalce juz nie zgadywane");
+
         // zmiana wersu: nowy plan bez propozycji nie kasuje tego, co czlowiek wskazal
         const double had = blind.cutSec();
         blind.replan (pre.plan (m, h.x, sr, 0.0, &none));

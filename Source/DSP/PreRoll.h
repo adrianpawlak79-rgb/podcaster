@@ -296,9 +296,10 @@ struct PunchAim
         plan.audio.clear();
         keySec = key;
         active = true;
+        guessed = false;
     }
 
-    void end() { active = false; plan = {}; }
+    void end() { active = false; guessed = false; plan = {}; }
 
     bool hasCut() const noexcept { return plan.chosen >= 0 && plan.chosen < (int) plan.candidates.size(); }
 
@@ -315,6 +316,7 @@ struct PunchAim
         const int next = hasCut() ? std::clamp (plan.chosen + by, 0, n - 1) : n - 1;
         if (next == plan.chosen) return false;
         plan.chosen = next;
+        guessed = false;                       // wskazane reka — juz nie zgadywane
         return true;
     }
 
@@ -331,6 +333,27 @@ struct PunchAim
     }
 
     double viewFrom() const noexcept { return keySec - viewSec; }
+
+    /** Program nie jest pewny, ale cos proponuje (zolty znacznik) — czlowiek
+        potwierdza Enterem. Adrian 13.10: bez zadnej propozycji nie wiedzial,
+        czego program od niego chce. */
+    bool guessed = false;
+
+    /** Propozycja bez pewnosci: ostatnia pauza przed szacowanym poczatkiem
+        powtarzanego wersu (lineStartSec, czas w nagraniu); gdy takiej nie ma —
+        pierwsza pauza po nim (zabiera najmniej z poprzedniego wersu). */
+    bool guess (double lineStartSec)
+    {
+        const int n = (int) plan.candidates.size();
+        if (hasCut() || n == 0) return false;
+        int pick = -1;
+        for (int i = 0; i < n; ++i)
+            if (plan.candidates[(size_t) i] <= lineStartSec + 0.05) pick = i;
+        if (pick < 0) pick = 0;
+        plan.chosen = pick;
+        guessed = true;
+        return true;
+    }
 };
 
 //==============================================================================
