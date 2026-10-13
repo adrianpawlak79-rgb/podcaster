@@ -111,6 +111,16 @@ public:
 
     const std::vector<LineMark>& marks() const noexcept { return all; }
 
+    /** Zmiana wersu ostatniego R (↑ ↓ przy wskazywaniu miejsca ciecia):
+        ten sam klawisz, inny wers — czas i miejsce ciecia zostaja. */
+    void retargetLast (const LineMark& m)
+    {
+        if (all.empty() || all.back().source != LineSource::Retake) return;
+        auto& r = all.back();
+        r.firstWord = m.firstWord; r.lastWord = m.lastWord; r.shown = m.shown; r.text = m.text;
+        current = m.shown;
+    }
+
     /** Punkt wyciecia ostatniego R (pre-roll, strzalki). */
     void setLastCut (double sec, bool byHand)
     {

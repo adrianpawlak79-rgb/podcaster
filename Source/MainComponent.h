@@ -586,6 +586,7 @@ public:
 
     /** --preview-ui ... prompter-znaczki: znaczki przy wersach i odliczanie po R. */
     void previewMarks() { if (prompter != nullptr) prompter->previewMarks(); }
+    void previewAim()   { if (prompter != nullptr) prompter->previewAimScreen(); }
 
     void previewCuts(const juce::File& wav) {
         if(!wav.existsAsFile()) return;

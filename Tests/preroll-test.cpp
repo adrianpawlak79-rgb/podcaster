@@ -171,6 +171,60 @@ int main()
         check (pre.plan (m, c.x, sr, 0.0).audio.empty(), "brak ciszy przed wersem: bez pre-rollu (nie w srodku slowa)");
     }
 
+    // ---- 1d. wskazywanie miejsca ciecia po R (PunchAim) ---------------------------------
+    std::printf ("\n  1d. wskazywanie po R\n");
+    {
+        Gen h;
+        std::vector<tw::LineMark> m;
+        h.silence (2.5);
+        const double a0 = h.now(); h.syllables (2, 140); h.silence (1.0);   // "Jestes –"
+        const double a1 = h.now(); h.syllables (2, 140);
+        const double aEnd = h.now(); h.silence (0.25);
+        const double b0 = h.now(); h.syllables (3, 300);
+        const double k = h.now() + 0.3;
+        h.silence (2.5);
+        m.push_back (mark (0, a0 + 0.78, tw::LineSource::Words));
+        m.push_back (mark (1, b0 + 0.78, tw::LineSource::Words));
+        m.push_back (mark (1, k, tw::LineSource::Retake));
+
+        const double lag = pre.heardLagSec;
+        const std::vector<tw::HeardWord> heard { { a0 + 0.1 + lag, 0 }, { a1 + lag, 2 }, { aEnd - 0.2 + lag, 3 } };
+
+        tw::PunchAim aim;
+        aim.begin (pre.plan (m, h.x, sr, 0.0, &heard), k);
+        check (aim.active && aim.plan.audio.empty(), "po R nic nie gra, dopoki czlowiek nie zatwierdzi");
+        check (aim.hasCut() && aim.cutSec() > aEnd && aim.cutSec() <= b0, "propozycja: cisza miedzy wersami", num (aim.cutSec() - b0));
+        check (aim.plan.candidates.size() >= 2, "do wyboru takze pauza po myslniku", num ((double) aim.plan.candidates.size(), ""));
+
+        const double proposed = aim.cutSec();
+        check (aim.move (-1) && aim.cutSec() < proposed && aim.cutSec() < a1, "strzalka w lewo: pauza po myslniku");
+        check (! aim.move (-1) || aim.cutSec() < proposed, "na poczatku listy zostaje");
+        aim.move (+5);
+        check (std::fabs (aim.cutSec() - aim.plan.candidates.back()) < 1e-9, "w prawo najwyzej do ostatniej pauzy przed R");
+
+        // bez uslyszanego poprzedniego wersu: bez propozycji, ale pauzy sa — wskazuje czlowiek
+        const std::vector<tw::HeardWord> none;
+        tw::PunchAim blind;
+        blind.begin (pre.plan (m, h.x, sr, 0.0, &none), k);
+        check (! blind.hasCut() && ! blind.plan.candidates.empty(), "bez propozycji: lista pauz zostaje");
+        check (blind.move (-1) && std::fabs (blind.cutSec() - blind.plan.candidates.back()) < 1e-9,
+               "pierwsza strzalka: ostatnia pauza przed R (zabiera najmniej)");
+
+        // zmiana wersu: nowy plan bez propozycji nie kasuje tego, co czlowiek wskazal
+        const double had = blind.cutSec();
+        blind.replan (pre.plan (m, h.x, sr, 0.0, &none));
+        check (std::fabs (blind.cutSec() - had) < 1e-9, "po zmianie wersu wskazane miejsce zostaje");
+
+        // LineLog: ↑ ↓ zmienia wers ostatniego R, nie dopisuje nowego
+        tw::LineLog log;
+        for (const auto& x : m) log.restart (x, x.source);
+        auto other = mark (0, k + 1.0, tw::LineSource::Retake);
+        log.retargetLast (other);
+        check (log.marks().size() == m.size() && log.marks().back().firstWord == other.firstWord
+               && std::fabs (log.marks().back().sec - k) < 1e-9 && log.marks().back().source == tw::LineSource::Retake,
+               "zmiana wersu R: ten sam klawisz i czas, inny wers");
+    }
+
     // ---- 2. pamiec zaczyna sie pozniej niz nagranie -------------------------------------
     std::printf ("\n  2. pamiec ostatnich sekund\n");
     {

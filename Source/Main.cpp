@@ -48,6 +48,7 @@ countries: pl
             if(mode=="recording") preview.previewRecording(false);
             if(mode=="prompter-rec") preview.previewRecording(true);
             if(mode=="prompter-znaczki") { preview.previewRecording(true); preview.previewMarks(); }
+            if(mode=="prompter-wskazanie") { preview.previewRecording(true); preview.previewAim(); }
             if(mode=="review-ciecia") {
                 if(!args[2].endsWith("-small")) preview.setSize(1280,1100);
                 preview.previewCuts(fixture);
