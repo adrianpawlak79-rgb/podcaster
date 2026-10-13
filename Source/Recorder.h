@@ -64,7 +64,7 @@ public:
         session->writer = std::make_unique<DiskWriter>(std::move(writer));
         sessionFile = file;
         samplesWritten.store(0); lostSamples.store(0); firstLost.store(-1);
-        writeFailed.store(false); recordingRate.store(rate);
+        writeFailed.store(false); recordingRate.store(rate); paused.store(false);
         currentSessionId.store(session->id);
         activeSession = std::move(session);
         recording.store(true);
@@ -77,6 +77,7 @@ public:
         std::lock_guard<std::mutex> lock(sessionControl);
         sessionSlot.set(nullptr); // drains the last reader before closing its file
         recording.store(false);
+        paused.store(false);
         if(activeSession) {
             activeSession->writer->finish();
             if(activeSession->writer->hasFailed()) writeFailed.store(true);
@@ -93,6 +94,12 @@ public:
     }
 
     bool isRecording() const noexcept        { return recording.load(); }
+
+    /** Pauza jak w DAW (Adrian 13.10): nic nie trafia do pliku, do lampki ani do
+        rozpoznawania mowy, dopoki nie ma wznowienia. Czas w nagraniu stoi. */
+    void pause()  noexcept { paused.store (true); }
+    void resume() noexcept { paused.store (false); }
+    bool isPaused() const noexcept { return recording.load() && paused.load(); }
     juce::File currentFile() const           { return sessionFile; }
     double recordedSeconds() const noexcept
     {
@@ -321,7 +328,9 @@ public:
         // ---- analiza na surowym sygnale ------------------------------------
         const int ac = juce::jlimit (0, juce::jmax (0, numInputChannels - 1), analysisChannel);
 
-        if (numInputChannels > 0 && inputChannelData[ac] != nullptr)
+        const bool live = ! paused.load();     // na pauzie: tylko miernik poziomu
+
+        if (live && numInputChannels > 0 && inputChannelData[ac] != nullptr)
         {
             const double t = sampleRate.load() > 0.0 ? (double) elapsedSamples / sampleRate.load() : 0.0;
             const float* one[1] = { inputChannelData[ac] };
@@ -345,7 +354,7 @@ public:
             uiEvents.push(TaggedEvent{event,session ? session->id : 0});
 
         // A failed queue write is permanent damage, never a successful sample.
-        if(session) {
+        if(session && live) {
             bool valid = numInputChannels > ac && inputChannelData[ac] != nullptr;
             const float* channels[2] = {valid ? inputChannelData[ac] : nullptr,nullptr};
             if(!session->mono) {
@@ -367,7 +376,7 @@ public:
             }
             if(session->writer->hasFailed()) writeFailed.store(true);
         }
-        elapsedSamples += numSamples;
+        if (live) elapsedSamples += numSamples;   // czas lampki = czas w nagraniu, stoi na pauzie
         if(wizard && numInputChannels > ac && inputChannelData[ac])
             wizard->feed(inputChannelData[ac],numSamples);
 
@@ -510,7 +519,8 @@ private:
     struct Calibration { std::vector<float> audio; size_t pos=0; } calibration;
     struct PreRollPlay { std::vector<float> audio; std::atomic<size_t> pos{0}; } preRoll;
     tw::HistoryRing history;
-    static constexpr double historySec = 30.0, historySafetySec = 4.0;
+    // 5 minut: na pauzie mozna cofnac sie i odsluchac kilka wersow wstecz
+    static constexpr double historySec = 300.0, historySafetySec = 4.0;
     struct TaggedEvent { tw::Event event; uint64_t session=0; };
     std::mutex sessionControl;
     std::unique_ptr<Session> activeSession;
@@ -525,6 +535,7 @@ private:
     uint64_t nextSessionId=0, audioSessionId=0;
     std::atomic<uint64_t> currentSessionId{0};
     juce::File sessionFile;
+    std::atomic<bool> paused { false };
     std::atomic<bool> recording{false}, writeFailed{false};
     std::atomic<juce::int64> samplesWritten{0}, lostSamples{0}, firstLost{-1};
     std::atomic<double> sampleRate{0}, recordingRate{0};

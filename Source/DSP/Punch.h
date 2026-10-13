@@ -81,7 +81,7 @@ public:
             const auto& r = marks[i];
             if (r.source != LineSource::Retake) continue;
 
-            const double resume = resumeAfter (r.sec, cuts);
+            const double resume = r.cutTo >= 0.0 ? r.cutTo : resumeAfter (r.sec, cuts);
             resumeOf[i] = resume;
 
             // Poczatek: tam, gdzie skonczyl sie pre-roll, ktory czlowiek uslyszal

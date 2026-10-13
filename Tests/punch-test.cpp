@@ -305,6 +305,15 @@ int main()
         check (pp.plan (m, cuts, &sk3).empty() && sk3.size() == 1, "pre-roll nie w ciszy: nie tnie",
                sk3.empty() ? "" : sk3[0].why);
 
+        // wznowienie po pauzie: koniec wyciecia znany dokladnie (cutTo), nie szukany
+        m.back().cutFrom = l1 - 0.15;  m.back().cutByHand = true;  m.back().cutTo = m.back().sec;
+        {
+            const auto pz = pp.plan (m, cuts);
+            check (pz.size() == 1 && std::fabs (pz[0].to - m.back().sec) < 1e-9,
+                   "po pauzie: wycinamy dokladnie do chwili wznowienia");
+        }
+        m.back().cutTo = -1.0;
+
         m.back().cutFrom = l1 - 0.15;  m.back().cutByHand = true;     // czlowiek cofnal o wers
         pl = pp.plan (m, cuts);
         check (pl.size() == 1 && std::fabs (pl[0].from - (l1 - 0.15)) < 1e-9 && pl[0].byHand, "strzalkami przesuniete: tam");

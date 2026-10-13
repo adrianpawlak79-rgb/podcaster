@@ -244,7 +244,7 @@ inline KeyAction keyAction (bool isEscape, char32_t ch, bool recording, bool has
 inline std::string hintLine (bool recording, bool hasScript)
 {
     if (recording)
-        return hasScript ? "Spacja — stop i ocena   ·   R — powtórz wers   ·   ↑ ↓ — popraw miejsce"
+        return hasScript ? "Spacja — pauza / nagraj   ·   R — powtórz wers   ·   Esc — zakończ"
                          : "Spacja — stop i ocena";
 
     return hasScript ? "Spacja — nagrywaj   ·   strzałki — popraw miejsce   ·   Home — na początek   ·   "
