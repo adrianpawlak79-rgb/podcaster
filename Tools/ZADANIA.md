@@ -432,3 +432,18 @@ czytania milczy.** Tylko w słuchawkach.
   „pierwsze kroki” / „doświadczony” / wyłączony (ustawienia).
 - Tabela zdań z nazwami plików — **po ustaleniu ekranów z zadań 10 i 11**, żeby zdania
   pasowały 1:1. Pierwszy szkic zdań: rozmowa 13.10.
+
+## 14. Ekran przygotowania wygląda jak ekran nagrywania
+
+Pomysł Adriana 13.10: kreator sprzętu na tym samym ekranie co nagrywanie — prompter
+z gotowym tekstem („powiedz dwa zdania…”, „Piotr popija pyszną kawę”), fala na żywo,
+lampka i krótka instrukcja kroku. Użytkownik od razu uczy się ekranu, na którym będzie
+pracował, a pomiary (tło, poziom, plozywy) dzieją się „przy okazji”. Wyniki w tym samym
+panelu bocznym. Po zadaniu 10.
+
+## 15. Ustawienie odsłuchu przy miksie, nie w kreatorze
+
+Krok „Odsłuch” w kreatorze mierzy głośność, która ma znaczenie dopiero przy ocenie miksu;
+do nagrywania słuchawki mogą (i powinny) grać cicho. Od PR „Kreator: progi…” krok tylko
+radzi. Docelowo: kalibracja odsłuchu (zagraj swój głos, ustaw tak, by brzmiał jak Ty)
+na początku etapu miksu (zadanie 11), z przypomnieniem „wróć do głośności z nagrywania”.
