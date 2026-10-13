@@ -107,6 +107,13 @@ public:
         Destination where = Destination::Auto;
         double ceilingDbTp = -1.0;
 
+        /** Miks studyjny (domyslny): lancuch "v3", ktory Adrian zlozyl na
+            wtyczkach FabFilter/iZotope i ocenil jako duzo lepszy (12.10),
+            odtworzony naszymi modulami — w odsluchu "podobnie". Pelny dobor
+            (brama, glosek, de-esser, barwa z pomiaru) brzmial gorzej niz surowe
+            nagranie. Pelna logika zostaje: studio = false. */
+        bool studio = true;
+
         /** Wynik kreatora. Pusty, gdy kreatora nie przechodzono — wtedy
             wszystko bierze sie z samego nagrania, jak dotad. */
         RoomCheck room;
@@ -421,7 +428,163 @@ public:
         roomChanged (wish.room, d);
         tone (in, sr, wish.room, headroom, d);
 
+        if (wish.studio) studio (in, sr, wish, headroom, d);
+
         return d;
+    }
+
+    /** Miks studyjny — patrz Wish::studio. Liczby z lancucha v3 (0026):
+        progi byly ustawione dla mowy o RMS -33,3 dBFS po +12 dB wzmocnienia,
+        tu liczymy je od zmierzonej glosnej mowy (95. percentyl, -28,4 dBFS na
+        tym samym nagraniu), wiec przesuniecia sa wzgledem niej. Uzasadnienie
+        pisane od nowa, zeby nie opisywalo stopni, ktorych nie ma. */
+    static constexpr double studioPodcastLufs = -19.0;
+
+    static void studio (const std::vector<float>& in, double sr, const Wish& wish, double headroom, Decision& d)
+    {
+        auto& p = d.params;
+        char b[400];
+        std::vector<std::string> why;
+        using Bell = SpeechChain::Params::Bell;
+
+        if (wish.where == Destination::Podcast) p.targetLufs = studioPodcastLufs;
+        d.squashDb = std::max (0.0, p.targetLufs - d.freeTargetLufs);
+        std::snprintf (b, sizeof (b), "Miks studyjny: głośność %.1f LUFS, szczyt najwyżej %.1f dBTP.",
+                       p.targetLufs, wish.ceilingDbTp);
+        why.push_back (b);
+
+        // odejmowanie: dol 24 dB/okt, bloto i pudlo
+        p.highpassHz = 75.0; p.steepHighpass = true;
+        p.preEq = { Bell { 200.0, 1.2, -2.5f }, Bell { 380.0, 1.4, -3.0f }, Bell { 800.0, 2.0, -1.5f } };
+        why.push_back ("Korektor: filtr dołu 75 Hz (24 dB/okt), 200 Hz −2,5 dB, 380 Hz −3 dB, "
+                       "800 Hz −1,5 dB — mniej dudnienia i „pudełka”.");
+
+        if (p.useDenoise)
+        {
+            p.denoiseDb = -10.0f;
+            std::snprintf (b, sizeof (b), "Odszumianie do 10 dB: tło jest %.0f dB pod mową.", headroom);
+        }
+        else
+            std::snprintf (b, sizeof (b), "Bez odszumiania: tło jest %.0f dB pod mową albo nie ma go z czego zmierzyć.", headroom);
+        why.push_back (b);
+
+        // ekspander zamiast bramy: lagodnie, z przytrzymaniem, zeby nie zatrzaskiwal ciszy miedzy slowami
+        const bool canExpand = headroom > 12.0 && d.noiseFloorDb > -100.0;
+        p.useGate = canExpand; p.autoGate = false;
+        p.gateThreshDb = (float) std::max (d.speechDb - 25.5, d.noiseFloorDb + 6.0);
+        p.gateRatio = 2.0f; p.gateFloorDb = -18.0f;
+        p.gateAttackMs = 10.0; p.gateHoldMs = 120.0; p.gateReleaseMs = 300.0; p.gateLookaheadMs = 2.0;
+        if (canExpand)
+            std::snprintf (b, sizeof (b), "Ekspander w pauzach: od %.0f dBFS, 2:1, najwyżej −18 dB, "
+                           "przytrzymanie 120 ms — ścisza tło między zdaniami, nie końcówki słów.", p.gateThreshDb);
+        else
+            std::snprintf (b, sizeof (b), "Bez ekspandera: tło tylko %.0f dB pod mową.", headroom);
+        why.push_back (b);
+
+        // dwa kompresory: wolny od glosnej mowy, szybki na szczyty
+        p.useRider = false;
+        p.levelerThreshDb = (float) std::clamp (d.speechDb - 3.5, -60.0, -6.0);
+        p.levelerRatio = 2.5f; p.levelerAttackMs = 12.0; p.levelerReleaseMs = 120.0;
+        p.peakThreshDb = (float) std::clamp (d.speechDb + 2.5, -50.0, -3.0);
+        p.peakRatio = 4.0f; p.peakAttackMs = 3.0; p.peakReleaseMs = 90.0;
+        std::snprintf (b, sizeof (b), "Kompresja w dwóch krokach: 2,5:1 od %.1f dBFS (wolna), 4:1 od %.1f dBFS (szczyty).",
+                       p.levelerThreshDb, p.peakThreshDb);
+        why.push_back (b);
+
+        // rezonanse zamiast soothe: waskie wyciecia tam, gdzie widmo glosu wystaje
+        p.notchEq.clear();
+        std::string list;
+        for (const auto& r : resonances (in, sr))
+        {
+            p.notchEq.push_back (Bell { r.first, 6.0, (float) -std::clamp (r.second - 1.0, 2.0, 5.0) });
+            std::snprintf (b, sizeof (b), "%s%.0f Hz", list.empty() ? "" : ", ", r.first);
+            list += b;
+        }
+        if (list.empty()) why.push_back ("Rezonanse: żadne pasmo 2–7 kHz nie wystaje o 3 dB ponad sąsiednie.");
+        else              why.push_back ("Rezonanse ścięte wąsko (o 2–5 dB): " + list + ".");
+
+        p.useTame = false;
+        p.useDeEsser = true; p.essShelfHz = 5500.0; p.essMaxCutDb = -3.0f;
+        why.push_back ("De-esser łagodny: od 5,5 kHz, najwyżej 3 dB.");
+
+        // barwa na koncu: obecnosc i powietrze
+        p.lowDb = 0.0f; p.mudDb = 0.0f;
+        p.presenceHz = 3500.0; p.presenceQ = 1.0; p.presenceDb = 1.5f;
+        p.airHz = 9000.0; p.airDb = 4.0f;
+        why.push_back ("Barwa: 3,5 kHz +1,5 dB i półka 9 kHz +4 dB — po odszumianiu, więc nie podnosi syku.");
+
+        // Przydzwiek: filtr 75 Hz 24 dB/okt zabiera 50 Hz sam. Osobne wyciecia
+        // na tym nagraniu PODNOSILY szum w pauzach (80-160 Hz o 6 dB, tlo
+        // -64,1 zamiast -67,6 dBFS) — do sprawdzenia w module, poki co wylaczone.
+        p.deHum = false;
+
+        p.usePlosive = false; p.useDeClick = false; p.useTiltMatch = false; p.useSaturation = false;
+        d.because = why;
+    }
+
+    /** Waskie piki w 2-7 kHz: srednie widmo glosnej mowy wobec mediany z
+        tercji wokol. Na nagraniu Adriana (SM7B): 2479, 2924, 5051, 5303,
+        6820 Hz; jego lancuch zmierzyl 2443, 2654, 2930, 4755 (gwizd tylko w
+        11 % czasu — srednia go nie lapie), 5959 Hz. */
+    static std::vector<std::pair<double, double>> resonances (const std::vector<float>& x, double sr)
+    {
+        const int N = 8192, H = N / 2;
+        std::vector<std::pair<double, double>> out;
+        if (x.size() < (size_t) N * 4) return out;
+
+        std::vector<double> win; hann (win, N);
+        std::vector<double> lev;
+        for (size_t i = 0; i + (size_t) N <= x.size(); i += (size_t) H)
+        {
+            double e = 0.0; for (int k = 0; k < N; ++k) e += (double) x[i + (size_t) k] * x[i + (size_t) k];
+            lev.push_back (10.0 * std::log10 (e / N + 1.0e-20));
+        }
+        auto sorted = lev; std::sort (sorted.begin(), sorted.end());
+        const double loud = sorted[sorted.size() * 6 / 10];
+
+        Fft fft; fft.prepare (N);
+        std::vector<double> pw ((size_t) N / 2 + 1, 0.0), re, im;
+        int frames = 0;
+        for (size_t f = 0; f < lev.size(); ++f)
+        {
+            if (lev[f] <= loud) continue;
+            re.assign ((size_t) N, 0.0); im.assign ((size_t) N, 0.0);
+            for (int k = 0; k < N; ++k) re[(size_t) k] = x[f * (size_t) H + (size_t) k] * win[(size_t) k];
+            fft.run (re, im, false);
+            for (size_t k = 0; k < pw.size(); ++k) pw[k] += re[k] * re[k] + im[k] * im[k];
+            ++frames;
+        }
+        if (frames == 0) return out;
+
+        std::vector<double> db (pw.size());
+        for (size_t k = 0; k < pw.size(); ++k) db[k] = 10.0 * std::log10 (pw[k] + 1.0e-30);
+        const double binHz = sr / N;
+
+        std::vector<std::pair<double, double>> cand;      // (nadwyzka, Hz)
+        for (size_t k = 3; k + 3 < db.size(); ++k)
+        {
+            const double hz = (double) k * binHz;
+            if (hz < 2000.0 || hz > 7000.0) continue;
+            bool peak = true;
+            for (size_t j = k - 3; j <= k + 3; ++j) if (db[j] > db[k]) peak = false;
+            if (! peak) continue;
+            const size_t lo = (size_t) (hz / std::pow (2.0, 1.0 / 6.0) / binHz);
+            const size_t hi = std::min (db.size() - 1, (size_t) (hz * std::pow (2.0, 1.0 / 6.0) / binHz));
+            std::vector<double> nb (db.begin() + (long) lo, db.begin() + (long) hi + 1);
+            std::nth_element (nb.begin(), nb.begin() + (long) (nb.size() / 2), nb.end());
+            const double excess = db[k] - nb[nb.size() / 2];
+            if (excess >= 3.0) cand.push_back ({ excess, hz });
+        }
+        std::sort (cand.begin(), cand.end(), [] (auto& a, auto& b) { return a.first > b.first; });
+        for (const auto& c : cand)
+        {
+            bool far = true;
+            for (const auto& o : out) if (std::fabs (o.first - c.second) < 150.0) far = false;
+            if (far) out.push_back ({ c.second, c.first });
+            if (out.size() == 5) break;
+        }
+        std::sort (out.begin(), out.end());
+        return out;
     }
 
 private:

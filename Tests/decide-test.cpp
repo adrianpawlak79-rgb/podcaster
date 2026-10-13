@@ -93,6 +93,10 @@ static void addRoom (std::vector<float>& x, float amp, unsigned seed)
     for (auto& v : x) v += n (rng);
 }
 
+/** Pelna logika doboru (bez lagodnego profilu) — to, co sprawdzaja sekcje 1-9. */
+static mix::Decide::Wish zs_podcast() { mix::Decide::Wish w; w.where = mix::Decide::Destination::Podcast; return w; }
+static mix::Decide::Wish full() { mix::Decide::Wish w; w.studio = false; return w; }
+
 int main (int argc, char** argv)
 {
     if (argc < 2) { std::printf ("uzycie: decide-test mowa.wav\n"); return 1; }
@@ -111,7 +115,7 @@ int main (int argc, char** argv)
         std::printf ("1. mowa rowna, bez tla\n");
 
         auto x = speech (base, sr, 70.0);
-        const auto d = mix::Decide::listen (x, sr);
+        const auto d = mix::Decide::listen (x, sr, full());
 
         check (! d.params.useRider, "bez jazdy suwakiem", num (d.driftDb));
         check (! d.params.useDenoise, "bez odszumiania", "cisza cyfrowa");
@@ -131,7 +135,7 @@ int main (int argc, char** argv)
             x[i] *= (float) std::pow (10.0, (-10.0 * t) / 20.0);
         }
 
-        const auto d = mix::Decide::listen (x, sr);
+        const auto d = mix::Decide::listen (x, sr, full());
 
         check (d.params.useRider, "suwak wlaczony", num (d.driftDb));
         check (d.params.riderRangeDb > 5.0f, "zakres odpowiada odjazdowi",
@@ -157,7 +161,7 @@ int main (int argc, char** argv)
             x[i] *= (float) std::pow (10.0, db / 20.0);
         }
 
-        const auto d = mix::Decide::listen (x, sr);
+        const auto d = mix::Decide::listen (x, sr, full());
 
         check (! d.params.useRider || d.params.riderRangeDb < 3.0f,
                "suwak wylaczony albo ledwo rusza", num (d.driftDb));
@@ -172,7 +176,7 @@ int main (int argc, char** argv)
         auto x = speech (base, sr, 70.0);
         addRoom (x, 0.004f, 11);
 
-        const auto d = mix::Decide::listen (x, sr);
+        const auto d = mix::Decide::listen (x, sr, full());
 
         check (d.params.useDenoise, "odszumianie wlaczone",
                num (d.speechDb - d.noiseFloorDb) + " zapasu");
@@ -190,7 +194,7 @@ int main (int argc, char** argv)
         std::printf ("\n5. cel glosnosci\n");
 
         auto x = speech (base, sr, 70.0);
-        const auto d = mix::Decide::listen (x, sr);
+        const auto d = mix::Decide::listen (x, sr, full());
 
         const double expected = -1.0 - d.plr;
 
@@ -209,7 +213,7 @@ int main (int argc, char** argv)
         auto x = speech (base, sr, 70.0);
         addRoom (x, 0.004f, 5);
 
-        const auto d = mix::Decide::listen (x, sr);
+        const auto d = mix::Decide::listen (x, sr, full());
 
         bool allHaveNumber = true;
 
@@ -243,10 +247,10 @@ int main (int argc, char** argv)
         const auto boxy  = pushBand (x, sr, VoiceTone::Mud, 8.0, mudAt);
         const auto boomy = pushBand (x, sr, VoiceTone::Low, 8.0, lowAt);
 
-        const auto d0 = mix::Decide::listen (x, sr);
-        const auto dD = mix::Decide::listen (dark, sr);
-        const auto dB = mix::Decide::listen (boxy, sr);
-        const auto dL = mix::Decide::listen (boomy, sr);
+        const auto d0 = mix::Decide::listen (x, sr, full());
+        const auto dD = mix::Decide::listen (dark, sr, full());
+        const auto dB = mix::Decide::listen (boxy, sr, full());
+        const auto dL = mix::Decide::listen (boomy, sr, full());
 
         char g[160];
         std::snprintf (g, sizeof (g), "dol %.1f bloto %.1f obecnosc %.1f powietrze %.1f",
@@ -307,11 +311,11 @@ int main (int argc, char** argv)
                num (gapIn) + " -> " + num (gapOut));
 
         // Kreator mowil "za blisko": mniejszy margines, wiec mocniej przy tym samym nagraniu.
-        mix::Decide::Wish w;
+        mix::Decide::Wish w; w.studio = false;
         w.room.known = true;
         w.room.proximityDb = 0.0;
         const auto light = pushBand (x, sr, VoiceTone::Low, 2.5, lowAt);
-        const auto a = mix::Decide::listen (light, sr);
+        const auto a = mix::Decide::listen (light, sr, full());
         const auto b = mix::Decide::listen (light, sr, w);
         check (b.params.lowDb < a.params.lowDb && says (b, "za blisko"),
                "kreator 'za blisko' wzmacnia ciecie dolu",
@@ -326,15 +330,15 @@ int main (int argc, char** argv)
         auto weak = clean;   addTone (weak,   sr, 50.0, 0.0003f);   // ok. -70 dBFS
         auto strong = clean; addTone (strong, sr, 50.0, 0.05f);
 
-        mix::Decide::Wish w;
+        mix::Decide::Wish w; w.studio = false;
         w.room.known = true;
         w.room.humHz = 50.0;
         w.room.humExcessDb = 18.0;
 
-        const auto a = mix::Decide::listen (weak, sr);
+        const auto a = mix::Decide::listen (weak, sr, full());
         const auto b = mix::Decide::listen (weak, sr, w);
         const auto c = mix::Decide::listen (clean, sr, w);
-        const auto e = mix::Decide::listen (strong, sr);
+        const auto e = mix::Decide::listen (strong, sr, full());
 
         check (! a.params.deHum, "slaby przydzwiek bez kreatora: nie ruszamy", num (a.humDb));
         check (b.params.deHum && b.params.humHz == 50.0,
@@ -351,7 +355,7 @@ int main (int argc, char** argv)
         auto x = speech (base, sr, 20.0);
         addRoom (x, 0.004f, 3);
 
-        mix::Decide::Wish quiet, same;
+        mix::Decide::Wish quiet, same; quiet.studio = same.studio = false;
         quiet.room.known = true; quiet.room.noiseFloorDb = -75.0;
         same.room.known  = true;
 
@@ -363,6 +367,40 @@ int main (int argc, char** argv)
                "tlo o wiele glosniejsze: program o tym mowi", num (a.noiseFloorDb));
         check (! says (b, "głośniejsze niż przy sprawdzaniu"),
                "tlo jak przy sprawdzaniu: cisza", "");
+    }
+
+    // ---- 10. miks studyjny (domyslny) -------------------------------------------
+    {
+        std::printf ("\n10. miks studyjny — lancuch v3 z odsluchu 12.10\n");
+
+        auto x = speech (base, sr, 70.0);
+        addRoom (x, 0.003f, 7);                 // tlo ok. 30-40 dB pod mowa
+        const auto d = mix::Decide::listen (x, sr, zs_podcast());
+        const auto& p = d.params;
+
+        check (p.targetLufs == -19.0, "podcast: -19 LUFS", num (p.targetLufs, " LUFS"));
+        check (p.highpassHz == 75.0 && p.steepHighpass && p.preEq.size() == 3, "filtr dolu 75 Hz 24 dB/okt i trzy pasma odejmowania", "");
+        check (p.useGate && p.gateRatio == 2.0f && p.gateHoldMs >= 100.0 && p.gateThreshDb < d.speechDb - 20.0,
+               "ekspander lagodny, ponad 20 dB pod mowa", num (p.gateThreshDb - d.speechDb));
+        check (p.levelerRatio == 2.5f && p.peakRatio == 4.0f && p.peakThreshDb > p.levelerThreshDb, "dwa kompresory: wolny i szczytowy", "");
+        check (! p.useTame && p.useDeEsser && p.essMaxCutDb >= -3.0f, "de-esser lagodny zamiast tlumienia odchylen", "");
+        check (p.notchEq.size() <= 5, "najwyzej piec wyciec rezonansow", num ((double) p.notchEq.size(), ""));
+        bool narrow = true;
+        for (const auto& n : p.notchEq) narrow = narrow && n.hz >= 2000.0 && n.hz <= 7000.0 && n.db <= -2.0f && n.db >= -5.0f;
+        check (narrow, "wyciecia w 2-7 kHz, 2-5 dB", "");
+        check (! p.usePlosive && ! p.useDeClick && ! p.useTiltMatch && ! p.useSaturation && ! p.useRider,
+               "bez glosek, trzaskow, cofania barwy, nasycenia i suwaka", "");
+        check (! says (d, "Brama") && says (d, "studyjny"), "uzasadnienie opisuje ten miks", "");
+
+        // ton 3 kHz o 10 dB ponad widmem: ma byc znaleziony jako rezonans
+        auto r = x; addTone (r, sr, 3000.0, 0.02f);
+        const auto dr = mix::Decide::listen (r, sr, zs_podcast());
+        bool found = false;
+        for (const auto& n : dr.params.notchEq) found = found || std::fabs (n.hz - 3000.0) < 20.0;
+        check (found, "sztuczny rezonans 3 kHz znaleziony", "");
+
+        mix::Decide::Wish w = full(); w.where = mix::Decide::Destination::Podcast;
+        check (mix::Decide::listen (x, sr, w).params.targetLufs == -16.0, "pelna logika bez zmian: -16 LUFS", "");
     }
 
     std::printf ("\n%s\n\n", fails == 0 ? "wszystko przeszlo" : "SA BLEDY");
