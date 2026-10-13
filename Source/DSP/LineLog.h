@@ -80,6 +80,9 @@ struct LineMark
         je strzalkami w czasie odliczania. */
     double      cutFrom   = -1.0;
     bool        cutByHand = false;
+    /** Tylko przy wznowieniu po pauzie: koniec wyciecia jest znany dokladnie
+        (chwila wznowienia — w czasie pauzy nic sie nie zapisuje). -1 = szukac. */
+    double      cutTo     = -1.0;
 };
 
 class LineLog
@@ -119,6 +122,13 @@ public:
         auto& r = all.back();
         r.firstWord = m.firstWord; r.lastWord = m.lastWord; r.shown = m.shown; r.text = m.text;
         current = m.shown;
+    }
+
+    /** Koniec wyciecia ostatniego R, gdy jest znany (wznowienie po pauzie). */
+    void setLastCutTo (double sec)
+    {
+        if (all.empty() || all.back().source != LineSource::Retake) return;
+        all.back().cutTo = sec;
     }
 
     /** Punkt wyciecia ostatniego R (pre-roll, strzalki). */

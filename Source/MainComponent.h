@@ -462,7 +462,7 @@ public:
         const bool rec = recorder.isRecording();
         const auto name = recordingName();
         zs::ScreenFrame::paint (g, getLocalBounds(), name,
-            rec ? PL ("Spacja — stop i ocena") : preparation ? PL("Wybierz mikrofon i przygotuj tekst") : PL ("Nagraj, a potem odsłuchaj podejście"));
+            rec ? PL ("Spacja — pauza  ·  Esc — zakończ") : preparation ? PL("Wybierz mikrofon i przygotuj tekst") : PL ("Nagraj, a potem odsłuchaj podejście"));
         auto side = zs::ScreenFrame::sidebar (getLocalBounds());
         g.setColour (I::bar()); g.fillRect (side);
         g.setColour (I::edge()); g.drawVerticalLine (side.getX(), (float) side.getY(), (float) side.getBottom());
@@ -982,7 +982,7 @@ private:
         // Nagranie ocenia lampka, dlatego przycisk nie zmienia sie na czerwony.
         settingsOpen=false;
         recButton.setButtonText (PL("Zatrzymaj i oceń"));
-        zs::Look::setKey (recButton, PL ("Spacja"));
+        zs::Look::setKey (recButton, "Esc");
         resized();repaint();
         if (! inPrompter && isShowing()) grabKeyboardFocus();
         peakHold = 0.0f;
