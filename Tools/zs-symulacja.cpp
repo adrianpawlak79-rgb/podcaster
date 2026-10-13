@@ -7,6 +7,7 @@
 
       Recorder (zapis, TakeWatch, licznik sylab)  ->  lampka (LampLogic)
       prompter: Follower + PrompterLines + LineLog, R jak w PrompterComponent
+      transport: pauza, klik w wers, wznowienie (PauseCut.h) — przebieg C
       pre-roll po R (PreRoll.h), znaczki (LineGrade.h)
       po zatrzymaniu: wyciecie pomylek (PunchFile.h), ocena i miks (TakeReview.h)
 
@@ -32,12 +33,14 @@
 #include "DSP/LineGrade.h"
 #include "DSP/LineLog.h"
 #include "DSP/PreRoll.h"
+#include "DSP/PauseCut.h"
 #include "DSP/PrompterLines.h"
 #include "DSP/PrompterText.h"
 #include "DSP/SyllableClock.h"
 #include "DSP/TakeReview.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <map>
 #include <sstream>
@@ -513,6 +516,322 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
 
 }
 
+//==============================================================================
+/** Przebieg C: transport jak w DAW (PrompterComponent, Adrian 13.10).
+
+    Pauza w chwili R (scenariusz z syntezatora: klawisz R = pauza + biezacy wers
+    + wznowienie) albo — na prawdziwym glosie, gdzie R nie ma — w srodku co
+    trzeciego wersu i klik w ten wers. Na pauzie Recorder nic nie zapisuje;
+    czlowiek milczy do "Czytaj" (wejscie do tej chwili przepada), potem zapis
+    rusza. Od czerwonej linii (PauseCut.h — ten sam kod co w programie) do
+    chwili pauzy wypada. Sprawdzamy: linia w ciszy przed wersem, nic nie
+    zapisane na pauzie, po wycieciu nie brakuje dobrych slow. */
+static void passTransport (const std::vector<Truth>& truth, const std::string& text,
+                           const juce::AudioBuffer<float>& input, double sr, int len,
+                           const juce::File& dir, bool ideal, Report& rep)
+{
+    tw::PrompterText script;
+    script.set (text);
+    const auto spans = tw::lineSpans (script);
+    const double lagSec = 0.78;
+    auto firstWordOf = [&] (int line) { for (int i = 0; i < script.wordCount(); ++i) if (script.all()[(size_t) i].line == line) return i; return -1; };
+    auto lastWordOf  = [&] (int line) { int r = -1; for (int i = 0; i < script.wordCount(); ++i) if (script.all()[(size_t) i].line == line) r = i; return r; };
+    auto sourceLineOf = [&] (int shown)
+    {
+        return shown >= 0 && shown < (int) spans.size() ? script.all()[(size_t) spans[(size_t) shown].firstWord].line : -1;
+    };
+    auto shownOfSource = [&] (int line) { for (size_t k = 0; k < spans.size(); ++k) if (sourceLineOf ((int) k) == line) return (int) k; return -1; };
+    auto markFor = [&] (int shown, double sec, tw::LineSource src)
+    {
+        tw::LineMark m; m.sec = sec; m.shown = shown; m.source = src;
+        if (shown >= 0 && shown < (int) spans.size())
+        { m.firstWord = spans[(size_t) shown].firstWord; m.lastWord = spans[(size_t) shown].lastWord; }
+        return m;
+    };
+
+    bool vosk = true;                 // prawda z czasow slow Vosk (prawdziwy glos), nie ze scenariusza
+    for (const auto& t : truth) if (t.kind == "R") vosk = false;
+
+    // ---- gdzie czlowiek pauzuje ----------------------------------------------------
+    struct Stop { double at; int line; bool key; double resumeAt; };   // czasy w wejsciu
+    std::vector<Stop> stops;
+    std::vector<const Truth*> speech;
+    for (const auto& t : truth) if (t.kind == "mowa") speech.push_back (&t);
+    auto nextStartOf = [&] (int line, double after) { for (auto* t : speech) if (t->line == line && t->from > after) return t->from; return -1.0; };
+    for (const auto& t : truth)
+        if (t.kind == "R")
+        {
+            const double next = nextStartOf (t.line, t.from);
+            if (next > 0) stops.push_back ({ t.from, t.line, true, std::max (t.from, next - 0.4) });
+        }
+    if (stops.empty())
+        for (size_t k = 2; k + 1 < speech.size(); k += 3)
+        {
+            const auto* t = speech[k];
+            const double at = t->from + 0.6 * (t->to - t->from);
+            stops.push_back ({ at, t->line, false, std::max (at, speech[k + 1]->from - 0.4) });
+        }
+
+    // ---- nagrywanie --------------------------------------------------------------
+    const auto out = dir.getChildFile (ideal ? "wynik-transport-mowa" : "wynik-transport-sylaby");
+    out.deleteRecursively();
+    Recorder rec;
+    const int block = 512;
+    rec.prepareDevice (sr, block, 1);
+    std::vector<float> in (block, 0.0f), outBuf (block, 0.0f);
+    const float* inP[] = { in.data() };
+    float* outP[] = { outBuf.data() };
+    auto tick = [&] { rec.audioDeviceIOCallbackWithContext (inP, 1, outP, 1, block, {}); };
+    for (int k = 0; k < (int) (sr / block); ++k) tick();
+
+    tw::SyllableClock clock;
+    clock.prepare (sr);
+    clock.reset();
+    tw::Follower follower;
+    tw::LineLog lineLog;
+    rec.attachSyllableClock (&clock);
+    follower.begin (&script);
+    lineLog.begin();
+
+    const auto err = rec.start (out);
+    if (err.isNotEmpty()) { rep.line ("Nagrywanie nie ruszylo: " + err.toStdString()); ++rep.fails; return; }
+
+    std::vector<tw::HeardWord> heard;
+    struct Done { Stop stop; int line, proposed; double atRec, cutRec, firstGuess; double dropped; };
+    std::vector<Done> done;
+    size_t nextStop = 0;
+    bool paused = false;
+    double resumeAt = 0, dropped = 0;           // ile sekund wejscia przepadlo na pauzach
+    std::vector<std::pair<double, double>> droppedSpans;   // w czasie wejscia
+    auto toRecNow = [&] (double t)
+    {
+        double r = t;
+        for (const auto& d : droppedSpans) r -= std::max (0.0, std::min (t, d.second) - d.first);
+        return r;
+    };
+    const int frameLen = (int) (sr / 30.0);
+    int sinceFrame = 0;
+
+    for (int pos = 0; pos < len; pos += block)
+    {
+        const int n = std::min (block, len - pos);
+        const double tIn = (double) pos / sr;
+        if (paused && tIn >= resumeAt)
+        {
+            rec.resume();
+            paused = false;
+            droppedSpans.back().second = tIn;
+        }
+        std::fill (in.begin(), in.end(), 0.0f);
+        std::copy (input.getReadPointer (0) + pos, input.getReadPointer (0) + pos + n, in.begin());
+        tick();
+        if (paused) { dropped += (double) block / sr; continue; }
+
+        sinceFrame += block;
+        if (sinceFrame < frameLen) continue;
+        sinceFrame -= frameLen;
+
+        const double now = rec.recordedSeconds();
+        follower.advance (now, clock.takeNewSyllables(), clock.pauseLength());
+        if (ideal)
+            for (const auto& t : truth)
+                if (t.kind == "mowa" && tIn - lagSec >= t.from && tIn - lagSec < t.to)
+                {
+                    const int a = firstWordOf (t.line), b = lastWordOf (t.line);
+                    if (a < 0) break;
+                    const double span = (t.what == "pomylka" ? 0.6 : 1.0) * (b - a + 1);
+                    const double word = a + span * (tIn - lagSec - t.from) / (t.to - t.from);
+                    follower.syncTo (tw::syllableAtWord (script, word));
+                    const int w = (int) word - 1;
+                    if (w >= a && (heard.empty() || heard.back().word != w)) heard.push_back ({ now, w });
+                    break;
+                }
+        const int shown = tw::lineToShow (spans, script, follower.syllablePosition());
+        lineLog.observe (markFor (shown, now, ideal ? tw::LineSource::Words : tw::LineSource::Syllables));
+
+        if (nextStop < stops.size() && tIn >= stops[nextStop].at)
+        {
+            const auto st = stops[nextStop++];
+            // PrompterComponent::pauseRecording
+            rec.pause();
+            paused = true;
+            const double atSec = rec.recordedSeconds();
+            double histStart = 0.0;
+            const auto hist = rec.recentAudio (300.0, histStart);
+            const auto cuts = tw::PauseCut::silences (hist, sr, histStart);
+            // R: wers z prompteru (repeatLine). Bez rozpoznawania mowy R tylko
+            // proponuje i czeka — czlowiek widzi tekst i klika wlasciwy wers.
+            const int proposed = tw::lineOfWord (spans, tw::repeatLineStart (spans, follower.currentWord()));
+            const int line = st.key && ideal ? proposed : shownOfSource (st.line);
+            double cut = std::clamp (tw::PauseCut::forLine (lineLog.marks(), markFor (line, atSec, tw::LineSource::Retake),
+                                                            hist, sr, histStart, heard, cuts),
+                                     histStart, atSec);
+            const double firstGuess = cut;
+            if (std::getenv ("ZS_DEBUG"))
+            {
+                auto tmp = lineLog.marks(); tmp.push_back (markFor (line, atSec, tw::LineSource::Retake));
+                const auto pl = tw::PreRoll().plan (tmp, hist, sr, histStart, &heard);
+                std::fprintf (stderr, "pauza %.2f wers %d (shown %d, words %d-%d) plan %s %.2f est %.2f\n", atSec, st.line, line,
+                              spans[(size_t) line].firstWord, spans[(size_t) line].lastWord,
+                              pl.audio.empty() ? "pusty" : "jest", pl.toSec,
+                              tw::PauseCut::lineStart (spans[(size_t) line].firstWord, spans[(size_t) line].lastWord, atSec, heard, lineLog.marks()));
+                for (const auto& h : heard) if (h.sec > atSec - 6) std::fprintf (stderr, "  slowo %d @ %.2f\n", h.word, h.sec);
+                for (const auto& m : lineLog.marks()) if (m.sec > atSec - 8) std::fprintf (stderr, "  znacznik shown %d first %d @ %.2f src %d\n", m.shown, m.firstWord, m.sec, (int) m.source);
+                for (auto c : cuts) if (c > atSec - 8) std::fprintf (stderr, "  cisza %.2f\n", c);
+            }
+            // Bez rozpoznawania mowy program nie wie, gdzie w nagraniu zaczyna
+            // sie wers — czlowiek widzi czerwona linie w zlym miejscu i klika
+            // w fale przy wlasciwej przerwie (nie idealnie: 0,25 s w glab mowy).
+            if (! ideal)
+            {
+                // klika w srodek przerwy przed wersem, ktora widzi na fali
+                double lineStart = -1, prevEnd = 0;
+                for (auto* t : speech) { if (t->line == st.line) { lineStart = t->from; break; } prevEnd = t->to; }
+                const double gapRec = toRecNow (0.5 * (std::max (prevEnd, lineStart - 0.6) + lineStart));
+                // poprawia, gdy czerwona linia wyraznie nie stoi w tej przerwie
+                if (cut < toRecNow (prevEnd) - 0.15 || cut > toRecNow (lineStart) + 0.15)
+                    cut = std::clamp (tw::PauseCut::nearest (gapRec, cuts, atSec, hist, sr, histStart), histStart, atSec);
+            }
+            // finishResume
+            lineLog.restart (markFor (line, atSec, tw::LineSource::Retake), tw::LineSource::Retake);
+            lineLog.setLastCut (cut, true);
+            lineLog.setLastCutTo (atSec);
+            follower.repeatFrom (spans[(size_t) line].firstWord);
+            resumeAt = st.resumeAt;
+            droppedSpans.push_back ({ tIn, tIn });
+            done.push_back ({ st, sourceLineOf (line), sourceLineOf (proposed), atSec, cut, firstGuess, dropped });
+        }
+    }
+    if (paused) rec.resume();
+
+    const auto raw = rec.currentFile();
+    const double recordedSec = rec.recordedSeconds();
+    rec.stop();
+    rec.attachSyllableClock (nullptr);
+
+    // czas wejscia -> czas nagrania (pauzy nic nie zapisaly)
+    auto toRec = [&] (double t)
+    {
+        double r = t;
+        for (const auto& d : droppedSpans)
+            r -= std::max (0.0, std::min (t, d.second) - d.first);
+        return r;
+    };
+
+    std::vector<float> recorded;
+    {
+        juce::WavAudioFormat wf;
+        std::unique_ptr<juce::AudioFormatReader> r (wf.createReaderFor (raw.createInputStream().release(), true));
+        if (r != nullptr)
+        {
+            juce::AudioBuffer<float> b ((int) r->numChannels, (int) r->lengthInSamples);
+            r->read (&b, 0, b.getNumSamples(), 0, true, true);
+            recorded.assign (b.getReadPointer (0), b.getReadPointer (0) + b.getNumSamples());
+        }
+    }
+    auto rmsDb = [&] (double from, double to)
+    {
+        const size_t a = (size_t) std::max (0.0, from * sr), b = std::min (recorded.size(), (size_t) std::max (0.0, to * sr));
+        double e = 0; for (size_t i = a; i < b; ++i) e += (double) recorded[i] * recorded[i];
+        return b > a ? 10.0 * std::log10 (e / (double) (b - a) + 1e-20) : -200.0;
+    };
+    double speechDb = 0; int speechN = 0;
+    for (auto* t : speech) if (t->what == "dobrze" && t->to < (double) len / sr) { speechDb += rmsDb (toRec (t->from), toRec (t->to)); ++speechN; }
+    speechDb = speechN ? speechDb / speechN : -20.0;
+
+    auto marks = lineLog.marks();
+    const auto punched = zs::applyPunch (raw, marks, heard, true, {});
+
+    rep.line (ideal ? "# Przebieg C: transport (pauza, wybór wersu) — z rozpoznawaniem mowy"
+                    : "# Przebieg C: transport (pauza, wybór wersu) — na samych sylabach");
+    rep.line();
+    rep.line ("Pauza w chwili R (klawisz R: pauza + bieżący wers + wznowienie; bez rozpoznawania mowy R tylko "
+              "proponuje wers i czeka, człowiek klika właściwy) albo, na prawdziwym głosie, "
+              "w 60% co trzeciego wersu i klik w ten wers. Na pauzie człowiek milczy do „Czytaj”. "
+              "Czerwona linia z `PauseCut.h` — ten sam kod co w programie.");
+    rep.line();
+    rep.line ("| | pauza | wers (chciany → program) | linia cięcia | pauza przed wersem | głośność na linii | próg |");
+    rep.line ("|---|---|---|---|---|---|---|");
+    for (const auto& d : done)
+    {
+        // pierwsze podejscie do tego wersu i koniec mowy przed nim
+        double lineStart = -1, prevEnd = 0;
+        for (auto* t : speech)
+        {
+            if (t->line == d.stop.line) { lineStart = t->from; break; }
+            prevEnd = t->to;
+        }
+        const double ls = toRec (lineStart), pe = toRec (prevEnd);
+        const double level = rmsDb (d.cutRec - 0.04, d.cutRec + 0.04) - speechDb;
+        const bool lineOk = d.line == d.stop.line;
+        // Prawda z syntezatora jest dokladna; z prawdziwego glosu to czasy slow
+        // z Vosk (blad: dziesiate czesci sekundy), a miedzy wersami lektor
+        // czesto nie robi ciszy — wystarczy dolek blisko poczatku wersu.
+        const bool inGap = vosk ? (d.cutRec >= pe - 0.3 && d.cutRec <= ls + 0.3)
+                                : (d.cutRec >= pe - 0.05 && d.cutRec <= ls + 0.02);
+        std::string how = d.stop.key ? (ideal ? " (R)" : " (R, proponował wers " + std::to_string (d.proposed + 1) + ", klik w wers")
+                                      : " (klik w wers";
+        if (! ideal || ! d.stop.key)
+            how += std::fabs (d.firstGuess - d.cutRec) > 0.01 ? ", linia " + f2 (d.firstGuess) + " s → klik w falę)" : ")";
+        // Na prawdziwym glosie lektor czesto czyta bez przerw (najglebszy dolek
+        // 5–9 dB pod mowa) — wtedy liczy sie, czy wybralismy NAJCICHSZE miejsce
+        // w poblizu, a nie wartosc bezwzgledna.
+        double quietestNear = 1.0e9;
+        for (double q = pe - 0.3; q <= ls + 0.3; q += 0.01) quietestNear = std::min (quietestNear, rmsDb (q - 0.04, q + 0.04) - speechDb);
+        const bool quietOk = vosk ? level <= std::max (-12.0, quietestNear + 3.0) : level <= -20.0;
+        rep.check (lineOk && inGap && quietOk, f1 (d.stop.at) + " s" + how,
+                   std::to_string (d.stop.line + 1) + " → " + std::to_string (d.line + 1) + " | "
+                   + f2 (d.cutRec) + " s | " + f2 (pe) + "–" + f2 (ls) + " | " + f1 (level) + " dB"
+                   + (vosk ? " (najciszej obok " + f1 (quietestNear) + ")" : ""),
+                   vosk ? "ten sam wers, ±0,3 s od przerwy (czasy z Vosk), ≤ −12 dB pod mową albo ≤ 3 dB od najcichszego miejsca obok"
+                        : "ten sam wers, linia w pauzie, ≤ −20 dB pod mową");
+    }
+    rep.line();
+
+    // ---- po zatrzymaniu --------------------------------------------------------------
+    auto overlap = [] (double a0, double a1, double b0, double b1) { return std::max (0.0, std::min (a1, b1) - std::max (a0, b0)); };
+    double lostGood = 0, mistake = 0, mistakeCut = 0, cutTotal = 0;
+    for (const auto& c : punched.plan) cutTotal += c.to - c.from;
+    for (auto* t : speech)
+    {
+        if (t->to > (double) len / sr) continue;
+        const double a = toRec (t->from), b = toRec (t->to);
+        double cut = 0;
+        for (const auto& c : punched.plan) cut += overlap (a, b, c.from, c.to);
+        // wers przerwany pauza na prawdziwym glosie: czlowiek go powtorzy — wolno wyciac
+        bool redone = t->what == "pomylka";
+        for (const auto& d : done) if (! d.stop.key && t->line == d.stop.line && d.stop.at >= t->from && d.stop.at <= t->to) redone = true;
+        if (redone)
+        {
+            // przerwany wers: do wyciecia jest tylko to, co nagrane do pauzy
+            double end = b;
+            for (const auto& d : done) if (! d.stop.key && t->line == d.stop.line) end = std::min (end, d.atRec);
+            mistake += std::max (0.0, end - a); mistakeCut += std::min (cut, std::max (0.0, end - a));
+        }
+        else lostGood += cut;
+    }
+    const double expectRec = (double) len / sr - dropped;
+    rep.line ("| | co | wynik | próg |");
+    rep.line ("|---|---|---|---|");
+    rep.check (std::fabs (recordedSec - expectRec) <= 0.05, "na pauzie nic się nie zapisało",
+               f2 (recordedSec) + " s nagrania z " + f2 ((double) len / sr) + " s wejścia, pauzy " + f2 (dropped) + " s", "różnica ≤ 0,05 s");
+    rep.check (punched.applied, "plik po wycięciu powstał", punched.applied ? "tak, cięć: " + std::to_string (punched.cuts) : "nie: " + punched.error.toStdString(), "tak");
+    rep.check (mistakeCut >= 0.95 * mistake, "powtarzane kawałki wycięte", f2 (mistakeCut) + " z " + f2 (mistake) + " s", "≥ 95%");
+    const double lostMax = vosk ? 0.3 * (double) done.size() : 0.05;
+    rep.check (lostGood <= lostMax, "wycięte z dobrego czytania (zgubione słowa)", f2 (lostGood) + " s",
+               vosk ? "≤ 0,3 s na pauzę (czasy z Vosk)" : "≤ 0,05 s");
+    if (vosk)
+        rep.line ("| ℹ️ | słyszalne szwy (zmiana tła) | " + std::to_string (punched.audibleSeams)
+                  + " | tło audiobooka jest obrobione (bramki, cisza cyfrowa) — nie oceniamy |");
+    else
+        rep.check (punched.audibleSeams == 0, "słyszalne szwy (zmiana tła)", std::to_string (punched.audibleSeams), "0");
+    for (const auto& sk : punched.skipped)
+        rep.line ("| ℹ️ | nie wycięte " + f2 (sk.cut.from) + "–" + f2 (sk.cut.to) + " s | " + sk.why + " | |");
+    rep.line();
+    rep.line ("Razem wycięto " + f2 (cutTotal) + " s.");
+    rep.line();
+}
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
@@ -542,6 +861,8 @@ int main (int argc, char** argv)
 
     pass (truth, text, input, sr, len, dir, false, rep);
     pass (truth, text, input, sr, len, dir, true,  rep);
+    passTransport (truth, text, input, sr, len, dir, false, rep);
+    passTransport (truth, text, input, sr, len, dir, true,  rep);
 
     rep.line ("---");
     rep.line ("**Wynik: " + std::to_string (rep.checks - rep.fails) + " z " + std::to_string (rep.checks) + " sprawdzeń zgodnych z prawdą.**");

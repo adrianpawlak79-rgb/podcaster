@@ -41,6 +41,7 @@
 #include "DSP/Follower.h"
 #include "DSP/LineLog.h"
 #include "DSP/PreRoll.h"
+#include "DSP/PauseCut.h"
 #include "DSP/EditedView.h"
 #include "DSP/LineGrade.h"
 #include "PunchFile.h"
@@ -238,51 +239,20 @@ public:
         pz.rate = recorder.currentSampleRate();
         pz.history = recorder.recentAudio (300.0, pz.historyStart);
         pz.viewEnd = pz.atSec;
-        if (! pz.history.empty() && pz.rate > 0.0)
-        {
-            tw::CutFinder f;
-            f.analyse (pz.history.data(), pz.history.size(), pz.rate);
-            for (const auto& q : f.pauses())
-                pz.cuts.push_back (pz.historyStart + std::max (q.first, q.second - 0.15));
-        }
+        pz.cuts = tw::PauseCut::silences (pz.history, pz.rate, pz.historyStart);
         updateTransport();
         repaint();
     }
 
     /** Poczatek wersu w nagraniu (szacunek): pierwsze uslyszane slowo tego wersu
         w biezacym podejsciu, inaczej znacznik wersu. */
-    double lineStartEstimate (int line) const
-    {
-        if (line < 0 || line >= (int) lines.size()) return pz.atSec;
-        const int first = lines[(size_t) line].firstWord, last = lines[(size_t) line].lastWord;
-        double best = 1.0e9;
-        for (const auto& h : heardWords)
-            if (h.word >= first && h.word <= last && h.sec <= pz.atSec)
-                best = std::min (best, h.sec - tw::Punch().heardLagSec);
-        if (best < 1.0e8) return best;
-        for (const auto& m : lineLog.marks())
-            if (m.firstWord == first && m.source != tw::LineSource::Retake) best = m.sec;
-        return best < 1.0e8 ? best : pz.atSec;
-    }
-
-    /** Klik w wers na pauzie: linia w ciszy przed tym wersem. */
+    /** Klik w wers na pauzie: linia w ciszy przed tym wersem (PauseCut.h —
+        ten sam kod sprawdza symulacja). */
     void selectLine (int line, bool preview = true)
     {
         if (! pz.on || pz.resuming || line < 0 || line >= (int) lines.size() || line > shownLine) return;
-
-        auto tmp = lineLog.marks();
-        tmp.push_back (markFor (line, pz.atSec, tw::LineSource::Retake));
-        const auto plan = tw::PreRoll().plan (tmp, pz.history, pz.rate, pz.historyStart, &heardWords);
-
-        double cut = -1.0;
-        if (! plan.audio.empty()) cut = plan.toSec;
-        else
-        {
-            // bez pewnej propozycji: ostatnia cisza przed szacowanym poczatkiem wersu
-            const double est = lineStartEstimate (line);
-            for (auto c : pz.cuts) if (c <= est + 0.05) cut = c;
-            if (cut < 0.0) cut = est;
-        }
+        const double cut = tw::PauseCut::forLine (lineLog.marks(), markFor (line, pz.atSec, tw::LineSource::Retake),
+                                                  pz.history, pz.rate, pz.historyStart, heardWords, pz.cuts);
         setSelection (cut, line, preview);
     }
 
@@ -290,9 +260,7 @@ public:
     void selectTime (double t)
     {
         if (! pz.on || pz.resuming) return;
-        double best = t, dist = 1.0e9;
-        for (auto c : pz.cuts) if (std::abs (c - t) < dist) { dist = std::abs (c - t); best = c; }
-        best = std::min (best, pz.atSec);
+        const double best = tw::PauseCut::nearest (t, pz.cuts, pz.atSec, pz.history, pz.rate, pz.historyStart);
         int line = shownLine;
         for (const auto& h : heardWords)
             if (h.sec - tw::Punch().heardLagSec >= best - 0.05) { line = tw::lineOfWord (spans, h.word); break; }
@@ -392,7 +360,12 @@ public:
     }
 
     /** "Powtorz wers" (R albo przycisk): pauza, linia przed biezacym wersem i od
-        razu Nagraj (pre-roll, odliczanie). Bez nagrania — tylko cofa tekst. */
+        razu Nagraj (pre-roll, odliczanie). Bez nagrania — tylko cofa tekst.
+
+        Bez pewnej pozycji z rozpoznanych slow R tylko pauzuje i proponuje
+        linie — wznawia czlowiek (spacja), gdy zobaczy, ze to dobre miejsce.
+        Symulacja (przebieg C, same sylaby): licznik sylab potrafi byc dwa
+        wersy obok i automatyczne wznowienie wycinalo dobre czytanie. */
     void repeatLine()
     {
         if (spans.empty()) return;
@@ -405,10 +378,11 @@ public:
             return;
         }
         if (pz.resuming) return;
+        const bool sure = listening && words.hasLock (recorder.recordedSeconds());
         if (! pz.on) pauseRecording();
         const int from = tw::repeatLineStart (spans, follower.currentWord());
-        selectLine (tw::lineOfWord (spans, from), false);
-        if (pz.selected) resumeRecording();
+        selectLine (tw::lineOfWord (spans, from), ! sure);
+        if (pz.selected) { if (sure) resumeRecording(); }
         else { recorder.resume(); pz = {}; updateTransport(); }
     }
 

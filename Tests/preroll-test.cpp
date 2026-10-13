@@ -13,6 +13,7 @@
 #include "../Source/DSP/PreRoll.h"
 #include "../Source/DSP/Punch.h"
 #include "../Source/DSP/EditedView.h"
+#include "../Source/DSP/PauseCut.h"
 
 #include <cmath>
 #include <cstdio>
@@ -242,6 +243,36 @@ int main()
         check (tw::EditedView::hidden (7.0, spans) && ! tw::EditedView::hidden (8.0, spans), "wycinek ukryty, koniec nie");
         const auto pending = tw::EditedView::render (h, 0.0, rate, 10.0, { { 6.0, 1.0e9 } }, 5.0);
         check (pending.back() == 599.0f, "w czasie odliczania fala konczy sie na miejscu ciecia");
+    }
+
+    // ---- 1f. transport: klik w wers na glosie bez przerw (PauseCut.h) --------------------
+    // Symulacja na lektorach Wolnych Lektur: miedzy wersami czesto nie ma ciszy, tylko
+    // dolek na 40 ms. Program cofal sie wtedy do OSTATNIEJ ciszy — wers albo dwa
+    // wczesniej — i wycinal dobre czytanie.
+    std::printf ("\n  1f. transport: wers bez przerwy przed nim\n");
+    {
+        Gen h;
+        h.silence (2.0);
+        const double far = h.now();
+        h.silence (1.0);                                   // jedyna prawdziwa cisza
+        const double a0 = h.now(); h.syllables (16, 180);  // wers 0, ~3 s
+        const double b0 = h.now(); h.syllables (12, 220);  // wers 1 zaraz po nim
+        const double k = h.now();
+
+        std::vector<tw::LineMark> m { mark (0, a0 + 0.78, tw::LineSource::Words), mark (1, b0 + 0.78, tw::LineSource::Words) };
+        const double lag = pre.heardLagSec;
+        const std::vector<tw::HeardWord> heard { { b0 - 0.1 + lag, 5 }, { b0 + 0.35 + lag, 6 }, { b0 + 0.9 + lag, 7 } };
+        const auto cuts = tw::PauseCut::silences (h.x, sr, 0.0);
+        const double cut = tw::PauseCut::forLine (m, mark (1, k, tw::LineSource::Retake), h.x, sr, 0.0, heard, cuts);
+        check (std::fabs (cut - b0) < 0.06, "linia w dolku tuz przed wersem", num (cut - b0));
+        check (cut > far + 1.0, "nie cofa sie do dalekiej ciszy (wers wczesniej)", num (cut - far));
+
+        // klik w fale daleko od ciszy: zostaje przy kliknieciu, w najblizszym dolku
+        const double click = b0 + 0.02;
+        const double near = tw::PauseCut::nearest (click, cuts, k, h.x, sr, 0.0);
+        check (std::fabs (near - b0) < 0.06, "klik w fale bez ciszy obok: najblizszy dolek", num (near - b0));
+        const double snap = tw::PauseCut::nearest (a0 - 0.2, cuts, k, h.x, sr, 0.0);
+        check (snap < a0 && snap > far, "klik 0,2 s od ciszy: przyciaga do niej", num (snap - a0));
     }
 
     // ---- 2. pamiec zaczyna sie pozniej niz nagranie -------------------------------------
