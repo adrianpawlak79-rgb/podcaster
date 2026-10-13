@@ -211,9 +211,15 @@ int main()
            "R bez tekstu albo bez nagrania nic nie robi", "");
     check (keyAction (false, U'l', true, true) == KeyAction::None, "inne klawisze zostaja prompterowi", "");
 
+    check (keyAction (false, U' ', true, true) == KeyAction::StartStop
+               && keyAction (false, U' ', false, false) == KeyAction::StartStop,
+           "spacja: start i stop (jak w DAW)", "");
+
     const auto recHints = hintLine (true, true);
-    check (recHints.find ("Esc") != std::string::npos && recHints.find ("R \xe2\x80\x94 powt") != std::string::npos,
-           "pasek w trakcie nagrania mowi o Esc i R", recHints);
+    check (recHints.find ("Spacja") != std::string::npos && recHints.find ("R \xe2\x80\x94 powt") != std::string::npos,
+           "pasek w trakcie nagrania mowi o spacji i R", recHints);
+    check (hintLine (false, true).find ("Spacja") != std::string::npos && hintLine (false, false).find ("Spacja") != std::string::npos,
+           "przed nagraniem tez podpowiada spacje", hintLine (false, false));
     check (hintLine (true, false).find ("R \xe2\x80\x94") == std::string::npos,
            "bez tekstu nie podpowiada R", hintLine (true, false));
 

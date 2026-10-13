@@ -199,11 +199,14 @@ namespace review
     poczatek wersu, ktory sie wlasnie pomylilo: czytasz go jeszcze raz, a
     nagranie leci dalej, bo dogrywka jednego wersu nie jest powodem, zeby
     zaczynac caly plik od nowa. */
-enum class KeyAction { None, StopAndReview, RepeatLine, LeavePrompter };
+enum class KeyAction { None, StopAndReview, RepeatLine, LeavePrompter, StartStop };
 
 inline KeyAction keyAction (bool isEscape, char32_t ch, bool recording, bool hasScript)
 {
     if (isEscape) return recording ? KeyAction::StopAndReview : KeyAction::LeavePrompter;
+
+    // Spacja: start i stop, jak w kazdym DAW (Adrian 13.10).
+    if (ch == U' ') return KeyAction::StartStop;
 
     if ((ch == U'r' || ch == U'R') && recording && hasScript)
         return KeyAction::RepeatLine;
@@ -217,12 +220,12 @@ inline KeyAction keyAction (bool isEscape, char32_t ch, bool recording, bool has
 inline std::string hintLine (bool recording, bool hasScript)
 {
     if (recording)
-        return hasScript ? "Esc — zatrzymaj i oceń   ·   R — powtórz wers   ·   ↑ ↓ — popraw miejsce"
-                         : "Esc — zatrzymaj i oceń";
+        return hasScript ? "Spacja — stop i ocena   ·   R — powtórz wers   ·   ↑ ↓ — popraw miejsce"
+                         : "Spacja — stop i ocena";
 
-    return hasScript ? "strzałki — popraw miejsce   ·   Home — na początek   ·   "
+    return hasScript ? "Spacja — nagrywaj   ·   strzałki — popraw miejsce   ·   Home — na początek   ·   "
                        "+ / − — wielkość tekstu   ·   L — lustro   ·   Esc — wyjdź"
-                     : "Naciśnij Nagraj, kiedy zechcesz zacząć";
+                     : "Spacja albo Nagraj — zacznij nagrywać";
 }
 
 } // namespace ui

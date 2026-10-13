@@ -445,6 +445,7 @@ public:
         prompter->onClose=[this]{showPrompter(false);};
         prompter->setSpeech(&speech);
         prompter->onStopRequest=[this]{ if(recorder.isRecording()) toggleRecord(); };
+        prompter->onStartStop=[this]{ startStop(); };
         prompter->onRetake=[this]{ logic.afterCut(); };
         addAndMakeVisible(*prompter);
         prompter->load(PL("Dziś porozmawiamy o tym, co naprawdę warto usłyszeć.\nZatrzymaj się na chwilę. Weź spokojny oddech.\nTo jest Twoje miejsce i Twój głos.\nNie musisz się spieszyć. Dobra opowieść potrzebuje czasu."));
@@ -461,7 +462,7 @@ public:
         const bool rec = recorder.isRecording();
         const auto name = recordingName();
         zs::ScreenFrame::paint (g, getLocalBounds(), name,
-            rec ? PL ("Esc — zatrzymaj i oceń") : preparation ? PL("Wybierz mikrofon i przygotuj tekst") : PL ("Nagraj, a potem odsłuchaj podejście"));
+            rec ? PL ("Spacja — stop i ocena") : preparation ? PL("Wybierz mikrofon i przygotuj tekst") : PL ("Nagraj, a potem odsłuchaj podejście"));
         auto side = zs::ScreenFrame::sidebar (getLocalBounds());
         g.setColour (I::bar()); g.fillRect (side);
         g.setColour (I::edge()); g.drawVerticalLine (side.getX(), (float) side.getY(), (float) side.getBottom());
@@ -554,6 +555,7 @@ public:
                                           recorder.isRecording(), inPrompter && prompter != nullptr && prompter->hasText());
 
         if (a == zs::ui::KeyAction::StopAndReview) { toggleRecord(); return true; }
+        if (a == zs::ui::KeyAction::StartStop && startStop()) return true;
         if (a == zs::ui::KeyAction::RepeatLine) { repeatLine(); return true; }
         return false;
     }
@@ -901,6 +903,17 @@ private:
             prompter->repeatLine();
     }
 
+    /** Spacja: start i stop — tylko tam, gdzie widac przycisk Nagraj (ekran
+        nagrywania), zeby spacja w polu tekstu czy w ustawieniach nie startowala
+        nagrania. */
+    bool startStop()
+    {
+        if (! recorder.isRecording() && ! recButton.isShowing()) return false;
+        if (! recorder.isRecording() && ! recButton.isEnabled()) return false;
+        toggleRecord();
+        return true;
+    }
+
     void toggleRecord()
     {
         if (recorder.isRecording())
@@ -969,7 +982,7 @@ private:
         // Nagranie ocenia lampka, dlatego przycisk nie zmienia sie na czerwony.
         settingsOpen=false;
         recButton.setButtonText (PL("Zatrzymaj i oceń"));
-        zs::Look::setKey (recButton, "Esc");
+        zs::Look::setKey (recButton, PL ("Spacja"));
         resized();repaint();
         if (! inPrompter && isShowing()) grabKeyboardFocus();
         peakHold = 0.0f;
@@ -1340,6 +1353,7 @@ private:
             prompter->onClose = [this] { showPrompter (false); };
             prompter->setSpeech (&speech);
             prompter->onStopRequest = [this] { if (recorder.isRecording()) toggleRecord(); };
+            prompter->onStartStop = [this] { startStop(); };
             addChildComponent (*prompter);
         }
     }
