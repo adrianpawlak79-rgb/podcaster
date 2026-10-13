@@ -377,3 +377,58 @@ automatycznie — obraz programu nagrywa się bez człowieka (tak jak dziś zrzu
 Po zadaniach 4 (punch and roll) i 3.5 / 6 (ekran zapisu, ustawienia) — inaczej film pokaże
 ekrany, które za chwilę się zmienią. Wcześniej można zrobić krok 2 (tryb pokazowy), bo nie
 zależy od wyglądu.
+
+---
+
+## 10. Nowy przebieg nagrywania: spacja = pauza, R, kliknięcie wersu (ustalone 13.10)
+
+Po teście 13.10 Adrian: „z R-ką i nadpisywaniem zrobił się straszny burdel”. Za dużo naraz
+(strzałki, Enter, dymki, zamrażanie fali, żółte znaczniki). Nowa zasada: **trzy klawisze —
+spacja, R, Esc — reszta to klikanie tego, co widać.** Najpierw szkic w kadrach do akceptacji
+Adriana, potem kod.
+
+- **Spacja = pauza / wznów** (jak transport w DAW). Na pauzie: fala całego nagrania
+  (przewijana), klik w wers prompterem albo w miejsce na fali = „nagrywam od tego miejsca”
+  (program od razu gra końcówkę przed szwem). Spacja: pre-roll, 3-2-1, nagrywanie od
+  wybranego miejsca; nic nie wybrane = wznowienie tam, gdzie przerwano.
+- **R = skrót**: pauza + cofnięcie do początku bieżącego wersu + automatyczne wznowienie.
+  R jeszcze raz w odliczaniu = o wers wcześniej. Program nigdy nie czeka na decyzję.
+- **Klik wersu w prompterze** także w trakcie nagrywania = powtórz od tego wersu.
+- **Klik w falę** = drobna poprawka miejsca cięcia (do najbliższej ciszy), opcjonalna.
+- **Esc albo „Zakończ”** = koniec nagrania → Odsłuch i montaż.
+- Na fali „nadpisanie”: pomyłka znika, nowe czytanie za szwem (#59). Zawsze widać, że
+  nagrywanie trwa albo jest pauza.
+- Do wycofania z obecnego R: strzałki ← → ↑ ↓, Enter, Backspace, dymki, zamrażanie fali.
+  Szkic żółtego znacznika na gałęzi `claude/r-propozycja` — odłożony.
+
+## 11. „Odsłuch i montaż” w jednym kroku, miks z presetami na końcu (ustalone 13.10)
+
+Adrian: odsłuch i montaż się zlały, a miks pojawiał się w środku drogi. Kroki:
+**Przygotowanie → Nagranie → Odsłuch i montaż → Miks i zapis.**
+
+- **Odsłuch i montaż**: nagranie po cięciach z R, odsłuch szwów, przycięcie początku
+  i końca, wycięcie fragmentu — wszystko na surowym głosie, bez miksu.
+- **Miks i zapis**: trzy presety — **Delikatny** (B1), **Studyjny** (v3, domyślny),
+  **Mocny** (bardziej „radiowy”, do zrobienia i odsłuchu na nagraniu Adriana); wszystkie
+  o tej samej głośności (uczciwe porównanie), liczone w tle już w czasie montażu;
+  przed / po; „Szczegóły miksu” dla zaawansowanych.
+
+## 12. Polecenia głosowe w trakcie nagrywania
+
+„Powtórz”, „pauza”, „wznów”, „koniec” zamiast R / spacji / Esc — ręce wolne od klawiatury.
+Rozpoznawanie (Vosk) już działa przez całe nagranie. Do rozwiązania: odróżnienie polecenia
+od czytanego tekstu (hasło przed poleceniem albo słowo spoza promptera po pauzie). Polecenie
+i tak wypada z nagrania. Po zadaniu 10.
+
+## 13. Głos asystenta — nagrany przez Adriana
+
+Głos programu podpowiada obsługę tam, gdzie trzeba coś zrobić albo zdecydować: kreator,
+pauza i wybór miejsca, odsłuch i montaż, wybór miksu, zapis, ostrzeżenia. **W trakcie
+czytania milczy.** Tylko w słuchawkach.
+
+- Zdania nagrywa Adrian swoim głosem (zamiast ElevenLabs: naturalniej, pełne prawa do
+  sprzedaży) — każde w osobnym pliku, jedno posiedzenie, ten sam mikrofon.
+- Zasady: jedno krótkie zdanie; raz na sytuację (klawisz pomocy powtarza); poziomy
+  „pierwsze kroki” / „doświadczony” / wyłączony (ustawienia).
+- Tabela zdań z nazwami plików — **po ustaleniu ekranów z zadań 10 i 11**, żeby zdania
+  pasowały 1:1. Pierwszy szkic zdań: rozmowa 13.10.
