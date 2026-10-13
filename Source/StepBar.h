@@ -26,6 +26,7 @@ public:
     void paint (juce::Graphics& g) override
     {
         if (steps.isEmpty()) return;
+        if (getHeight() > getWidth()) { paintVertical (g); return; }
 
         const int gap = 6;
         const auto widths = ui::stepWidths (getWidth(), steps.size(), gap);
@@ -78,6 +79,47 @@ public:
     }
 
 private:
+    /** Lewa kolumna (uklad z projektu ChatGPT, 13.10): kroki jeden pod drugim,
+        biezacy w kolorze akcentu, zrobione ze znaczkiem. */
+    void paintVertical (juce::Graphics& g)
+    {
+        const int rowH = 46, gap = 8;
+        for (int i = 0; i < steps.size(); ++i)
+        {
+            const auto row = juce::Rectangle<int> (0, i * (rowH + gap), getWidth(), rowH).toFloat();
+            const auto state = ui::stepState (i, current, allDone);
+            const bool active = state == ui::StepState::Current;
+            const bool done = state == ui::StepState::Done;
+
+            if (active)
+            {
+                g.setColour (Ink::accent());
+                g.fillRoundedRectangle (row, 10.0f);
+            }
+            const auto badge = juce::Rectangle<float> (row.getX() + 12.0f, row.getCentreY() - 12.0f, 24.0f, 24.0f);
+            g.setColour (active ? Ink::onAccent().withAlpha (0.25f) : done ? Ink::accent() : Ink::raised());
+            g.fillEllipse (badge);
+            g.setColour (active ? Ink::onAccent() : done ? Ink::onAccent() : Ink::textDim());
+            if (done)
+            {
+                juce::Path tick;
+                tick.startNewSubPath (badge.getX() + 7, badge.getY() + 12);
+                tick.lineTo (badge.getX() + 11, badge.getY() + 16);
+                tick.lineTo (badge.getX() + 17, badge.getY() + 8);
+                g.strokePath (tick, juce::PathStrokeType (2.0f));
+            }
+            else
+            {
+                g.setFont (juce::Font (type::tiny, juce::Font::bold));
+                g.drawText (juce::String (i + 1), badge, juce::Justification::centred);
+            }
+            g.setColour (active ? Ink::onAccent() : done ? Ink::textNow() : Ink::textDim());
+            g.setFont (juce::Font (type::body, active ? juce::Font::bold : juce::Font::plain));
+            g.drawFittedText (steps[i], row.withTrimmedLeft (46.0f).withTrimmedRight (8.0f).toNearestInt(),
+                              juce::Justification::centredLeft, 1);
+        }
+    }
+
     juce::StringArray steps;
     int current = 0;
     bool allDone = false;

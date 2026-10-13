@@ -544,7 +544,7 @@ public:
         if (editMode) { layoutEdit(); return; }
         namespace L = zs::ui::review;
         for (auto* c : { static_cast<juce::Component*>(&trimStart), static_cast<juce::Component*>(&trimEnd), static_cast<juce::Component*>(&startHandle), static_cast<juce::Component*>(&endHandle), static_cast<juce::Component*>(&middleToggle) }) c->setVisible (false);
-        flow.setBounds (22, zs::ui::frame::header + 8, getWidth() - 44, zs::StepBar::preferredHeight);
+        flow.setBounds (zs::ScreenFrame::stepsArea (getLocalBounds()));
         flow.setCurrent (editMode ? 3 : 2);
         nextButton.setVisible(true); backButton.setVisible(true);detailsToggle.setVisible(true);
         saveButton.setButtonText(PL("Zapisz miks"));
@@ -632,7 +632,7 @@ private:
     void layoutDone() {
         for (auto* child : getChildren()) child->setVisible (false);
         flow.setVisible (true);
-        flow.setBounds (22, zs::ui::frame::header + 8, getWidth() - 44, zs::StepBar::preferredHeight);
+        flow.setBounds (zs::ScreenFrame::stepsArea (getLocalBounds()));
         flow.setCurrent (4);
         auto main = doneContent();
         main.removeFromTop (68 + 10 + 18 + 40 + 44 + 8);
@@ -738,7 +738,7 @@ private:
         endHandle.setBounds (axis.getX()+int(trimEnd.getValue()/total*axis.getWidth())-7, axis.getY(), 14, axis.getHeight());
     }
     void layoutEdit() {
-        flow.setBounds (22, zs::ui::frame::header+8, getWidth()-44, zs::StepBar::preferredHeight); flow.setCurrent (3);
+        flow.setBounds (zs::ScreenFrame::stepsArea (getLocalBounds())); flow.setCurrent (3);
         auto main = zs::ScreenFrame::mainArea(getLocalBounds()); main.removeFromTop (78+waveHeight()+8);
         auto limits = main.removeFromTop (54); auto left=limits.removeFromLeft((limits.getWidth()-16)/2); limits.removeFromLeft(16);
         trimStart.setBounds(left.withTrimmedTop(22)); trimEnd.setBounds(limits.withTrimmedTop(22));
