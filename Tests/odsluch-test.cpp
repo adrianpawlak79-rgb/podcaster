@@ -327,8 +327,12 @@ int main (int argc, char** argv)
         zs::TakeReview p;
         p.setTake (loud, sr, {});
         p.run();
-        check (std::fabs (p.whatIDid().lufsAfter + 16.0) < 1.0, "podcast: -16 LUFS mimo jednego szczytu 0 dBFS",
-               num (p.whatIDid().lufsAfter, " LUFS"));
+        // Cel z decyzji, nie liczba wpisana na sztywno: miks studyjny (domyslny
+        // od PR z lancuchem v3) celuje w -19 LUFS — norma AES dla pliku MONO,
+        // odpowiednik -16 w stereo. Test pilnuje, ze szczyt nie sciszy calosci.
+        const double target = p.whatIDecided().params.targetLufs;
+        check (std::fabs (p.whatIDid().lufsAfter - target) < 1.0, "podcast: cel glosnosci mimo jednego szczytu 0 dBFS",
+               num (p.whatIDid().lufsAfter, " LUFS") + " (cel " + num (target, ")"));
         check (p.whatIDid().peakAfter <= -0.9, "i szczyt pod sufitem", num (p.whatIDid().peakAfter, " dBTP"));
     }
 
