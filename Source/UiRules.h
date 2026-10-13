@@ -78,7 +78,7 @@ inline const Palette& paletteFor (PaletteId id)
     return id == PaletteId::Console ? console : id == PaletteId::Classic ? classic : copper;
 }
 
-inline PaletteId& currentPaletteId() { static PaletteId id = PaletteId::Copper; return id; }
+inline PaletteId& currentPaletteId() { static PaletteId id = PaletteId::Console; return id; }   // Adrian 13.10: granat
 inline void setPalette (PaletteId id) { currentPaletteId() = id; }
 inline const Palette& pal() { return paletteFor (currentPaletteId()); }
 

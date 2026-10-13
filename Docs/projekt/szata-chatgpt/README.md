@@ -4,8 +4,8 @@ Adrian: „wszystko zielone jest jednostajne i nudne — zieleń tylko dla zielo
 Projekt palet i przycisku „Nagraj” zrobił ChatGPT na zlecenie Adriana
 (`specyfikacja-kolorow-i-przycisku.txt`, ekrany `paleta-*.png`, przyciski `przycisk-*.png`).
 
-- **A — Studio Copper** (domyślna): akcent miedziany #C47A44.
-- **B — Night Console**: akcent niebieski #4F7DFF.
+- **B — Night Console** (domyślna, wybór Adriana 13.10): akcent niebieski #4F7DFF.
+- **A — Studio Copper**: akcent miedziany #C47A44 (`--paleta miedz`).
 - Paleta C (Warm Graphite) odrzucona: złoty akcent prawie jak żółty „uwaga” lampki.
 
 Zieleń #39CF7B znaczy tylko „dobrze”: lampka, miernik, ✓ przy wersie, „Czytaj”, werdykt,

@@ -84,7 +84,7 @@ int main()
             check (c.accent != c.green && c.accent != c.yellow && c.accent != c.red,
                    "akcent nie jest zadnym z kolorow lampki", "");
     }
-    check (currentPaletteId() == PaletteId::Copper, "domyslna paleta: A (miedz)", "");
+    check (currentPaletteId() == PaletteId::Console, "domyslna paleta: B (granat) — wybor Adriana", "");
 
     // ---- 2. trzy rodzaje przyciskow --------------------------------------------------
     std::printf ("\n  2. przyciski\n");
