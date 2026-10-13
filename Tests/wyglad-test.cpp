@@ -55,32 +55,36 @@ int main()
     // ---- 1. paleta ---------------------------------------------------------------
     std::printf ("  1. paleta i kontrast\n");
 
-    std::snprintf (b, sizeof (b), "#%06X", colour::accent & 0xffffff);
-    check ((colour::accent & 0xffffff) == 0x39CF7B, "akcent to #39CF7B", b);
-
-    struct Pair { const char* what; uint32_t fg, bg; double need; };
-    const Pair pairs[] =
+    // Palety A (miedz), B (granat) i klasyczna — kazda musi byc czytelna, a
+    // w nowych zielen znaczy tylko "dobrze" (Adrian 13.10).
+    for (auto id : { PaletteId::Copper, PaletteId::Console, PaletteId::Classic })
     {
-        { "tekst glowny na tle",            colour::textNow,  colour::bg,     7.0 },
-        { "tekst drugorzedny na tle",       colour::textNext, colour::bg,     4.5 },
-        { "tekst drugorzedny na panelu",    colour::textNext, colour::panel,  4.5 },
-        { "napis na przycisku glownym",     colour::onAccent, colour::accent, 4.5 },
-        { "napis na przycisku drugorzednym",colour::textNow,  colour::raised, 4.5 },
-        { "przeczytane wersy na tle",       colour::textPast, colour::bg,     3.0 },
-    };
+        const auto& c = paletteFor (id);
+        std::printf ("    %s\n", c.name);
 
-    for (const auto& p : pairs)
-    {
-        const double c = contrast (p.fg, p.bg);
-        std::snprintf (b, sizeof (b), "%.1f : 1 (potrzeba %.1f)", c, p.need);
-        check (c >= p.need, p.what, b);
+        struct Pair { const char* what; uint32_t fg, bg; double need; };
+        const Pair pairs[] =
+        {
+            { "tekst glowny na tle",            c.textNow,  c.bg,     7.0 },
+            { "tekst drugorzedny na tle",       c.textNext, c.bg,     4.5 },
+            { "tekst drugorzedny na panelu",    c.textNext, c.panel,  4.5 },
+            { "napis na przycisku glownym",     c.onAccent, c.accent, 4.5 },
+            { "napis na przycisku drugorzednym",c.textNow,  c.raised, 4.5 },
+            { "przeczytane wersy na tle",       c.textPast, c.bg,     3.0 },
+            { "podpowiedzi (textDim) na panelu",c.textDim,  c.panel,  4.5 },
+        };
+        for (const auto& p : pairs)
+        {
+            const double k = contrast (p.fg, p.bg);
+            std::snprintf (b, sizeof (b), "%.1f : 1 (potrzeba %.1f)", k, p.need);
+            check (k >= p.need, p.what, b);
+        }
+        check ((c.green & 0xffffff) == 0x39CF7B, "zielen lampki #39CF7B", "");
+        if (id != PaletteId::Classic)
+            check (c.accent != c.green && c.accent != c.yellow && c.accent != c.red,
+                   "akcent nie jest zadnym z kolorow lampki", "");
     }
-
-    check (colour::accent == colour::green, "akcent i lampka maja zielen prototypu", "#39CF7B");
-    check (colour::bg == 0xff141719 && colour::bar == 0xff1b1f21
-               && colour::panel == 0xff22272a && colour::raised == 0xff30373a
-               && colour::textNow == 0xfff1f4f2 && colour::yellow == 0xffe8bd4d
-               && colour::red == 0xffe36a63, "paleta z Docs/projekt/README.md", "");
+    check (currentPaletteId() == PaletteId::Copper, "domyslna paleta: A (miedz)", "");
 
     // ---- 2. trzy rodzaje przyciskow --------------------------------------------------
     std::printf ("\n  2. przyciski\n");
@@ -88,11 +92,11 @@ int main()
     check (buttonKindCount == 3, "sa trzy rodzaje, w tym okragly Nagraj", std::to_string (buttonKindCount));
 
     const auto pri = paintFor (ButtonKind::Primary), sec = paintFor (ButtonKind::Secondary);
-    check (pri.fill == colour::accent && sec.fill != pri.fill, "glowny ma akcent, drugorzedny nie", "");
+    check (pri.fill == pal().accent && sec.fill != pri.fill, "glowny ma akcent, drugorzedny nie", "");
 
     const auto rec = paintFor (ButtonKind::Record);
     check (rec.fill == pri.fill && contrast (rec.text, rec.fill) >= 4.5,
-           "okragly Nagraj ma czytelny napis na zieleni", "");
+           "okragly Nagraj ma czytelny napis na akcencie", "");
 
     // Zaden ekran nie koloruje przyciskow sam — robi to tylko Look.h.
     const char* sources[] = { "MainComponent.h", "PrompterComponent.h", "ReviewComponent.h",

@@ -212,8 +212,8 @@ public:
         for (auto* slider : { &trimStart, &trimEnd }) {
             slider->setSliderStyle (juce::Slider::LinearHorizontal);
             slider->setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-            slider->setColour (juce::Slider::thumbColourId, Ink::green());
-            slider->setColour (juce::Slider::trackColourId, Ink::green());
+            slider->setColour (juce::Slider::thumbColourId, Ink::accent());
+            slider->setColour (juce::Slider::trackColourId, Ink::accent());
             addAndMakeVisible (slider);
         }
         trimStart.setName (PL("Początek")); trimEnd.setName (PL("Koniec"));
@@ -510,7 +510,7 @@ public:
         const float phase = (float) (juce::Time::getMillisecondCounter() % 1600u) / 1600.0f;
         const float w = bar.getWidth() * 0.28f;
         const float x = bar.getX() - w + phase * (bar.getWidth() + w);
-        g.setColour (Ink::green());
+        g.setColour (Ink::accent());
         g.fillRoundedRectangle (juce::Rectangle<float> (x, bar.getY(), w, bar.getHeight())
                                     .getIntersection (bar), 4.0f);
 
@@ -705,7 +705,7 @@ private:
         double seconds = 0;
         TrimHandle() { setWantsKeyboardFocus (true); setMouseCursor (juce::MouseCursor::LeftRightResizeCursor); }
         void paint (juce::Graphics& g) override {
-            g.setColour (Ink::green()); g.fillRect (getWidth()/2-1, 0, 2, getHeight());
+            g.setColour (Ink::accent()); g.fillRect (getWidth()/2-1, 0, 2, getHeight());
             g.fillRoundedRectangle (2.f, getHeight()/2.f-25.f, getWidth()-4.f, 50.f, 4.f);
             if (hasKeyboardFocus (false)) { g.setColour (Ink::textNow()); g.drawRect (getLocalBounds(), 1); }
         }
@@ -1027,7 +1027,7 @@ private:
 
             g.setColour (Ink::panel());
             g.fillRect (bar);
-            g.setColour (Ink::green());
+            g.setColour (Ink::accent());
             g.fillRect (bar.withWidth ((int) (bar.getWidth() * review.progress())));
             return;
         }
@@ -1071,7 +1071,7 @@ private:
         // -10 dBFS i pauzy koło -60; w skali liniowej pauzy sa niewidoczna
         // kreska, a to wlasnie w nich siedzi szum i oddechy, czyli to, o co
         // czlowiek pyta.
-        g.setColour ((after ? Ink::green() : Ink::textNext()).withAlpha (0.75f));
+        g.setColour ((after ? Ink::accent() : Ink::textNext()).withAlpha (0.75f));
 
         const int cols = r.getWidth();
 
@@ -1108,7 +1108,7 @@ private:
         if(editMode) {
             const float a=r.getX()+float(trimStart.getValue()/review.seconds())*r.getWidth();
             const float b=r.getX()+float(trimEnd.getValue()/review.seconds())*r.getWidth();
-            g.setColour(Ink::green().withAlpha(.12f));g.fillRect(a,float(r.getY()),b-a,float(r.getHeight()));
+            g.setColour(Ink::accent().withAlpha(.12f));g.fillRect(a,float(r.getY()),b-a,float(r.getHeight()));
             g.setColour(Ink::bg().withAlpha(.75f));g.fillRect(float(r.getX()),float(r.getY()),a-r.getX(),float(r.getHeight()));g.fillRect(b,float(r.getY()),r.getRight()-b,float(r.getHeight()));
         }
         // igla

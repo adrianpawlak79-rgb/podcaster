@@ -1,0 +1,43 @@
+Zielone swiatlo - specyfikacja kolorow i przycisku
+
+Paleta A - Studio Copper
+Tlo: #080B0E
+Panel: #141A21
+Tekst glowny: #F4F1EA
+Tekst drugorzedny: #9AA6B2
+Przycisk glowny: #C47A44
+Zaznaczenie: #8FA8FF
+Zielony lampki: #39CF7B
+Zolty uwaga: #F4C84A
+Czerwony blad/nagrywanie: #EF4E57
+
+Paleta B - Night Console
+Tlo: #07090F
+Panel: #121A28
+Tekst glowny: #EEF3FA
+Tekst drugorzedny: #9BA8BC
+Przycisk glowny: #4F7DFF
+Zaznaczenie: #B08CFF
+Zielony lampki: #39CF7B
+Zolty uwaga: #FFD166
+Czerwony blad/nagrywanie: #FF4D5D
+
+Paleta C - Warm Graphite
+Tlo: #0B0A08
+Panel: #1B1712
+Tekst glowny: #F6F1E7
+Tekst drugorzedny: #A99E8F
+Przycisk glowny: #D9A441
+Zaznaczenie: #6FA6B8
+Zielony lampki: #39CF7B
+Zolty uwaga: #F6C44F
+Czerwony blad/nagrywanie: #D94A4A
+
+Przycisk Nagraj - proporcje
+Srednica zewnetrzna: 100%
+Czerwone kolo w srodku: 54% srednicy
+Wewnetrzny ring: 86% srednicy, czyli inset 7% z kazdej strony
+Grubosc obrysu zewnetrznego: ok. 1.4% srednicy
+Grubosc ringu: ok. 1.4% srednicy
+Fokus klawiatury: outline ok. 2.8% srednicy, offset ok. 3.5% srednicy
+Stan wcisniety: skala 96%

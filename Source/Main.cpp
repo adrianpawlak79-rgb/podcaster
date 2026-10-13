@@ -17,6 +17,15 @@ public:
         // --ocena plik.wav — otwiera ekran po nagraniu na gotowym pliku.
         // Sluzy dwóm rzeczom: obejrzeniu wczorajszego nagrania i sprawdzeniu
         // tego ekranu przy budowaniu, bez prawdziwego mikrofonu.
+        // --paleta miedz | granat | klasyczna (domyslnie miedz) — takze w --preview-ui
+        {
+            const auto a = juce::StringArray::fromTokens (commandLine, true);
+            const int i = a.indexOf ("--paleta");
+            const auto v = i >= 0 && i + 1 < a.size() ? a[i + 1] : juce::String();
+            zs::ui::setPalette (v == "granat" ? zs::ui::PaletteId::Console
+                              : v == "klasyczna" ? zs::ui::PaletteId::Classic : zs::ui::PaletteId::Copper);
+            look.applyPalette();
+        }
         juce::LookAndFeel::setDefaultLookAndFeel(&look);
         juce::LocalisedStrings::setCurrentMappings(new juce::LocalisedStrings(PL(R"(
 language: Polish

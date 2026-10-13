@@ -1071,7 +1071,7 @@ private:
                                            getWidth() - 2 * (sideMargin() - 16),
                                            (int) lineH + 16);
 
-        const juce::Colour guideCol = follower.isLost() ? Ink::lostBlue() : Ink::green();
+        const juce::Colour guideCol = follower.isLost() ? Ink::lostBlue() : Ink::accent();
 
         // Dopoki prompter nie uslyszal mowy, celownik jest przygaszony — zeby
         // bylo widac, ze tekst stoi CELOWO, a nie dlatego, ze program zamarl.
