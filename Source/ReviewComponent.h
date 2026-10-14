@@ -1022,11 +1022,11 @@ private:
             all << PL (line.c_str()) << "\n\n";
 
         words.setText (all.trimEnd(), false);
+        // Po prawej skutek prostymi slowami; liczby pod "Szczegoly miksu" (audyt 14.10).
         juce::String summary;
-        if (!review.says().empty()) summary << PL(review.says().front().c_str()) << "\n\n";
-        summary << PL("UZASADNIENIE\n");
-        for (size_t i = 1; i < review.says().size(); ++i)
-            summary << PL(review.says()[i].c_str()) << "\n\n";
+        for (const auto& line : review.plainSays())
+            summary << PL ("• ") << PL (line.c_str()) << "\n\n";
+        summary << PL ("Liczby i ustawienia: „Szczegóły miksu”.");
         reviewSummary=summary; assessment.setText (summary, false);
         playButton.setEnabled (true); abButton.setEnabled (true);
         editToggle.setEnabled (true); saveButton.setEnabled (true);

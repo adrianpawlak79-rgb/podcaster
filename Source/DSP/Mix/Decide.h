@@ -93,6 +93,7 @@ struct Decision
 
     VoiceTone::Bands tone;          ///< barwa glosu, wzgledem pasma 1 kHz
     double humDb          = 0.0;    ///< o ile przydzwiek wystaje w nagraniu
+    double roomLouderDb   = 0.0;    ///< tlo glosniejsze niz w kreatorze (0 = nie)
 };
 
 //==============================================================================
@@ -780,6 +781,7 @@ private:
 
         const double louder = d.noiseFloorDb - room.noiseFloorDb;
         if (louder < 6.0) return;
+        d.roomLouderDb = louder;
 
         char b[400];
         std::snprintf (b, sizeof (b),

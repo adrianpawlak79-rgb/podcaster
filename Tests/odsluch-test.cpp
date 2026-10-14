@@ -317,6 +317,32 @@ int main (int argc, char** argv)
         check (hasNumber, "i kazde zdanie opiera sie na liczbie");
         check (! r.verdictLine().empty(), "werdykt jest jednym zdaniem");
 
+        // Audyt 14.10: po prawej najpierw skutek prostymi slowami, bez liczb
+        // i zargonu; liczby zostaja w says() pod "Szczegoly miksu".
+        {
+            const auto& plain = r.plainSays();
+            bool jargon = false;
+            for (const auto& line : plain)
+                for (const char* w : { "dB", "LUFS", "Hz", ":1", "kompres", "ekspander", "de-esser", "dBTP" })
+                    if (line.find (w) != std::string::npos) { jargon = true; std::printf ("        zargon: %s\n", line.c_str()); }
+            check (plain.size() >= 3, "proste zdania o miksie", std::to_string (plain.size()) + " zdan");
+            check (! jargon, "bez liczb technicznych i zargonu audio");
+            check (! plain.empty() && plain.back().find ("Odsłuchaj") != std::string::npos,
+                   "na koncu: odsluchaj przed publikacja");
+            bool listen = false;
+            for (const auto& line : plain) if (line.find ("Sprawdź") != std::string::npos || line.find ("Posłuchaj") != std::string::npos) listen = true;
+            check (listen, "mowi, czego posluchac");
+            for (const auto& line : plain) std::printf ("        po ludzku: %s\n", line.c_str());
+
+            auto gentleWish = zs::TakeReview::podcastWish();
+            gentleWish.style = mix::Decide::Style::Delikatny;
+            zs::TakeReview g;
+            g.setTake (speech (src, sr, 25.0), sr, {});
+            g.run (gentleWish);
+            check (! g.plainSays().empty() && g.plainSays().front() != plain.front(),
+                   "inne brzmienie = inne pierwsze zdanie");
+        }
+
         std::printf ("\n        werdykt: %s\n\n", r.verdictLine().c_str());
 
         // Jeden szczyt nie moze sciszyc calego odcinka (Docs/badania/SYMULACJA.md:
