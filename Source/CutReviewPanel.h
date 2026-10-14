@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PunchFile.h"
+#include <algorithm>
 #include "Look.h"
 #include "DSP/TakeReview.h"
 
@@ -22,9 +23,12 @@ public:
         viewport.setScrollBarsShown(true, false);
         addAndMakeVisible(viewport);
         addAndMakeVisible(apply);
-        apply.setButtonText(tr("Zastosuj poprawki"));
+        apply.setButtonText(tr("Wytnij zaznaczone"));
         zs::Look::setKind(apply, zs::ui::ButtonKind::Primary);
-        // Zastosuj dziala od razu: niezdecydowane miejsca zostaja w nagraniu
+        // Audyt 14.10: "Wytnij" przy miejscu wygladalo, jakby juz cielo. Przy
+        // miejscu jest teraz "Zaznacz do wyciecia" (tylko decyzja w .ciecia.tsv),
+        // a nagranie zmienia dopiero ten przycisk — z liczba zaznaczonych.
+        // Dziala od razu: niezdecydowane miejsca zostaja w nagraniu
         // (applyCutList tnie tylko zaakceptowane). Adrian 12.10: panel, ktory
         // blokowal sie do decyzji o wszystkim, byl "skomplikowany".
         apply.onClick = [this] { if (!empty() && onApply) onApply(list); };
@@ -71,13 +75,13 @@ public:
             if (p.state == tw::CutProposal::State::Pending) ++pending;
         }
         g.setColour(Ink::textNow()); g.setFont(juce::Font(zs::type::body, juce::Font::bold));
-        g.drawText(tr("Po R: ") + places((int)list.size()) + tr(" do wycięcia"),
+        g.drawText(tr("Po R: ") + places((int)list.size()) + tr(" do sprawdzenia"),
                    getLocalBounds().reduced(8).removeFromTop(28), juce::Justification::centredLeft);
         g.setColour(Ink::textDim()); g.setFont(juce::Font(zs::type::small));
         const juce::String hint = pending > 0
-            ? tr("Posłuchaj miejsc oznaczonych „sprawdź”. Czego nie zatwierdzisz, zostanie w nagraniu.")
-            : cut > 0 ? tr("Posłuchaj połączeń. „Zastosuj” wytnie ") + places(cut) + tr(" — pełne nagranie zostanie w folderze surowe.")
-                      : tr("Nic nie zostanie wycięte.");
+            ? tr("Posłuchaj miejsc oznaczonych „sprawdź”. Czego nie zaznaczysz, zostanie w nagraniu.")
+            : cut > 0 ? tr("Nagranie zmieni się dopiero po „Wytnij zaznaczone”. Pełne nagranie zostanie w folderze surowe.")
+                      : tr("Nic nie jest zaznaczone — nagranie zostanie bez zmian.");
         g.drawFittedText(hint, getLocalBounds().reduced(8).withTrimmedBottom(36).removeFromBottom(25),
                          juce::Justification::centredLeft, 1);
     }
@@ -163,13 +167,13 @@ private:
             auto r=getLocalBounds().reduced(8);
             g.setColour(Ink::textNext()); g.setFont(juce::Font(zs::type::small));
             auto clock=[](double s) { return juce::String::formatted("%d:%02d", (int)s/60,(int)s%60); };
-            juce::String state = p.state==tw::CutProposal::State::Accepted ? tr("zostanie wycięte")
+            juce::String state = p.state==tw::CutProposal::State::Accepted ? tr("zaznaczone do wycięcia")
                                : p.state==tw::CutProposal::State::Rejected ? tr("zostaje w nagraniu") : tr("sprawdź");
             g.drawText(clock(from)+tr("–")+clock(to)+"  ("+juce::String(to-from,2)+" s) · "+state,r.removeFromTop(24),juce::Justification::centredLeft);
             if(p.sure) return;
             g.setColour(Ink::textDim());
             // Powod techniczny (p.why) zostaje w pliku .ciecia.tsv; tu zdanie dla czlowieka.
-            g.drawFittedText(tr("Czerwone zostanie wycięte. Posłuchaj, czy nie ma tu dobrych słów — "
+            g.drawFittedText(tr("Czerwony fragment to propozycja cięcia. Posłuchaj, czy nie ma tu dobrych słów — "
                                 "uchwyty przesuwasz myszą."),r.removeFromTop(34),juce::Justification::topLeft,2);
             g.setColour(Ink::textNext().withAlpha(.65f));
             for(int px=0;px<wave.getWidth();px+=2) {
@@ -215,10 +219,16 @@ private:
     }
     void update() {
         apply.setEnabled(!empty());
-        apply.setTooltip(decided()?juce::String():tr("Niezatwierdzone miejsca zostaną w nagraniu"));
+        apply.setTooltip(decided()?juce::String():tr("Niezaznaczone miejsca zostaną w nagraniu"));
+        const int marked = (int) std::count_if(list.begin(), list.end(),
+            [](const auto& p) { return p.state == tw::CutProposal::State::Accepted && p.to > p.from; });
+        apply.setButtonText(marked > 0 ? tr("Wytnij zaznaczone (") + juce::String(marked) + ")"
+                                       : tr("Nic nie wycinaj — dalej"));
         for(auto& row : rows) {
             const auto& p=list[row->index];
-            row->yes.setButtonText(p.sure ? (p.state==tw::CutProposal::State::Accepted ? tr("Przywróć") : tr("Wytnij")) : tr("Wytnij"));
+            const bool on = p.state==tw::CutProposal::State::Accepted;
+            row->yes.setButtonText(p.sure ? (on ? tr("Odznacz") : tr("Zaznacz do wycięcia"))
+                                          : (on ? tr("Zaznaczone") : tr("Zaznacz do wycięcia")));
             row->yes.setEnabled(row->to>row->from); row->repaint();
         }
         repaint();

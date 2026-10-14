@@ -818,8 +818,8 @@ private:
     {
         juce::String t;
         if (! cutPanel.empty())
-            t << PL("Najpierw poprawki po R: przy każdej posłuchaj połączenia i zdecyduj — wytnij albo zostaw. ")
-              << PL("Potem „Zastosuj poprawki”.\n\n");
+            t << PL("Najpierw poprawki po R: przy każdej posłuchaj połączenia i zdecyduj — zaznacz do wycięcia albo zostaw. ")
+              << PL("Nagranie zmieni się dopiero po „Wytnij zaznaczone”.\n\n");
         const int marks = (int) review.timeline().size();
         if (marks == 0) t << PL("Program nie zaznaczył miejsc do sprawdzenia.\n\n");
         else t << PL("Paski pod falą to miejsca do sprawdzenia (") << marks
@@ -839,7 +839,7 @@ private:
         g.fillAll(Ink::bg());
         zs::ScreenFrame::paint(g,getLocalBounds(),file.getFileNameWithoutExtension(),
             cutPanel.empty() ? PL("Klik — posłuchaj · przeciągnij — zaznacz · ← → uchwyt · N — następne miejsce · Esc — wróć")
-                             : PL("Spacja — połączenie · Enter — wytnij · Backspace — zostaw · ↑↓ — miejsca · Esc — wróć"));
+                             : PL("Spacja — połączenie · Enter — zaznacz do wycięcia · Backspace — zostaw · ↑↓ — miejsca · Esc — wróć"));
         auto side=zs::ScreenFrame::sidebar(getLocalBounds());g.setColour(Ink::bar());g.fillRect(side);
         g.setColour(Ink::edge());g.drawVerticalLine(side.getX(),side.getY(),side.getBottom());
         auto main=zs::ScreenFrame::mainArea(getLocalBounds());
@@ -872,7 +872,7 @@ private:
     void goToMix() {
         if (! canEdit()) return;
         if (! cutPanel.empty()) {
-            note = PL("Najpierw zdecyduj o poprawkach po R i kliknij „Zastosuj poprawki”.");
+            note = PL("Najpierw zdecyduj o poprawkach po R i kliknij „Wytnij zaznaczone”.");
             if (! editMode) { editMode = true; setRawMaterial(); }
             assessment.setText (montageSummary(), false); resized();
             repaint(); return;
