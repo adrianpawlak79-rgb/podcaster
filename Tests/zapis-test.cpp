@@ -71,6 +71,10 @@ int main()
     check (wavio::write24 (dir + "/nan.wav", a).empty() && wavio::read (dir + "/nan.wav", b).empty()
                && b.channels[0][10] == 0.0f, "NaN zapisany jako cisza, nie smieci");
 
+    // 5b. nazwy z polskimi literami na Windows: wlasna zamiana UTF-8 -> UTF-16
+    check (wavio::detail::widen ("odcinek żółty ĄĘŚ") == L"odcinek żółty ĄĘŚ", "UTF-8 -> szerokie znaki (Windows): polskie litery");
+    check (wavio::detail::widen ("a\xff" "b").size() == 3, "bledny bajt nie psuje reszty nazwy");
+
     // 6. uszkodzony naglowek: bits = 1 (dawniej dzielenie przez zero)
     {
         std::ifstream in (path, std::ios::binary);

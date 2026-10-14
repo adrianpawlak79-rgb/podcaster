@@ -12,13 +12,6 @@
 
 #pragma once
 
-#ifdef _WIN32
- #ifndef NOMINMAX
-  #define NOMINMAX
- #endif
- #include <windows.h>
-#endif
-
 #include <algorithm>
 #include <cstdint>
 #include <cmath>
@@ -63,18 +56,30 @@ namespace detail
 
 namespace detail
 {
+    /** UTF-8 -> UTF-16 bez windows.h (jego makra near/far/small psuja reszte
+        programu). Bledne bajty zamieniamy na U+FFFD. */
+    inline std::wstring widen (const std::string& s)
+    {
+        std::wstring w;
+        for (size_t i = 0; i < s.size();)
+        {
+            const unsigned char c = (unsigned char) s[i];
+            uint32_t cp = 0xFFFD; int n = 1;
+            if (c < 0x80) cp = c;
+            else if ((c >> 5) == 0x6 && i + 1 < s.size()) { cp = ((c & 0x1Fu) << 6) | ((unsigned char) s[i + 1] & 0x3Fu); n = 2; }
+            else if ((c >> 4) == 0xE && i + 2 < s.size()) { cp = ((c & 0x0Fu) << 12) | (((unsigned char) s[i + 1] & 0x3Fu) << 6) | ((unsigned char) s[i + 2] & 0x3Fu); n = 3; }
+            else if ((c >> 3) == 0x1E && i + 3 < s.size()) { cp = ((c & 0x07u) << 18) | (((unsigned char) s[i + 1] & 0x3Fu) << 12) | (((unsigned char) s[i + 2] & 0x3Fu) << 6) | ((unsigned char) s[i + 3] & 0x3Fu); n = 4; }
+            if (cp >= 0x10000) { cp -= 0x10000; w += (wchar_t) (0xD800 + (cp >> 10)); w += (wchar_t) (0xDC00 + (cp & 0x3FF)); }
+            else w += (wchar_t) cp;
+            i += (size_t) n;
+        }
+        return w;
+    }
+
     /** fopen, ktory na Windows rozumie UTF-8 (polskie litery w nazwie i folderze). */
     inline FILE* openFile (const std::string& path, const char* mode)
     {
        #ifdef _WIN32
-        auto widen = [] (const std::string& s)
-        {
-            std::wstring w;
-            const int n = MultiByteToWideChar (CP_UTF8, 0, s.c_str(), (int) s.size(), nullptr, 0);
-            w.resize ((size_t) std::max (0, n));
-            if (n > 0) MultiByteToWideChar (CP_UTF8, 0, s.c_str(), (int) s.size(), &w[0], n);
-            return w;
-        };
         return _wfopen (widen (path).c_str(), widen (mode).c_str());
        #else
         return std::fopen (path.c_str(), mode);
@@ -84,24 +89,19 @@ namespace detail
     inline bool removeFile (const std::string& path)
     {
        #ifdef _WIN32
-        std::wstring w; const int n = MultiByteToWideChar (CP_UTF8, 0, path.c_str(), (int) path.size(), nullptr, 0);
-        w.resize ((size_t) std::max (0, n)); if (n > 0) MultiByteToWideChar (CP_UTF8, 0, path.c_str(), (int) path.size(), &w[0], n);
-        return _wremove (w.c_str()) == 0;
+        return _wremove (widen (path).c_str()) == 0;
        #else
         return std::remove (path.c_str()) == 0;
        #endif
     }
 
+    /** Podmiana pliku. Na Windows rename nie nadpisuje — najpierw usuwamy cel
+        (jesli w tej chwili cos padnie, gotowy plik zostaje jako .zapis.tmp). */
     inline bool renameFile (const std::string& from, const std::string& to)
     {
        #ifdef _WIN32
-        auto widen = [] (const std::string& s)
-        {
-            std::wstring w; const int n = MultiByteToWideChar (CP_UTF8, 0, s.c_str(), (int) s.size(), nullptr, 0);
-            w.resize ((size_t) std::max (0, n)); if (n > 0) MultiByteToWideChar (CP_UTF8, 0, s.c_str(), (int) s.size(), &w[0], n);
-            return w;
-        };
-        return MoveFileExW (widen (from).c_str(), widen (to).c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+        _wremove (widen (to).c_str());
+        return _wrename (widen (from).c_str(), widen (to).c_str()) == 0;
        #else
         return std::rename (from.c_str(), to.c_str()) == 0;
        #endif

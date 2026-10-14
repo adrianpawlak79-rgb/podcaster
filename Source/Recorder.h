@@ -63,6 +63,11 @@ public:
         stream.release();
         session->writer = std::make_unique<DiskWriter>(std::move(writer));
         sessionFile = file;
+        // Znacznik "nagranie trwa": znika przy zatrzymaniu. Gdy zostanie (awaria,
+        // wylaczony prad), przy nastepnym starcie program naprawia naglowek i
+        // proponuje otwarcie nagrania (WavRepair.h, MainComponent).
+        markerFile(file).replaceWithText(juce::Time::getCurrentTime().toISO8601(true));
+        stoppedByDevice.store(false);
         samplesWritten.store(0); lostSamples.store(0); firstLost.store(-1);
         writeFailed.store(false); recordingRate.store(rate); paused.store(false);
         currentSessionId.store(session->id);
@@ -85,6 +90,7 @@ public:
             if(recordingDamaged()) sessionFile.getSiblingFile(sessionFile.getFileName()+".problem.txt")
                 .replaceWithText(PL("UWAGA: podczas zapisu utracono dane. Nagraj materiał ponownie.\n")
                     + "Pierwszy wykryty problem: " + juce::String(firstLossSeconds(),3) + " s\n");
+            markerFile(sessionFile).deleteFile();   // plik zamkniety poprawnie
         }
     }
 
@@ -229,8 +235,16 @@ public:
         history.allocate ((size_t) (rate * (historySec + historySafetySec)) + (size_t) samples);
     }
 
+    /** Znacznik obok nagrania, ktore jeszcze trwa. */
+    static juce::File markerFile (const juce::File& wav) { return wav.getSiblingFile (wav.getFileName() + ".nagrywanie"); }
+
+    /** Nagrywanie zatrzymalo urzadzenie (odlaczony mikrofon, zmiana w Windows),
+        nie czlowiek. Odczyt kasuje flage. */
+    bool takeStoppedByDevice() noexcept { return stoppedByDevice.exchange (false); }
+
     void audioDeviceStopped() override
     {
+        if (recording.load()) stoppedByDevice.store (true);
         stop();
         sampleRate = 0.0;
     }
@@ -536,6 +550,7 @@ private:
     std::atomic<uint64_t> currentSessionId{0};
     juce::File sessionFile;
     std::atomic<bool> paused { false };
+    std::atomic<bool> stoppedByDevice { false };
     std::atomic<bool> recording{false}, writeFailed{false};
     std::atomic<juce::int64> samplesWritten{0}, lostSamples{0}, firstLost{-1};
     std::atomic<double> sampleRate{0}, recordingRate{0};
