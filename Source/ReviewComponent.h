@@ -116,6 +116,17 @@ public:
         abButton.onClick = [this] { toggleAb(); };
         addAndMakeVisible (abButton);
 
+        // Trzy brzmienia (Decide::Style), wszystkie do tej samej glosnosci —
+        // przelaczenie liczy miks od nowa i zostaje do konca sesji.
+        for (int i = 0; i < 3; ++i)
+        {
+            const auto st = static_cast<mix::Decide::Style> (i);
+            styleButtons[i].setButtonText (PL (mix::Decide::styleName (st)));
+            styleButtons[i].onClick = [this, st] { chooseStyle (st); };
+            addAndMakeVisible (styleButtons[i]);
+        }
+        updateStyleButtons();
+
         saveButton.setButtonText (PL ("Zapisz miks"));
         saveButton.onClick = [this] { saveSelection(); };
         addAndMakeVisible (saveButton);
@@ -526,6 +537,7 @@ public:
     void resized() override
     {
         cutPanel.setVisible(!doneMode && !editMode && !cutPanel.empty());
+        for (auto& b : styleButtons) b.setVisible (false);      // tylko w zwyklym widoku oceny
         if (doneMode) { layoutDone(); return; }
         doneEditButton.setVisible (false); newTakeButton.setVisible (false);
         savedPath.setVisible (false); savedName.setVisible (false);
@@ -545,6 +557,11 @@ public:
         auto row = main.removeFromTop (L::buttons);
         playButton.setBounds (row.removeFromLeft (132)); row.removeFromLeft (10);
         abButton.setBounds (row.removeFromLeft (juce::jmin (240, row.getWidth())));
+        row.removeFromLeft (16);
+        {
+            const int w = juce::jlimit (0, 120, (row.getWidth() - 2 * 6) / 3);
+            for (auto& b : styleButtons) { b.setVisible (true); b.setBounds (row.removeFromLeft (w)); row.removeFromLeft (6); }
+        }
         main.removeFromTop (8);
         auto tools = main.removeFromTop (L::tools);
         detailsToggle.setBounds (tools.removeFromLeft (172));
@@ -793,6 +810,27 @@ private:
         undoAudio=review.rawAudio();pendingSave=true;restartEdit(std::move(audio));
     }
     bool canEdit() const { return review.stage()==zs::TakeReview::Stage::Ready && !isThreadRunning(); }
+
+    /** Brzmienie miksu: ten sam surowy dzwiek, miks od nowa w tle. */
+    void chooseStyle (mix::Decide::Style st)
+    {
+        if (st == wish.style || ! canEdit()) return;
+        wish.style = st;
+        updateStyleButtons();
+        player.pause(); recorder.attachPlayer (nullptr); ready.store (false); player.clear();
+        for (auto* b : { &playButton, &abButton, &saveButton, &editToggle }) b->setEnabled (false);
+        afterEnv = {};
+        note = PL ("Miks ") + PL (mix::Decide::styleName (st)).toLowerCase() + PL (" liczy się…");
+        startThread();
+        repaint();
+    }
+
+    void updateStyleButtons()
+    {
+        for (int i = 0; i < 3; ++i)
+            zs::Look::setKind (styleButtons[i], static_cast<mix::Decide::Style> (i) == wish.style
+                                                  ? zs::ui::ButtonKind::Primary : zs::ui::ButtonKind::Secondary);
+    }
     void updateSelection() {
         if(cutFrom>=0 && cutTo>cutFrom)
             selection.setText(PL("Do wycięcia: ")+plr::clock(cutFrom)+PL("–")+plr::clock(cutTo)+" ("+juce::String(cutTo-cutFrom,1)+PL(" s) — Delete albo „Wytnij zaznaczenie”."),juce::dontSendNotification);
@@ -1308,6 +1346,7 @@ private:
     bool wasPlaying = false;
 
     juce::TextButton playButton, abButton, saveButton, backButton;
+    juce::TextButton styleButtons[3];
     juce::TextEditor words, assessment;
     zs::StepBar flow;
     juce::TextButton markStart,markEnd,cutButton,undoButton,editToggle,detailsToggle,nextButton;

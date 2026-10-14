@@ -403,6 +403,29 @@ int main (int argc, char** argv)
         check (mix::Decide::listen (x, sr, w).params.targetLufs == -16.0, "pelna logika bez zmian: -16 LUFS", "");
     }
 
+    // ---- trzy brzmienia do wyboru (Decide::Style) ------------------------------
+    std::printf ("\n  Brzmienia: Delikatny, Studyjny, Mocny\n");
+    {
+        using S = mix::Decide::Style;
+        mix::Decision d[3];
+        for (int i = 0; i < 3; ++i)
+        {
+            auto w = zs_podcast();
+            w.style = static_cast<S> (i);
+            d[i] = mix::Decide::listen (base, sr, w);
+        }
+        check (d[0].params.targetLufs == d[1].params.targetLufs && d[1].params.targetLufs == d[2].params.targetLufs,
+               "ta sama glosnosc we wszystkich (uczciwe porownanie)", "");
+        check (d[0].params.levelerRatio < d[1].params.levelerRatio && d[1].params.levelerRatio < d[2].params.levelerRatio,
+               "kompresja rosnie: delikatny < studyjny < mocny", "");
+        check (! d[0].params.useGate && ! d[0].params.useDeEsser && d[0].params.presenceDb == 0.0f,
+               "delikatny: bez ekspandera, de-essera i barwy", "");
+        check (d[2].params.presenceDb > d[1].params.presenceDb, "mocny: wiecej obecnosci niz studyjny", "");
+        check (! d[0].because.empty() && d[0].because.front().find ("delikatny") != std::string::npos
+                   && d[2].because.front().find ("mocny") != std::string::npos,
+               "uzasadnienie nazywa wybrane brzmienie", "");
+    }
+
     std::printf ("\n%s\n\n", fails == 0 ? "wszystko przeszlo" : "SA BLEDY");
     return fails;
 }

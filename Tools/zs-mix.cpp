@@ -135,6 +135,7 @@ static void usage()
         "  mowi, dlaczego tak. Kazda opcja ponizej nadpisuje jedna jego decyzje.\n\n"
         "  --recznie        nie dobieraj nic sam, uzyj ustawien domyslnych\n"
         "  --gdzie <x>      podcast | youtube | wlasne — dokad to jedzie\n"
+        "  --styl <x>       delikatny | studyjny (domyslny) | mocny | pelny — brzmienie miksu\n"
         "  --lufs <x>       cel glosnosci (nadpisuje dobor)\n"
         "                   -14 dla YouTube'a, -19 dla radia w Europie\n"
         "  --sufit <x>      sufit szczytu miedzyprobkowego, domyslnie -1 dBTP\n"
@@ -179,6 +180,15 @@ int main (int argc, char** argv)
             else if (w == "youtube") wish.where = mix::Decide::Destination::YouTube;
             else if (w == "wlasne")  wish.where = mix::Decide::Destination::Wlasne;
             else { std::printf ("nie znam celu: %s\n", w.c_str()); return 1; }
+        }
+        else if (a == "--styl")
+        {
+            const std::string w = next();
+            if      (w == "delikatny") wish.style = mix::Decide::Style::Delikatny;
+            else if (w == "studyjny")  wish.style = mix::Decide::Style::Studyjny;
+            else if (w == "mocny")     wish.style = mix::Decide::Style::Mocny;
+            else if (w == "pelny")     wish.studio = false;
+            else { std::printf ("nie znam stylu: %s (delikatny, studyjny, mocny, pelny)\n", w.c_str()); return 1; }
         }
         else if (a == "--lufs")         { forcedLufs = std::atof (next().c_str()); }
         else if (a == "--sufit")        chain.params.ceilingDbTp = (float) std::atof (next().c_str());
