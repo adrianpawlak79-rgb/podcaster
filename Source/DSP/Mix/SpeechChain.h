@@ -577,6 +577,7 @@ public:
         rep.noiseFloorDb   = noise;
         rep.speechDb       = speech;
         rep.gateThreshDb   = params.gateThreshDb;
+        rep.humHz          = params.deHum ? params.humHz : 0.0;   // ekran montazu pokazywal "0 Hz"
         rep.lufsBefore     = lufsIn;
         rep.peakBefore     = peakIn;
         rep.lufsAfter      = measureLufs (out);

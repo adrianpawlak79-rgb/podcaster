@@ -442,7 +442,12 @@ public:
         }
 
         hum (in, sr, wish.room, d);
+        const size_t roomFrom = d.because.size();
         roomChanged (wish.room, d);
+        // Ostrzezenie o zmianie pokoju musi przetrwac style, ktore pisza
+        // uzasadnienie od nowa (przeglad 14.10, nr 2).
+        const std::vector<std::string> roomLines (d.because.begin() + (long) roomFrom, d.because.end());
+        const bool humWanted = d.params.deHum;
         tone (in, sr, wish.room, headroom, d);
 
         if (wish.studio)
@@ -453,6 +458,15 @@ public:
                 studio (in, sr, wish, headroom, d);
                 if (wish.style == Style::Mocny) strong (d);
             }
+            if (humWanted && ! d.params.deHum)
+            {
+                std::snprintf (b, sizeof (b),
+                    "Przydźwięk %.0f Hz słychać w nagraniu (wystaje o %.1f dB), ale tu nie wycinam go wąsko — "
+                    "wycięcia dzwoniły po słowach. Filtr dołu zabiera %.0f Hz; harmoniczne mogą zostać.",
+                    d.params.humHz, d.humDb, d.params.humHz);
+                d.because.push_back (b);
+            }
+            d.because.insert (d.because.end(), roomLines.begin(), roomLines.end());
         }
 
         return d;
@@ -522,12 +536,20 @@ public:
         p.peakThreshDb = (float) std::clamp (d.speechDb + 1.0, -50.0, -3.0);
         p.peakRatio = 6.0f; p.peakAttackMs = 2.0; p.peakReleaseMs = 70.0;
         p.presenceHz = 3200.0; p.presenceDb = 2.5f;
+        // Zdania studyjnego o kompresji i barwie podmieniamy, nie dopisujemy obok —
+        // inaczej ekran podawal naraz 2,5:1 i 3:1 (przeglad 14.10, nr 6).
         for (auto& line : d.because)
+        {
             if (line.rfind ("Miks studyjny", 0) == 0) line.replace (0, std::strlen ("Miks studyjny"), "Miks mocny");
-        std::snprintf (b, sizeof (b), "Mocniej niż studyjny: kompresja 3:1 od %.1f dBFS i 6:1 na szczytach od %.1f dBFS, "
-                       "obecność 3,2 kHz +2,5 dB — gęściej i bliżej, jak w radiu.",
-                       p.levelerThreshDb, p.peakThreshDb);
-        d.because.push_back (b);
+            else if (line.rfind ("Kompresja w dwóch krokach", 0) == 0)
+            {
+                std::snprintf (b, sizeof (b), "Kompresja mocniej niż w studyjnym: 3:1 od %.1f dBFS (wolna), 6:1 od %.1f dBFS (szczyty) "
+                               "— gęściej, jak w radiu.", p.levelerThreshDb, p.peakThreshDb);
+                line = b;
+            }
+            else if (line.rfind ("Barwa:", 0) == 0)
+                line = "Barwa: 3,2 kHz +2,5 dB (bliżej, wyraźniej) i półka 9 kHz +4 dB — po odszumianiu, więc nie podnosi syku.";
+        }
     }
 
     static void studio (const std::vector<float>& in, double sr, const Wish& wish, double headroom, Decision& d)
