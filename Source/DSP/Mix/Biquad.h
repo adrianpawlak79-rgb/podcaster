@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 
 namespace mix
@@ -73,6 +74,11 @@ private:
 //==============================================================================
 namespace design
 {
+    /** Czestotliwosc filtra najwyzej 0,45 probkowania. Powyzej Nyquista sin(w) < 0,
+        alpha < 0 i bieguny wychodza poza okrag: polka "powietrza" 9 kHz przy pliku
+        16 kHz dawala inf/NaN (przeglad 14.10, nr 1). */
+    inline double belowNyquist (double hz, double sr) noexcept { return std::min (hz, 0.45 * sr); }
+
     inline Coeffs normalise (double b0, double b1, double b2,
                              double a0, double a1, double a2) noexcept
     {
@@ -81,7 +87,7 @@ namespace design
 
     inline Coeffs highpass (double hz, double sr, double q = 0.7071) noexcept
     {
-        const double w = 2.0 * M_PI * hz / sr;
+        const double w = 2.0 * M_PI * belowNyquist (hz, sr) / sr;
         const double cw = std::cos (w), sw = std::sin (w);
         const double alpha = sw / (2.0 * q);
 
@@ -91,7 +97,7 @@ namespace design
 
     inline Coeffs lowpass (double hz, double sr, double q = 0.7071) noexcept
     {
-        const double w = 2.0 * M_PI * hz / sr;
+        const double w = 2.0 * M_PI * belowNyquist (hz, sr) / sr;
         const double cw = std::cos (w), sw = std::sin (w);
         const double alpha = sw / (2.0 * q);
 
@@ -101,7 +107,7 @@ namespace design
 
     inline Coeffs bandpass (double hz, double sr, double q) noexcept
     {
-        const double w = 2.0 * M_PI * hz / sr;
+        const double w = 2.0 * M_PI * belowNyquist (hz, sr) / sr;
         const double cw = std::cos (w), sw = std::sin (w);
         const double alpha = sw / (2.0 * q);
 
@@ -111,7 +117,7 @@ namespace design
     inline Coeffs peaking (double hz, double sr, double q, double gainDb) noexcept
     {
         const double A = std::pow (10.0, gainDb / 40.0);
-        const double w = 2.0 * M_PI * hz / sr;
+        const double w = 2.0 * M_PI * belowNyquist (hz, sr) / sr;
         const double cw = std::cos (w), sw = std::sin (w);
         const double alpha = sw / (2.0 * q);
 
@@ -122,7 +128,7 @@ namespace design
     inline Coeffs lowShelf (double hz, double sr, double gainDb, double s = 1.0) noexcept
     {
         const double A = std::pow (10.0, gainDb / 40.0);
-        const double w = 2.0 * M_PI * hz / sr;
+        const double w = 2.0 * M_PI * belowNyquist (hz, sr) / sr;
         const double cw = std::cos (w), sw = std::sin (w);
         const double alpha = sw * 0.5 * std::sqrt ((A + 1.0 / A) * (1.0 / s - 1.0) + 2.0);
         const double t = 2.0 * std::sqrt (A) * alpha;
@@ -138,7 +144,7 @@ namespace design
     inline Coeffs highShelf (double hz, double sr, double gainDb, double s = 1.0) noexcept
     {
         const double A = std::pow (10.0, gainDb / 40.0);
-        const double w = 2.0 * M_PI * hz / sr;
+        const double w = 2.0 * M_PI * belowNyquist (hz, sr) / sr;
         const double cw = std::cos (w), sw = std::sin (w);
         const double alpha = sw * 0.5 * std::sqrt ((A + 1.0 / A) * (1.0 / s - 1.0) + 2.0);
         const double t = 2.0 * std::sqrt (A) * alpha;
@@ -154,7 +160,7 @@ namespace design
     /** Waskie wyciecie — do przydzwieku sieciowego 50 Hz i jego harmonicznych. */
     inline Coeffs notch (double hz, double sr, double q = 30.0) noexcept
     {
-        const double w = 2.0 * M_PI * hz / sr;
+        const double w = 2.0 * M_PI * belowNyquist (hz, sr) / sr;
         const double cw = std::cos (w), sw = std::sin (w);
         const double alpha = sw / (2.0 * q);
 

@@ -556,8 +556,13 @@ public:
         main.removeFromTop (78 + waveHeight() + L::strip + 8);
         auto row = main.removeFromTop (L::buttons);
         playButton.setBounds (row.removeFromLeft (132)); row.removeFromLeft (10);
-        abButton.setBounds (row.removeFromLeft (juce::jmin (240, row.getWidth())));
-        row.removeFromLeft (16);
+        // Style obok przed/po, gdy sie mieszcza (3 x 96 px); w malym oknie w osobnym
+        // wierszu — inaczej przy 960 px byly to puste kafelki po 19 px (przeglad 14.10, nr 4).
+        const int styleW = 3 * 96 + 2 * 6, abMin = 200;
+        const bool styleInRow = row.getWidth() >= abMin + 16 + styleW;
+        abButton.setBounds (row.removeFromLeft (juce::jmin (240, styleInRow ? row.getWidth() - 16 - styleW : row.getWidth())));
+        if (styleInRow) row.removeFromLeft (16);
+        else { main.removeFromTop (8); row = main.removeFromTop (L::buttons); }
         {
             const int w = juce::jlimit (0, 120, (row.getWidth() - 2 * 6) / 3);
             for (auto& b : styleButtons) { b.setVisible (true); b.setBounds (row.removeFromLeft (w)); row.removeFromLeft (6); }
@@ -821,6 +826,7 @@ private:
         for (auto* b : { &playButton, &abButton, &saveButton, &editToggle }) b->setEnabled (false);
         afterEnv = {};
         note = PL ("Miks ") + PL (mix::Decide::styleName (st)).toLowerCase() + PL (" liczy się…");
+        styleNote = true;
         startThread();
         repaint();
     }
@@ -880,6 +886,7 @@ private:
 
     void adoptResult()
     {
+        if (styleNote) { note.clear(); styleNote = false; }   // "Miks ... liczy się…" juz nieaktualne
         afterEnv.build (review.mixedAudio(), sr, 1400);
 
         const double playbackRate=recorder.currentSampleRate()>0?recorder.currentSampleRate():sr;
@@ -1347,6 +1354,7 @@ private:
 
     juce::TextButton playButton, abButton, saveButton, backButton;
     juce::TextButton styleButtons[3];
+    bool styleNote = false;                 ///< note to "Miks ... liczy się…" z chooseStyle
     juce::TextEditor words, assessment;
     zs::StepBar flow;
     juce::TextButton markStart,markEnd,cutButton,undoButton,editToggle,detailsToggle,nextButton;

@@ -135,8 +135,10 @@ public:
             const double median = l[l.size() / 2];
 
             const bool between = voicedNear (f - 4, f) && voicedNear (g, g + 4);
+            // koniec ostatniej ramki oddechu (g-1), nie ramki g, ktora juz nie jest
+            // oddechem: inaczej sciszanie siegalo ~10 ms w atak slowa (przeglad 14.10, nr 3)
             if (len >= params.minSec && len <= params.maxSec && median <= speech - params.belowSpeechDb && ! between)
-                out.push_back ({ f * hop / sr, (g * hop + win) / sr });
+                out.push_back ({ f * hop / sr, ((g - 1) * hop + win) / sr });
             f = g;
         }
         return out;
