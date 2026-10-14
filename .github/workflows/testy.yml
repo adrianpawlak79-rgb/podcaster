@@ -1,6 +1,8 @@
 # Testy przy kazdym PR i kazdym wypchnieciu na main.
 # Te same testy co Tests/wszystko.sh, przez Tests/ci.sh (kazdy osobno, z tabela).
-# Zadnego mikrofonu, karty ani JUCE — tylko g++ i nasz DSP w naglowkach.
+# testy: zadnego mikrofonu, karty ani JUCE — tylko g++ i nasz DSP w naglowkach.
+# testy-juce: to, co potrzebuje JUCE (pliki, ustawienia, panel ciec, Recorder)
+# — Tests/juce-testy.sh na celach zbudowanych przez CMake.
 
 name: Testy
 
@@ -31,6 +33,38 @@ jobs:
         run: |
           set +e
           bash Tests/ci.sh
+          kod=$?
+          cat "$CI_PODSUMOWANIE" >> "$GITHUB_STEP_SUMMARY"
+          exit $kod
+
+  testy-juce:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Narzedzia
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q g++ cmake ninja-build \
+            libasound2-dev libfreetype-dev libfontconfig1-dev libx11-dev libxcomposite-dev \
+            libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev \
+            libglu1-mesa-dev mesa-common-dev
+
+      - name: JUCE 7.0.12
+        run: git clone -q --depth 1 --branch 7.0.12 https://github.com/juce-framework/JUCE.git "$RUNNER_TEMP/JUCE7"
+
+      - name: Budowanie
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DZS_JUCE_PATH="$RUNNER_TEMP/JUCE7"
+          cmake --build build --target UstawieniaTest PunchPlikTest CieciaPanelTest RuntimeTest
+
+      - name: Tests/juce-testy.sh
+        env:
+          CI_PODSUMOWANIE: ${{ runner.temp }}/juce.md
+        run: |
+          set +e
+          bash Tests/juce-testy.sh build
           kod=$?
           cat "$CI_PODSUMOWANIE" >> "$GITHUB_STEP_SUMMARY"
           exit $kod
