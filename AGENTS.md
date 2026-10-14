@@ -11,6 +11,7 @@ Zielone światło: Windows, C++17 + JUCE 7. Lampka nagrania, prompter, miks z g�
 - Interfejs i komunikaty po polsku.
 - Każda zmiana w DSP ma test w `Tests/`. Przed wypchnięciem: `cd Tests && ./wszystko.sh` (bez mikrofonu i karty dźwiękowej).
 - GitHub Actions puszcza przy każdym PR `Tests/ci.sh`: te same testy, każdy osobno, z tabelą. Testy, które nie przechodzą na `main` od dawna, są w `Tests/znane-bledy.txt` — PR jest oblany, gdy psuje się coś spoza tej listy albo gdy test z listy zaczyna przechodzić (wtedy usuń go z listy).
+- Obok, w zadaniu `testy-juce`, idą testy potrzebujące JUCE (ustawienia, punch na plikach, panel cięć, Recorder): `bash Tests/juce-testy.sh <folder budowania>`. Nowy test JUCE dopisz tam i do listy celów w `.github/workflows/testy.yml`.
 - Liczby w opisach zmian mają pochodzić z pomiaru (test, nagranie), nie z przypuszczenia.
 
 ## Jak nie wchodzić sobie w drogę

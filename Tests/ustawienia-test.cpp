@@ -200,8 +200,12 @@ int main()
 
         Settings r2;
         ok (r2.sessionFolder() != tmp,                "zniknietego folderu nie podajemy dalej");
-        ok (r2.sessionFolder().getParentDirectory().exists()
-            || r2.sessionFolder().exists(),           "zastepczy folder da sie utworzyc");
+        // createDirectory tworzy tez brakujace foldery wyzej (na Linuksie
+        // ~/Music czesto nie istnieje, na Windowsie "Muzyka" jest zawsze).
+        const auto zast = r2.sessionFolder();
+        const bool byl = zast.exists();
+        ok (zast.createDirectory().wasOk() && zast.isDirectory(), "zastepczy folder da sie utworzyc");
+        if (! byl) zast.deleteRecursively();
     }
 
     // ---- 6. ostatni tekst --------------------------------------------------
