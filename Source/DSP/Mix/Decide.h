@@ -62,6 +62,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -101,6 +102,21 @@ public:
     /** Do czego to nagranie jedzie. Pusto = program wybiera sam. */
     enum class Destination { Auto, Podcast, YouTube, Wlasne };
 
+    /** Trzy brzmienia do wyboru na ekranie miksu (Tools/ZADANIA.md, zad. 11).
+        Wszystkie do tej samej glosnosci — porownanie ma byc uczciwe, glosniej
+        zawsze "brzmi lepiej". */
+    enum class Style
+    {
+        Delikatny,   ///< miks lagodny B1 (12.10): filtr dolu, lekkie odszumianie, 2:1
+        Studyjny,    ///< lancuch v3 Adriana na naszych modulach (domyslny)
+        Mocny        ///< studyjny + gesciej i blizej: mocniejsza kompresja, wiecej obecnosci
+    };
+
+    static const char* styleName (Style s)
+    {
+        return s == Style::Delikatny ? "Delikatny" : s == Style::Mocny ? "Mocny" : "Studyjny";
+    }
+
     struct Wish
     {
         Wish() {}
@@ -113,6 +129,7 @@ public:
             (brama, glosek, de-esser, barwa z pomiaru) brzmial gorzej niz surowe
             nagranie. Pelna logika zostaje: studio = false. */
         bool studio = true;
+        Style style = Style::Studyjny;   ///< ktore brzmienie, gdy studio = true
 
         /** Wynik kreatora. Pusty, gdy kreatora nie przechodzono — wtedy
             wszystko bierze sie z samego nagrania, jak dotad. */
@@ -428,7 +445,15 @@ public:
         roomChanged (wish.room, d);
         tone (in, sr, wish.room, headroom, d);
 
-        if (wish.studio) studio (in, sr, wish, headroom, d);
+        if (wish.studio)
+        {
+            if (wish.style == Style::Delikatny) gentle (wish, headroom, d);
+            else
+            {
+                studio (in, sr, wish, headroom, d);
+                if (wish.style == Style::Mocny) strong (d);
+            }
+        }
 
         return d;
     }
@@ -439,6 +464,71 @@ public:
         tym samym nagraniu), wiec przesuniecia sa wzgledem niej. Uzasadnienie
         pisane od nowa, zeby nie opisywalo stopni, ktorych nie ma. */
     static constexpr double studioPodcastLufs = -19.0;
+
+    /** Delikatny — miks lagodny z 12.10 (B1; Adrian: "raczej b1" wobec mocniejszych
+        wersji B2/D). Tylko filtr dolu, lekkie odszumianie, kompresja 2:1 i limiter.
+        Glosnosc ta sama co w studyjnym. */
+    static constexpr float gentleDenoiseDb = -6.0f;
+
+    static void gentle (const Wish& wish, double headroom, Decision& d)
+    {
+        auto& p = d.params;
+        char b[400];
+        std::vector<std::string> why;
+
+        if (wish.where == Destination::Podcast) p.targetLufs = studioPodcastLufs;
+        d.squashDb = std::max (0.0, p.targetLufs - d.freeTargetLufs);
+        std::snprintf (b, sizeof (b), "Miks delikatny: głośność %.1f LUFS, szczyt najwyżej %.1f dBTP.",
+                       p.targetLufs, wish.ceilingDbTp);
+        why.push_back (b);
+
+        p.highpassHz = 70.0; p.steepHighpass = false;
+        p.preEq.clear(); p.notchEq.clear();
+        p.useRider = false;
+        p.levelerThreshDb = (float) std::clamp (d.speechDb - 2.0, -60.0, -6.0);
+        p.levelerRatio = 2.0f;
+        p.peakRatio = 1.0f;
+        std::snprintf (b, sizeof (b), "Kompresja 2:1 od %.1f dBFS, tuż pod głośną mową. Bez osobnego ściskania szczytów.",
+                       p.levelerThreshDb);
+        why.push_back (b);
+
+        if (p.useDenoise)
+        {
+            p.denoiseDb = std::max (p.denoiseDb, gentleDenoiseDb);
+            std::snprintf (b, sizeof (b), "Odszumianie lekkie, najwyżej %.0f dB: tło jest %.0f dB pod mową.",
+                           -p.denoiseDb, headroom);
+        }
+        else
+            std::snprintf (b, sizeof (b), "Bez odszumiania: tło jest %.0f dB pod mową albo nie ma go z czego zmierzyć.", headroom);
+        why.push_back (b);
+
+        p.useGate = false; p.usePlosive = false; p.useDeClick = false; p.useBreath = false;
+        p.useTame = false; p.useDeEsser = false; p.useTiltMatch = false; p.useSaturation = false;
+        p.deHum = false;
+        p.lowDb = p.mudDb = p.presenceDb = p.airDb = 0.0f;
+        why.push_back ("Bez ekspandera, de-essera i korekty barwy — głos zostaje taki, jak go nagrałeś, tylko równiejszy.");
+        d.because = why;
+    }
+
+    /** Mocny — na studyjnym: gesciej i blizej, w strone radia. Mocniejsza
+        kompresja (3:1 i 6:1 na szczytach) i wiecej obecnosci. Bez
+        podbicia dolu: SM7B z bliska ma go az nadto (pomiar 14.10). Glosnosc ta sama, wiec roznica jest w gestosci, nie w poziomie. */
+    static void strong (Decision& d)
+    {
+        auto& p = d.params;
+        char b[400];
+        p.levelerThreshDb = (float) std::clamp (d.speechDb - 6.0, -60.0, -6.0);
+        p.levelerRatio = 3.0f; p.levelerAttackMs = 10.0; p.levelerReleaseMs = 100.0;
+        p.peakThreshDb = (float) std::clamp (d.speechDb + 1.0, -50.0, -3.0);
+        p.peakRatio = 6.0f; p.peakAttackMs = 2.0; p.peakReleaseMs = 70.0;
+        p.presenceHz = 3200.0; p.presenceDb = 2.5f;
+        for (auto& line : d.because)
+            if (line.rfind ("Miks studyjny", 0) == 0) line.replace (0, std::strlen ("Miks studyjny"), "Miks mocny");
+        std::snprintf (b, sizeof (b), "Mocniej niż studyjny: kompresja 3:1 od %.1f dBFS i 6:1 na szczytach od %.1f dBFS, "
+                       "obecność 3,2 kHz +2,5 dB — gęściej i bliżej, jak w radiu.",
+                       p.levelerThreshDb, p.peakThreshDb);
+        d.because.push_back (b);
+    }
 
     static void studio (const std::vector<float>& in, double sr, const Wish& wish, double headroom, Decision& d)
     {
