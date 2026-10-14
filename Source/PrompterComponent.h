@@ -167,6 +167,16 @@ public:
             case zs::ui::KeyAction::None:          break;
         }
 
+        // Na pauzie strzalki wybieraja wers (jak klik), w odliczaniu nic nie robia —
+        // inaczej prompter rozjezdzal sie z czerwona linia (przeglad 14.10, nr 5).
+        if (pz.on && (c == juce::KeyPress::upKey || c == juce::KeyPress::downKey || c == juce::KeyPress::leftKey
+                      || c == juce::KeyPress::rightKey || c == juce::KeyPress::homeKey))
+        {
+            if (! pz.resuming && c == juce::KeyPress::upKey)   selectLine (juce::jmax (0, shownLine - 1));
+            if (! pz.resuming && c == juce::KeyPress::downKey) selectLine (shownLine + 1);
+            return true;
+        }
+
         if (c == juce::KeyPress::upKey)    { nudge (-4); return true; }
         if (c == juce::KeyPress::downKey)  { nudge (+4); return true; }
         if (c == juce::KeyPress::leftKey)  { nudge (-1); return true; }
@@ -220,6 +230,9 @@ public:
         bool   selected = false;
         double cutSec = 0.0;                ///< czerwona linia
         int    line = -1;                   ///< od tego wersu nagrywamy
+        int    lineWord = -1;               ///< ...jego pierwsze slowo (indeks wersu zmienia sie z oknem i +/-)
+        int    pausedWord = -1;             ///< pierwsze slowo wersu z chwili pauzy — dalej wybrac nie mozna
+        bool   tooOld = false;              ///< klikniety wers jest dalej niz pamiec nagrania
         bool   resuming = false;            ///< pre-roll i odliczanie, zapis jeszcze stoi
         double playFrom = 0.0, playLen = 0.0, playStartMs = -1.0;
     };
@@ -240,6 +253,7 @@ public:
         pz.history = recorder.recentAudio (300.0, pz.historyStart);
         pz.viewEnd = pz.atSec;
         pz.cuts = tw::PauseCut::silences (pz.history, pz.rate, pz.historyStart);
+        if (! lines.empty()) pz.pausedWord = lines[(size_t) juce::jlimit (0, (int) lines.size() - 1, shownLine)].firstWord;
         updateTransport();
         repaint();
     }
@@ -250,16 +264,23 @@ public:
         ten sam kod sprawdza symulacja). */
     void selectLine (int line, bool preview = true)
     {
-        if (! pz.on || pz.resuming || line < 0 || line >= (int) lines.size() || line > shownLine) return;
+        if (! pz.on || pz.resuming || line < 0 || line >= (int) lines.size()) return;
+        // dalej niz wers z chwili pauzy nie ma czego nagrywac od nowa (porownanie
+        // po slowie: po pierwszym wyborze shownLine stoi juz na wybranym wersie)
+        if (pz.pausedWord >= 0 && lines[(size_t) line].firstWord > pz.pausedWord) return;
         const double cut = tw::PauseCut::forLine (lineLog.marks(), markFor (line, pz.atSec, tw::LineSource::Retake),
                                                   pz.history, pz.rate, pz.historyStart, heardWords, pz.cuts);
+        // Wers starszy niz pamiec (5 min): linia wypadlaby w przypadkowym miejscu
+        // na skraju pamieci, zwykle w slowie — nie zaznaczamy, mowimy dlaczego.
+        pz.tooOld = cut < pz.historyStart + 0.5;
+        if (pz.tooOld) { repaint(); return; }
         setSelection (cut, line, preview);
     }
 
     /** Klik w fale na pauzie: najblizsza cisza, prompter na wersie, ktory tam sie zaczyna. */
     void selectTime (double t)
     {
-        if (! pz.on || pz.resuming) return;
+        if (! pz.on || pz.resuming || lines.empty()) return;
         const double best = tw::PauseCut::nearest (t, pz.cuts, pz.atSec, pz.history, pz.rate, pz.historyStart);
         int line = shownLine;
         for (const auto& h : heardWords)
@@ -269,7 +290,10 @@ public:
 
     void setSelection (double cut, int line, bool preview)
     {
+        if (lines.empty() || line < 0 || line >= (int) lines.size()) return;
+        pz.tooOld = false;
         pz.selected = true;
+        pz.lineWord = lines[(size_t) line].firstWord;
         pz.cutSec = juce::jlimit (pz.historyStart, pz.atSec, cut);
         pz.line = line;
         const int from = lines[(size_t) line].firstWord;
@@ -337,12 +361,18 @@ public:
     void finishResume()
     {
         if (! pz.on || ! pz.resuming) return;
-        auto m = markFor (pz.line, pz.atSec, tw::LineSource::Retake);
+        // wers po slowie, nie po indeksie: okno albo +/- na pauzie lamia wersy od nowa
+        if (pz.lineWord >= 0 && ! spans.empty()) pz.line = tw::lineOfWord (spans, pz.lineWord);
+        // Koniec wyciecia = tyle, ile naprawde zapisano. Blok audio, ktory juz
+        // trwal w chwili pauzy, dopisal sie po odczycie atSec (przeglad 14.10,
+        // nr 8) — na pauzie nic wiecej nie przybywa, wiec teraz to dokladny koniec.
+        const double end = std::max (pz.atSec, recorder.recordedSeconds());
+        auto m = markFor (pz.line, end, tw::LineSource::Retake);
         lineLog.restart (m, tw::LineSource::Retake);
         lineLog.setLastCut (pz.cutSec, true);
-        lineLog.setLastCutTo (pz.atSec);
+        lineLog.setLastCutTo (end);
         punchMovedByHand = true;
-        if (pz.cutSec < pz.atSec) removedSpans.push_back ({ pz.cutSec, pz.atSec });
+        if (pz.cutSec < end) removedSpans.push_back ({ pz.cutSec, end });
         recorder.resume();
         if (onRetake) onRetake();
         pz = {};
@@ -468,6 +498,7 @@ public:
         if (lines.empty()) return -1;
         auto r = textCard();
         if (! recorder.isRecording()) r.removeFromBottom (barHeight);
+        if (follower.isLost()) r.removeFromBottom (bottomHeight());     // jak paint(): baner SZUKAM
         const float lineH = fontNow() * 1.35f;
         const float gap   = getHeight() >= 1000 ? 32.0f : 20.0f;
         const float step  = lineH + gap;
@@ -644,7 +675,8 @@ public:
             g.setColour (Ink::yellow());
             g.fillRect (hint.getX(), hint.getCentreY() - 5.0f, 3.0f, 10.0f);
             g.fillRect (hint.getX() + 5.0f, hint.getCentreY() - 5.0f, 3.0f, 10.0f);
-            text = pz.resuming ? PL ("PAUZA  ·  za chwilę nagrywanie od czerwonej linii")
+            text = pz.tooOld   ? PL ("PAUZA  ·  ten wers jest dalej niż 5 minut wstecz — tak daleko nie nagrasz od nowa; popraw go w Montażu")
+                 : pz.resuming ? PL ("PAUZA  ·  za chwilę nagrywanie od czerwonej linii")
                  : pz.selected ? PL ("PAUZA  ·  Nagraj — od czerwonej linii (dalej zostanie zastąpione)  ·  kliknij, by zmienić")
                                : PL ("PAUZA  ·  kliknij wers albo miejsce na fali, od którego chcesz nagrać  ·  kółko — przewiń");
             g.drawText (text, hint.withTrimmedLeft (14.0f).toNearestInt(), juce::Justification::centredLeft);
@@ -976,6 +1008,28 @@ private:
 
         const double now = recorder.recordedSeconds();
 
+        // Na pauzie prompter stoi tam, gdzie czlowiek wskazal. Bez tego timer
+        // dopisywal znacznik wybranego wersu z czasem pauzy (drugi klik w ten sam
+        // wers stawial linie przy pauzie), a spoznione slowa z rozpoznawania
+        // przestawialy prompter z wybranego wersu (przeglad 14.10, nr 2 i 12).
+        // Zapis rusza w chwili "Czytaj" — tu, nie w paint(): napis wisi 0,7 s
+        // i pierwsze slowa ginely, a przy zaslonietym oknie paint nie przychodzi.
+        if (pz.on)
+        {
+            clock.takeNewSyllables();
+            if (listening && speech != nullptr)
+            {
+                VoskEngine::Hypothesis h;
+                while (speech->nextHypothesis (h)) {}
+                words.endUtterance();
+            }
+            if (pz.resuming && countdownStart >= 0.0
+                && (juce::Time::getMillisecondCounterHiRes() - countdownStart) / 1000.0 >= countdownTotal)
+                finishResume();
+            repaint();
+            return;
+        }
+
         follower.advance (now, clock.takeNewSyllables(), clock.pauseLength());
 
         // Rozpoznane slowa maja pierwszenstwo. Licznik sylab jest rezerwa:
@@ -1156,8 +1210,7 @@ private:
         const auto label = countdown.label (elapsed, countdownTotal);
         if (label.empty())
         {
-            countdownStart = -1.0;
-            if (pz.resuming) finishResume();    // zapis rusza na "Czytaj"
+            countdownStart = -1.0;              // zapis ruszyl juz na "Czytaj" (timerCallback)
             return;
         }
 

@@ -319,6 +319,24 @@ int main()
         check (pl.size() == 1 && std::fabs (pl[0].from - (l1 - 0.15)) < 1e-9 && pl[0].byHand, "strzalkami przesuniete: tam");
         const auto v = pp.review (pl, {}, nullptr);
         check (v.size() == 1 && v[0].sure, "wskazane przez czlowieka: pewne", v.empty() ? "" : v[0].why);
+
+        // Dwie pauzy, druga siega przed pierwsza i jest z innego wersu (przeglad
+        // 14.10, nr 3): scalone wyciecie dalej pewne — oba miejsca wskazal czlowiek.
+        // Dotad "rozne wersy" posylaly je do straznika, ktory je odrzucal, a pasek
+        // z fala pokazywal pomylki jako wyciete.
+        {
+            auto m2 = m;
+            m2.back().cutFrom = bad - 0.10; m2.back().cutByHand = true; m2.back().cutTo = m2.back().sec;
+            auto second = mark (1, key + 3.0, tw::LineSource::Retake);
+            second.cutFrom = l1 - 0.15; second.cutByHand = true; second.cutTo = key + 3.0;
+            m2.push_back (second);
+            const auto two = pp.plan (m2, cuts);
+            const auto vv = pp.review (two, {}, nullptr);
+            check (two.size() == 1 && std::fabs (two[0].from - (l1 - 0.15)) < 1e-9 && std::fabs (two[0].to - (key + 3.0)) < 1e-9
+                       && vv.size() == 1 && vv[0].sure,
+                   "dwie pauzy z roznych wersow: jedno pewne wyciecie od wczesniejszej linii",
+                   vv.empty() ? "" : vv[0].why);
+        }
     }
 
     // ---- R bez modelu mowy: tylko cofa tekst ---------------------------------------
