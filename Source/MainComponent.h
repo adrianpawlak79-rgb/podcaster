@@ -118,6 +118,9 @@ public:
                     jednym spojrzeniem odroznic "mowisz i jest dobrze" od
                     "cisza, czekam". */
     void setRecording(bool value) { recording=value; }
+    /** Sygnal jeszcze nieoceniony: szara lampka "SLUCHAM", nie zielone "MOW"
+        (audyt 14.10: zielony ma znaczyc "dobrze", a nie "czekam"). */
+    void setWaiting(bool value) { if (waiting != value) { waiting = value; repaint(); } }
     void setState (int severity, const juce::String& msg, bool dimmed = false)
     {
         state = severity;
@@ -144,6 +147,8 @@ public:
         }
 
         if(!recording && state==0) { label=PL("GOTOWY"); c=zs::Ink::textDim(); }
+        const bool listening = recording && state==0 && waiting;
+        if(listening) { label=PL("SŁUCHAM"); c=zs::Ink::textDim(); }
 
         if (dim && state == 0)
             c = c.withMultipliedBrightness (0.72f);
@@ -153,8 +158,8 @@ public:
         g.setColour (c);
         g.fillEllipse (circle.toFloat());
 
-        g.setColour (!recording && state==0 ? zs::Ink::bg() : zs::Ink::onAccent());
-        g.setFont (juce::Font (juce::jmax (14.0f, d * (recording?0.22f:0.16f)), juce::Font::bold));
+        g.setColour ((!recording && state==0) || listening ? zs::Ink::bg() : zs::Ink::onAccent());
+        g.setFont (juce::Font (juce::jmax (14.0f, d * (recording && ! listening ? 0.22f : 0.15f)), juce::Font::bold));
         g.drawText (label, circle, juce::Justification::centred);
 
         g.setColour (zs::Ink::textNext());
@@ -166,6 +171,7 @@ public:
 
 private:
     bool recording=false;
+    bool waiting=false;
     int state = 0;
     bool dim = false;
     juce::String message = PL ("Naciśnij Nagraj, kiedy będziesz gotowy.");
@@ -303,7 +309,7 @@ public:
         hints.setInterceptsMouseClicks (false, false);
         addAndMakeVisible (hints);
 
-        flow.setSteps ({ PL ("Przygotowanie"), PL ("Nagranie"), PL ("Odsłuch"), PL ("Montaż"), PL ("Gotowe") });
+        flow.setSteps ({ PL ("Przygotowanie"), PL ("Nagranie"), PL ("Odsłuch i montaż"), PL ("Miks"), PL ("Gotowe") });
         addAndMakeVisible (flow);
 
         setWantsKeyboardFocus (true);
@@ -468,7 +474,7 @@ public:
         const bool rec = recorder.isRecording();
         const auto name = recordingName();
         zs::ScreenFrame::paint (g, getLocalBounds(), name,
-            rec ? PL ("Spacja — pauza  ·  Esc — zakończ") : preparation ? PL("Wybierz mikrofon i przygotuj tekst") : PL ("Nagraj, a potem odsłuchaj podejście"));
+            rec ? (inPrompter ? PL ("Spacja — pauza  ·  Esc — zakończ") : PL ("Spacja albo Esc — zakończ i oceń")) : preparation ? PL("Wybierz mikrofon i przygotuj tekst") : PL ("Nagraj, a potem odsłuchaj podejście"));
         auto side = zs::ScreenFrame::sidebar (getLocalBounds());
         g.setColour (I::bar()); g.fillRect (side);
         g.setColour (I::edge()); g.drawVerticalLine (side.getX(), (float) side.getY(), (float) side.getBottom());
@@ -524,7 +530,7 @@ public:
             if (rec) lamp.setBounds (card.withSizeKeepingCentre (juce::jmin (card.getWidth() - 40, 340), d + 64));
             else if (! detailsOpen) recButton.setBounds (card.withSizeKeepingCentre (d, d).translated (0, -20));
         }
-        auto actions = side.removeFromBottom (rec ? (inPrompter ? 94 : 42) : (inPrompter ? 112 : detailsOpen ? 126 : 82));
+        auto actions = side.removeFromBottom (inPrompter ? 0 : rec ? 42 : detailsOpen ? 126 : 82);
         if (rec || inPrompter)
         {
             recButton.setBounds (actions.removeFromBottom (rec ? 42 : 104));
@@ -695,8 +701,11 @@ private:
         const bool hasScript = inPrompter && prompter != nullptr && prompter->hasText();
         if (!preparation) updatePrompterButton();
         if (prompter != nullptr) prompter->refreshControls();
-        recButton.setVisible(!inWizard && !inReview && !preparation && !settingsOpen);
-        repeatButton.setVisible(inPrompter && rec && hasScript);
+        // W prompterze jeden zestaw sterowania: transport pod tekstem (Nagraj,
+        // Pauza, Odtworz, Zakoncz) i klawisze. Boczne Nagraj / Powtorz wers /
+        // Zatrzymaj i ocen dublowaly go i zacieraly stan (audyt 14.10).
+        recButton.setVisible(!inWizard && !inReview && !preparation && !settingsOpen && !inPrompter);
+        repeatButton.setVisible(false);
         hints.setVisible((inPrompter || rec) && !inWizard && !inReview);
         hints.setText(PL(zs::ui::hintLine(rec, hasScript).c_str()), juce::dontSendNotification);
         hints.setJustificationType(inPrompter ? juce::Justification::centred : juce::Justification::centredLeft);
@@ -918,7 +927,10 @@ private:
         nagrania. */
     bool startStop()
     {
-        if (! recorder.isRecording() && ! recButton.isShowing()) return false;
+        // start tylko z ekranu nagrywania: przycisk Nagraj albo prompter (tam
+        // Nagraj jest w transporcie pod tekstem)
+        const bool onRecordScreen = recButton.isShowing() || (inPrompter && ! inReview && ! inWizard && ! preparation && ! settingsOpen);
+        if (! recorder.isRecording() && ! onRecordScreen) return false;
         if (! recorder.isRecording() && ! recButton.isEnabled()) return false;
         toggleRecord();
         return true;
@@ -960,7 +972,7 @@ private:
                             + juce::String (punched.removedSec, 1) + PL (" s; pełne nagranie w folderze „surowe”")
                             + (punched.audibleSeams > 0
                                  ? PL ("; uwaga: przy ") + juce::String (punched.audibleSeams)
-                                   + PL (" szwie tło się zmieniło (np. wentylator) — posłuchaj tych miejsc")
+                                   + PL (" połączeniu po cięciu tło się zmieniło (np. wentylator) — posłuchaj tych miejsc")
                                  : juce::String()));
                 }
                 if (! punched.applied && ! punched.plan.empty())
@@ -992,6 +1004,18 @@ private:
 
     void startRecording()
     {
+        // Bez wejscia nie zaczynamy: zamiast "Brak urzadzenia" na lampce mowimy,
+        // co zrobic (audyt 14.10).
+        if (! noDevice)
+        {
+            auto* dev = deviceManager.getCurrentAudioDevice();
+            if (dev == nullptr || dev->getActiveInputChannels().isZero())
+            {
+                juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, PL ("Nie ma mikrofonu"),
+                    PL ("Program nie widzi żadnego wejścia dźwięku. Podłącz mikrofon albo interfejs i wybierz go w „Mikrofon i sprzęt” (prawy górny róg)."));
+                return;
+            }
+        }
         const auto err = recorder.start (previewFolder != juce::File() ? previewFolder : sessionFolder);
 
         if (err.isNotEmpty())
@@ -1179,6 +1203,10 @@ private:
                               + PL ("%  \xe2\x80\x94 m\xc3\xb3w normalnie"), false);
         else
             lamp.setState (v.state, PL (v.msg), v.dim);
+        {
+            const juce::String m (v.msg);
+            lamp.setWaiting (m.startsWith ("Sprawdzam wej") || m.startsWith ("Nic nie s"));
+        }
 
 
 

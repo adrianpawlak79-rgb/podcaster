@@ -198,7 +198,7 @@ public:
         undoButton.onClick=[this] { if(canEdit() && !undoAudio.empty()) restartEdit(std::move(undoAudio)); };
         for(auto* b:{&markStart,&markEnd,&cutButton,&undoButton}) addAndMakeVisible(b);
         selection.setColour(juce::Label::textColourId,Ink::textNext());
-        selection.setText(PL("Przeciągnij po przebiegu, aby zaznaczyć fragment do wycięcia. Oryginał zostaje na dysku."),juce::dontSendNotification);
+        selection.setText(PL("Przeciągnij po fali, aby zaznaczyć fragment do wycięcia. Oryginał zostaje na dysku."),juce::dontSendNotification);
         // Gdzie jest plik: pytanie, ktore padlo przy pierwszym prawdziwym
         // nagraniu ("nie wiem, gdzie mi sie zapisala sesja").
         folderButton.setButtonText (PL("Pokaż w folderze"));
@@ -1443,7 +1443,7 @@ private:
         juce::String message=PL("Wycięto ")+juce::String(result.cuts)+PL(" fragmentów (")
             +juce::String(result.removedSec,2)+PL(" s). Pełne nagranie jest w folderze surowe.");
         if(result.audibleSeams>0) message+=PL(" Przy ")+juce::String(result.audibleSeams)
-            +PL(" szwach tło się zmieniło — posłuchaj tych miejsc.");
+            +PL(" połączeniach po cięciu tło się zmieniło — posłuchaj tych miejsc.");
         // Archiwizacja TSV jest wykonywana przez applyCutList. Jesli sie nie
         // udala, nie wolno proponowac starych czasow na juz przycietym pliku.
         const bool staleList=zs::cutListFile(file).existsAsFile() && !zs::writeCutList(file,{});
