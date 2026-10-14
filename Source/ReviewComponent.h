@@ -1013,15 +1013,16 @@ private:
                          .getChildFile (file.getFileNameWithoutExtension()
                                         + "__miks-" + juce::String (n++) + ".wav");
 
-        wavio::Audio out;
-        out.sampleRate = (int) sr;
-        out.channels.push_back (review.mixedAudio());
-
-        const auto err = wavio::write24 (target.getFullPathName().toStdString(), out);
+        // Bez kopii miksu (godzina = 0,7 GB), z kontrola kazdego kroku zapisu i
+        // podmiana pliku dopiero po poprawnym zamknieciu (Wav.h, audyt 14.10).
+        const auto& mixed = review.mixedAudio();
+        const auto err = wavio::writePcm (target.getFullPathName().toStdString(), { mixed.data() },
+                                          mixed.size(), (int) sr, 24);
 
         if (! err.empty())
         {
-            note = PL ("Nie udało się zapisać: ") + juce::String (err);
+            note = PL ("Nie udało się zapisać miksu — sprawdź wolne miejsce na dysku i dostęp do folderu. ")
+                 + PL ("Nagranie jest bezpieczne, możesz spróbować jeszcze raz.");
             repaint();
             return;
         }
