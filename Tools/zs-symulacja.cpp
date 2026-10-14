@@ -491,7 +491,9 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
         for (const auto& t : truth) if (t.kind == "wada" && t.extra == "X") ++unfixable;
         rep.line ("| | co | wynik | próg |");
         rep.line ("|---|---|---|---|");
-        rep.check (std::fabs (did.lufsAfter - (-16.0)) <= 1.0, "głośność po miksie", f1 (did.lufsAfter) + " LUFS", "−16 ± 1");
+        // cel z decyzji: miks studyjny -19 LUFS (mono, AES), inne -16
+        const double target = review.whatIDecided().params.targetLufs;
+        rep.check (std::fabs (did.lufsAfter - target) <= 1.0, "głośność po miksie", f1 (did.lufsAfter) + " LUFS", f1 (target) + " ± 1 (cel miksu)");
         rep.check (did.peakAfter <= -0.9, "szczyt po miksie", f1 (did.peakAfter) + " dBTP", "≤ −1");
         rep.check ((int) review.toRedo().size() >= 1 && (int) review.toRedo().size() <= unfixable,
                    "miejsca do powtórzenia", std::to_string (review.toRedo().size()), "1–" + std::to_string (unfixable) + " (wady nie do naprawy)");
