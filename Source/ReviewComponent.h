@@ -128,7 +128,7 @@ public:
         updateStyleButtons();
 
         saveButton.setButtonText (PL ("Zapisz miks"));
-        saveButton.onClick = [this] { saveSelection(); };
+        saveButton.onClick = [this] { if (editMode) goToMix(); else save(); };
         addAndMakeVisible (saveButton);
 
         backButton.setButtonText (PL ("Wróć do nagrywania"));
@@ -168,14 +168,16 @@ public:
         assessment.setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
         assessment.setColour (juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
         addAndMakeVisible (assessment);
-        flow.setSteps ({ PL("Przygotowanie"), PL("Nagranie"), PL("Odsłuch"), PL("Montaż"), PL("Gotowe") });
+        // Miks na koncu (ustalone 13.10, ZADANIA zad. 11): najpierw odsluch i montaz
+        // SUROWEGO nagrania, potem raz liczony miks z wyborem brzmienia, potem zapis.
+        flow.setSteps ({ PL("Przygotowanie"), PL("Nagranie"), PL("Odsłuch i montaż"), PL("Miks"), PL("Gotowe") });
         addAndMakeVisible (flow);
 
-        editToggle.setButtonText(PL("Edytuj nagranie"));
-        editToggle.onClick=[this] { setEditMode (!editMode); };
+        editToggle.setButtonText(PL("← Wróć do montażu"));
+        editToggle.onClick=[this] { setEditMode (true); };
         detailsToggle.setButtonText(PL("Szczegóły miksu"));
         detailsToggle.onClick=[this] { detailsMode=!detailsMode;resized();repaint(); };
-        nextButton.setButtonText(PL("Następne miejsce do poprawy"));
+        nextButton.setButtonText(PL("Następne miejsce do sprawdzenia"));
         nextButton.onClick=[this] { nextTrouble(); };
         for(auto* b:{&editToggle,&detailsToggle,&nextButton})addAndMakeVisible(b);
         markStart.setButtonText(PL("Początek cięcia"));
@@ -202,8 +204,8 @@ public:
         folderButton.setButtonText (PL("Pokaż w folderze"));
         folderButton.onClick = [this] { (doneMode ? saved : (saved.existsAsFile() ? saved : file)).revealToUser(); };
         addAndMakeVisible (folderButton);
-        doneEditButton.setButtonText (PL("Wróć do montażu"));
-        doneEditButton.onClick = [this] { setEditMode (true); };
+        doneEditButton.setButtonText (PL("← Wróć do miksu"));
+        doneEditButton.onClick = [this] { setEditMode (false); };
         newTakeButton.setButtonText (PL("Nagraj nowe podejście"));
         newTakeButton.onClick = [this] { if (onClose) onClose(); };
         addAndMakeVisible (doneEditButton); addAndMakeVisible (newTakeButton);
@@ -292,7 +294,7 @@ public:
         player.clear();
         recorder.attachPlayer (nullptr);
 
-        undoAudio.clear();cutFrom=cutTo=-1;editMode=detailsMode=middleMode=pendingSave=doneMode=false;
+        undoAudio.clear();cutFrom=cutTo=-1;editMode=detailsMode=middleMode=doneMode=false;
         words.clear(); assessment.clear(); reviewSummary.clear(); resized();
         for (auto* b : { &playButton, &abButton, &saveButton, &editToggle, &nextButton,
                          &markStart, &markEnd, &cutButton, &undoButton }) b->setEnabled (false);
@@ -344,34 +346,44 @@ public:
         }
 
         review.setTake (std::move (mono), sr, std::move (events));
+        ++takeVersion;
 
         cutPanel.load(file, review.rawAudio(), sr);
         beforeEnv.build (review.rawAudio(), sr, 1400);
         afterEnv = {};
 
-        if (waitForIt)
+        // Krok 3: odsluch i montaz na surowym nagraniu. Miks liczy sie dopiero
+        // po "Dalej: miks" — raz, na koncu, a nie po kazdym cieciu.
+        editMode = true;
+        setRawMaterial();
+        resetTrim();
+        assessment.setText (montageSummary(), false);
+        updateMontageButtons();
+
+        if (waitForIt)                  // tylko zrzuty ekranu przy budowaniu
         {
             review.run (wish);
             adoptResult();
         }
-        else
-        {
-            startThread();
-        }
 
+        resized();
         repaint();
     }
 
-    void setEditMode (bool enabled) { if(enabled && !cutPanel.empty()) {
-        // Montaz czeka na decyzje po R — wracamy do listy decyzji, nie zostajemy
-        // na ekranie "Plik zapisany", gdzie tego komunikatu nie widac (test 12.10:
-        // "Wroc do montazu" wygladal na martwy).
-        note=PL("Najpierw zatwierdź poprawki po R. Ich czasy odnoszą się do pełnego nagrania.");
-        doneMode = false; editMode = false; detailsMode = false; resized(); repaint(); return;
-    } doneMode = false; editMode = enabled; detailsMode = false; resized(); repaint(); }
+    /** true = krok "Odsluch i montaz" (surowe nagranie), false = krok "Miks". */
+    void setEditMode (bool enabled)
+    {
+        if (! enabled) { goToMix(); return; }
+        if (isThreadRunning()) return;           // miks wlasnie sie liczy
+        player.pause(); stopSeam();
+        doneMode = false; editMode = true; detailsMode = false;
+        setRawMaterial();
+        assessment.setText (montageSummary(), false);
+        resized(); repaint();
+    }
 
     // Podglad przechodzi ta sama droga zapisu co zwykly przycisk.
-    void previewDone() { saveSelection(); }
+    void previewDone() { if (! editMode) save(); }
 
     bool hasTake() const { return review.stage() != zs::TakeReview::Stage::Empty; }
 
@@ -392,14 +404,15 @@ public:
     {
         const int c = k.getKeyCode();
         if (doneMode) {
-            if (c == juce::KeyPress::escapeKey) { setEditMode (true); return true; }
+            if (c == juce::KeyPress::escapeKey) { setEditMode (false); return true; }
             return false;
         }
 
         if (cutPanel.isVisible() && cutPanel.keyPressed(k)) return true;
         if (c == juce::KeyPress::spaceKey)     { togglePlay(); return true; }
-        if (c == juce::KeyPress::tabKey)       { toggleAb();   return true; }
-        if (c == juce::KeyPress::escapeKey)    { if (onClose) onClose(); return true; }
+        if (c == juce::KeyPress::tabKey)       { if (! editMode) toggleAb(); return true; }
+        // Esc cofa o krok: z miksu do montazu, z montazu do nagrywania
+        if (c == juce::KeyPress::escapeKey)    { if (! editMode) setEditMode (true); else if (onClose) onClose(); return true; }
 
         if (editMode && (c == juce::KeyPress::deleteKey || c == juce::KeyPress::backspaceKey)
             && cutFrom >= 0 && cutTo > cutFrom && cutButton.onClick) { cutButton.onClick(); return true; }
@@ -424,9 +437,9 @@ public:
 
     /* Mysz na przebiegu.
 
-       Odsluch: klikniecie = posluchaj od tego miejsca (jak dotad).
-       Montaz: klikniecie tylko przestawia kursor, a przeciagniecie zaznacza
-       fragment do wyciecia. Dawniej klikniecie w montazu od razu gralo, a
+       Miks: klikniecie = posluchaj od tego miejsca.
+       Odsluch i montaz: klikniecie = posluchaj od tego miejsca (po puszczeniu
+       przycisku), przeciagniecie zaznacza fragment do wyciecia. Dawniej klikniecie w montazu od razu gralo, a
        granice ciecia ustawialo sie przyciskami w miejscu, w ktorym akurat
        bylo odtwarzanie — Adrian: "nie mam mozliwosci wskazania myszka
        poczatku i konca ciecia". Liczby: zs::ui::review::dragRange. */
@@ -437,7 +450,7 @@ public:
         dragX0 = -1.0f;
 
         if (! strip.contains (e.getPosition()) || review.seconds() <= 0.0
-            || review.stage() != zs::TakeReview::Stage::Ready)
+            || ! (editMode ? canEdit() : mixReady()))
             return;
 
         const double t = (e.position.x - strip.getX()) / juce::jmax (1, strip.getWidth())
@@ -475,7 +488,13 @@ public:
         updateSelection();
     }
 
-    void mouseUp (const juce::MouseEvent&) override { dragX0 = -1.0f; }
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        // klikniecie bez przeciagniecia w montazu: posluchaj od tego miejsca
+        if (editMode && dragX0 >= 0.0f && std::abs (e.position.x - dragX0) < 4.0f && ! player.isPlaying())
+            player.play();
+        dragX0 = -1.0f;
+    }
 
     /* W trakcie sluchania i miksu: komunikat na caly ekran.
 
@@ -487,7 +506,9 @@ public:
     void paintOverChildren (juce::Graphics& g) override
     {
         const auto st = review.stage();
-        if (st != zs::TakeReview::Stage::Listening && st != zs::TakeReview::Stage::Mixing) return;
+        // tylko gdy watek naprawde liczy: w montazu etap jest "Listening" (miksu
+        // jeszcze nie bylo), a nakladka zaslonilaby caly ekran
+        if (! isThreadRunning() || (st != zs::TakeReview::Stage::Listening && st != zs::TakeReview::Stage::Mixing)) return;
 
         auto area = getLocalBounds().withTrimmedTop (zs::ui::frame::header + zs::ui::frame::steps)
                                     .withTrimmedBottom (zs::ui::frame::footer);
@@ -536,7 +557,7 @@ public:
     //==========================================================================
     void resized() override
     {
-        cutPanel.setVisible(!doneMode && !editMode && !cutPanel.empty());
+        cutPanel.setVisible(!doneMode && editMode && !cutPanel.empty());   // decyzje po R: w montazu
         for (auto& b : styleButtons) b.setVisible (false);      // tylko w zwyklym widoku oceny
         if (doneMode) { layoutDone(); return; }
         doneEditButton.setVisible (false); newTakeButton.setVisible (false);
@@ -548,8 +569,8 @@ public:
         namespace L = zs::ui::review;
         for (auto* c : { static_cast<juce::Component*>(&trimStart), static_cast<juce::Component*>(&trimEnd), static_cast<juce::Component*>(&startHandle), static_cast<juce::Component*>(&endHandle), static_cast<juce::Component*>(&middleToggle) }) c->setVisible (false);
         flow.setBounds (zs::ScreenFrame::stepsArea (getLocalBounds()));
-        flow.setCurrent (editMode ? 3 : 2);
-        nextButton.setVisible(true); backButton.setVisible(true);detailsToggle.setVisible(true);
+        flow.setCurrent (3);                         // krok "Miks"
+        nextButton.setVisible(false); backButton.setVisible(false); detailsToggle.setVisible(true);
         saveButton.setButtonText(PL("Zapisz miks"));
         assessment.setText(reviewSummary, false);
         auto main = zs::ScreenFrame::mainArea (getLocalBounds());
@@ -574,22 +595,18 @@ public:
         tools.removeFromLeft (12); tools.removeFromRight (12); feedbackArea = tools;
         main.removeFromTop (8);
         summaryArea = main;
-        cutPanel.setBounds(main);
-        words.setVisible (detailsMode && cutPanel.empty());
+        words.setVisible (detailsMode);
         words.setBounds (main);
-        detailsToggle.setEnabled(cutPanel.empty());
+        detailsToggle.setEnabled(true);
         detailsToggle.setButtonText (detailsMode ? PL("Ukryj szczegóły") : PL("Szczegóły miksu"));
 
         auto side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24);
         side.removeFromTop (32 + 84 + 8);
-        auto actions = side.removeFromBottom (168);
-        backButton.setBounds (actions.removeFromBottom (36)); actions.removeFromBottom (8);
+        auto actions = side.removeFromBottom (80);
         saveButton.setBounds (actions.removeFromBottom (36)); actions.removeFromBottom (8);
-        editToggle.setBounds (actions.removeFromBottom (36)); actions.removeFromBottom (8);
-        nextButton.setBounds (actions.removeFromBottom (36));
-        editToggle.setButtonText (editMode ? PL("Wróć do odsłuchu") : PL("Przejdź do montażu →"));
-        nextButton.setButtonText (PL("Następne miejsce do powtórki"));
-        assessment.setVisible (!editMode);
+        editToggle.setBounds (actions.removeFromBottom (36));
+        editToggle.setButtonText (PL("← Wróć do montażu"));
+        assessment.setVisible (true);
         assessment.setBounds (side);
         for (auto* b : { &markStart, &markEnd, &cutButton, &undoButton }) b->setVisible (editMode);
         selection.setVisible (editMode);
@@ -602,30 +619,29 @@ public:
         if (editMode) { paintEdit (g); return; }
         g.fillAll (Ink::bg());
         zs::ScreenFrame::paint (g, getLocalBounds(), file.getFileNameWithoutExtension(),
-            cutPanel.empty() ? PL("Spacja — odtwarzanie · Tab — przed / po · Esc — wróć")
-                             : PL("Spacja — szew · Enter — wytnij · Backspace — zostaw · ↑↓ — miejsca · Esc — wróć"));
+            PL("Spacja — odtwarzanie · Tab — przed / po · Esc — wróć do montażu"));
         auto side = zs::ScreenFrame::sidebar (getLocalBounds());
         g.setColour (Ink::bar()); g.fillRect (side);
         g.setColour (Ink::edge()); g.drawVerticalLine (side.getX(), (float) side.getY(), (float) side.getBottom());
         auto main = zs::ScreenFrame::mainArea (getLocalBounds());
         g.setColour (Ink::textDim()); g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
-        g.drawText (editMode ? PL("04 / MONTAŻ") : PL("03 / ODSŁUCH"), main.removeFromTop (18), juce::Justification::centredLeft);
+        g.drawText (PL("04 / MIKS"), main.removeFromTop (18), juce::Justification::centredLeft);
         g.setColour (Ink::textNow()); g.setFont (juce::Font (zs::type::title, juce::Font::bold));
-        g.drawText (editMode ? PL("Edytuj nagranie") : PL("Posłuchaj nagrania"), main.removeFromTop (36), juce::Justification::centredLeft);
+        g.drawText (PL("Wybierz brzmienie"), main.removeFromTop (36), juce::Justification::centredLeft);
         g.setColour (Ink::textNext()); g.setFont (juce::Font (zs::type::body));
-        g.drawText (PL("Kliknij przebieg, aby posłuchać miejsca. Porównaj dźwięk przed i po miksie."), main.removeFromTop (24), juce::Justification::centredLeft);
+        g.drawFittedText (PL("Porównaj przed i po miksie. Wszystkie trzy brzmienia mają tę samą głośność."), main.removeFromTop (24), juce::Justification::centredLeft, 1);
         drawWave (g, main.removeFromTop (waveHeight()));
         drawStrip (g, main.removeFromTop (zs::ui::review::strip));
         side = side.reduced (22, 24);
         g.setColour (Ink::textNow()); g.setFont (juce::Font (zs::type::heading, juce::Font::bold));
-        g.drawText (PL("Ocena podejścia"), side.removeFromTop (32), juce::Justification::centredLeft);
+        g.drawText (PL("Co zrobił miks"), side.removeFromTop (32), juce::Justification::centredLeft);
         drawVerdict (g, side.removeFromTop (84));
         g.setColour (Ink::textNext()); g.setFont (juce::Font (zs::type::small));
         if (note.isNotEmpty()) g.drawFittedText (note, feedbackArea, juce::Justification::centredLeft, 2);
-        if (cutPanel.empty() && !detailsMode && review.stage() == zs::TakeReview::Stage::Ready)
+        if (!detailsMode && review.stage() == zs::TakeReview::Stage::Ready)
         {
             g.setColour (Ink::textNext()); g.setFont (juce::Font (zs::type::small));
-            g.drawFittedText (PL("Miks został dobrany automatycznie. Odsłuchaj, zanim zapiszesz."),
+            g.drawFittedText (PL("Miks został dobrany automatycznie. Posłuchaj, zanim zapiszesz — po prawej, co zrobił i dlaczego."),
                               summaryArea, juce::Justification::topLeft, 3);
         }
         if (!detailsMode && file != juce::File())
@@ -666,7 +682,7 @@ private:
     }
     void paintDone (juce::Graphics& g) {
         g.fillAll (Ink::bg());
-        zs::ScreenFrame::paint (g, getLocalBounds(), file.getFileNameWithoutExtension(), PL("Plik zapisany na dysku · Esc — wróć do montażu"));
+        zs::ScreenFrame::paint (g, getLocalBounds(), file.getFileNameWithoutExtension(), PL("Plik zapisany na dysku · Esc — wróć do miksu"));
         auto side = zs::ScreenFrame::sidebar (getLocalBounds());
         g.setColour (Ink::bar()); g.fillRect (side);
         g.setColour (Ink::edge()); g.drawVerticalLine (side.getX(), side.getY(), side.getBottom());
@@ -750,84 +766,180 @@ private:
         startHandle.setBounds (axis.getX()+int(trimStart.getValue()/total*axis.getWidth())-7, axis.getY(), 14, axis.getHeight());
         endHandle.setBounds (axis.getX()+int(trimEnd.getValue()/total*axis.getWidth())-7, axis.getY(), 14, axis.getHeight());
     }
+    /** Krok 3 "Odsluch i montaz": surowe nagranie, bez miksu. Najpierw decyzje
+        po R (gdy sa), potem przyciecie poczatku i konca albo wyciecie srodka. */
     void layoutEdit() {
-        flow.setBounds (zs::ScreenFrame::stepsArea (getLocalBounds())); flow.setCurrent (3);
-        auto main = zs::ScreenFrame::mainArea(getLocalBounds()); main.removeFromTop (78+waveHeight()+8);
-        auto limits = main.removeFromTop (54); auto left=limits.removeFromLeft((limits.getWidth()-16)/2); limits.removeFromLeft(16);
-        trimStart.setBounds(left.withTrimmedTop(22)); trimEnd.setBounds(limits.withTrimmedTop(22));
-        main.removeFromTop(8); auto row=main.removeFromTop(36);
-        playButton.setBounds(row.removeFromLeft(112));row.removeFromLeft(8);abButton.setBounds(row.removeFromLeft(200));row.removeFromLeft(8);middleToggle.setBounds(row);
-        main.removeFromTop(8);
-        auto cuts=main.removeFromTop(middleMode?32:0);const int w=(cuts.getWidth()-24)/4;
-        for(auto* b:{&markStart,&markEnd,&cutButton,&undoButton}) {b->setBounds(cuts.removeFromLeft(w));cuts.removeFromLeft(8);b->setVisible(middleMode);}
-        selection.setVisible(middleMode);selection.setBounds(main.removeFromTop(middleMode?24:0));
-        feedbackArea=main.removeFromTop(24);summaryArea=main.removeFromTop(juce::jmin(46,main.getHeight()));
-        auto side=zs::ScreenFrame::sidebar(getLocalBounds()).reduced(22,24);side.removeFromTop(40);
-        auto actions=side.removeFromBottom(124);editToggle.setBounds(actions.removeFromBottom(36));actions.removeFromBottom(8);saveButton.setBounds(actions.removeFromBottom(36));actions.removeFromBottom(8);folderButton.setBounds(actions.removeFromBottom(36));folderButton.setVisible(true);
-        assessment.setBounds(side);assessment.setVisible(true);assessment.setText(processingSummary(),false);
-        saveButton.setButtonText(PL("Przejdź do zapisu →"));editToggle.setButtonText(PL("Wróć do odsłuchu"));
-        nextButton.setVisible(false);backButton.setVisible(false);words.setVisible(false);detailsToggle.setVisible(false);
-        for(auto* c:{static_cast<juce::Component*>(&trimStart),static_cast<juce::Component*>(&trimEnd),static_cast<juce::Component*>(&startHandle),static_cast<juce::Component*>(&endHandle),static_cast<juce::Component*>(&middleToggle)})c->setVisible(true);
+        flow.setBounds (zs::ScreenFrame::stepsArea (getLocalBounds())); flow.setCurrent (2);
+        namespace L = zs::ui::review;
+        abButton.setVisible (false); detailsToggle.setVisible (false); words.setVisible (false);
+        auto main = zs::ScreenFrame::mainArea (getLocalBounds()); main.removeFromTop (78 + waveHeight() + L::strip + 8);
+        const bool decide = ! cutPanel.empty();
+        for (auto* c : { static_cast<juce::Component*>(&trimStart), static_cast<juce::Component*>(&trimEnd),
+                         static_cast<juce::Component*>(&startHandle), static_cast<juce::Component*>(&endHandle),
+                         static_cast<juce::Component*>(&middleToggle) }) c->setVisible (! decide);
+        auto row = main.removeFromTop (36);
+        playButton.setBounds (row.removeFromLeft (112)); row.removeFromLeft (8);
+        nextButton.setVisible (true); nextButton.setBounds (row.removeFromLeft (juce::jmin (260, row.getWidth())));
+        main.removeFromTop (8);
+        if (decide)
+        {
+            // decyzje po R: czasy odnosza sie do pelnego nagrania, wiec najpierw one
+            for (auto* b : { &markStart, &markEnd, &cutButton, &undoButton }) b->setVisible (false);
+            selection.setVisible (false);
+            feedbackArea = main.removeFromTop (24);
+            cutPanel.setBounds (main); summaryArea = {};
+        }
+        else
+        {
+            auto limits = main.removeFromTop (54); auto left = limits.removeFromLeft ((limits.getWidth() - 16) / 2); limits.removeFromLeft (16);
+            trimStart.setBounds (left.withTrimmedTop (22)); trimEnd.setBounds (limits.withTrimmedTop (22));
+            main.removeFromTop (8);
+            middleToggle.setBounds (main.removeFromTop (32).removeFromLeft (juce::jmin (260, main.getWidth())));
+            main.removeFromTop (8);
+            auto cuts = main.removeFromTop (middleMode ? 32 : 0); const int w = (cuts.getWidth() - 24) / 4;
+            for (auto* b : { &markStart, &markEnd, &cutButton, &undoButton }) { b->setBounds (cuts.removeFromLeft (w)); cuts.removeFromLeft (8); b->setVisible (middleMode); }
+            selection.setVisible (middleMode); selection.setBounds (main.removeFromTop (middleMode ? 24 : 0));
+            feedbackArea = main.removeFromTop (24); summaryArea = main.removeFromTop (juce::jmin (46, main.getHeight()));
+        }
+        auto side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24); side.removeFromTop (40);
+        auto actions = side.removeFromBottom (124);
+        backButton.setVisible (true); backButton.setBounds (actions.removeFromBottom (36)); actions.removeFromBottom (8);
+        saveButton.setBounds (actions.removeFromBottom (36)); actions.removeFromBottom (8);
+        folderButton.setBounds (actions.removeFromBottom (36)); folderButton.setVisible (true);
+        editToggle.setVisible (false);
+        assessment.setBounds (side); assessment.setVisible (true);
+        saveButton.setButtonText (PL("Dalej: miks →"));
+        backButton.setButtonText (PL("Wróć do nagrywania"));
         positionHandles();
     }
-    juce::String processingSummary() const {
-        if(review.stage()!=zs::TakeReview::Stage::Ready) return PL("Miks liczy się ponownie…");
-        const auto& d=review.whatIDecided();const auto& p=d.params;const auto& r=review.whatIDid();
-        juce::String text=PL("Głośność: ")+juce::String(r.lufsAfter,1)+" LUFS / "+juce::String(p.targetLufs,1)+PL(" cel; zapas szczytu ")+juce::String(d.plr,1)+" dB.\n\n";
-        const float eq[]={p.lowDb,p.mudDb,p.presenceDb,p.airDb};
-        const char* names[]={"Dół", "Błoto", "Obecność", "Powietrze"};
-        for(int i=0;i<4;++i) {
-            text<<PL(names[i])<<": "<<juce::String(eq[i],1)<<" dB — ";
-            if(!d.tone.valid)text<<PL("za mało mowy do pomiaru");
-            else if(i==3 && !d.tone.hasAir())text<<PL("brak treści powyżej ")<<juce::String(d.tone.bandwidthHz/1000,1)<<" kHz";
-            else text<<PL("pasmo ")<<juce::String(d.tone.db[i],1)<<PL(" dB względem 1 kHz");
-            text<<".\n\n";
+
+    /** Montaz po ludzku: co jest do sprawdzenia, bez parametrow miksu. */
+    juce::String montageSummary() const
+    {
+        juce::String t;
+        if (! cutPanel.empty())
+            t << PL("Najpierw poprawki po R: przy każdej posłuchaj połączenia i zdecyduj — wytnij albo zostaw. ")
+              << PL("Potem „Zastosuj poprawki”.\n\n");
+        const int marks = (int) review.timeline().size();
+        if (marks == 0) t << PL("Program nie zaznaczył miejsc do sprawdzenia.\n\n");
+        else t << PL("Paski pod falą to miejsca do sprawdzenia (") << marks
+               << PL("). Posłuchaj ich — przycisk „Następne miejsce” albo klawisz N.\n\n");
+        if (! review.toRedo().empty())
+        {
+            t << PL("DO POWTÓRZENIA (nie da się naprawić miksem)\n");
+            for (const auto& redo : review.toRedo())
+                t << plr::clock (redo.fromSec) << PL("–") << plr::clock (redo.toSec) << "  " << plr::kind (redo.kind) << "\n";
+            t << "\n";
         }
-        text<<PL("Odszumianie: ")<<juce::String(r.denoiseDb,1)<<PL(" dB; tło ")<<juce::String(d.speechDb-d.noiseFloorDb,1)<<PL(" dB pod mową.")<<"\n\n";
-        text<<PL("Przydźwięk: ")<<(p.deHum?juce::String(r.humHz,0)+" Hz":PL("bez filtra"))<<PL("; wystaje ")<<juce::String(d.humDb,1)<<" dB.";
-        return text;
+        t << PL("Możesz przyciąć początek i koniec albo wyciąć fragment ze środka. Oryginał zostaje na dysku.\n\n")
+          << PL("Gdy wszystko gra: „Dalej: miks”. Miks policzy się raz, na końcu.");
+        return t;
     }
     void paintEdit(juce::Graphics& g) {
-        g.fillAll(Ink::bg());zs::ScreenFrame::paint(g,getLocalBounds(),file.getFileNameWithoutExtension(),PL("Uchwyty: ← / → co 0,1 s · Spacja — odsłuch · Tab — przed / po"));
+        g.fillAll(Ink::bg());
+        zs::ScreenFrame::paint(g,getLocalBounds(),file.getFileNameWithoutExtension(),
+            cutPanel.empty() ? PL("Klik — posłuchaj · przeciągnij — zaznacz · ← → uchwyt · N — następne miejsce · Esc — wróć")
+                             : PL("Spacja — połączenie · Enter — wytnij · Backspace — zostaw · ↑↓ — miejsca · Esc — wróć"));
         auto side=zs::ScreenFrame::sidebar(getLocalBounds());g.setColour(Ink::bar());g.fillRect(side);
         g.setColour(Ink::edge());g.drawVerticalLine(side.getX(),side.getY(),side.getBottom());
         auto main=zs::ScreenFrame::mainArea(getLocalBounds());
-        g.setColour(Ink::textDim());g.setFont(juce::Font(zs::type::tiny,juce::Font::bold));g.drawText(PL("04 / MONTAŻ"),main.removeFromTop(18),juce::Justification::centredLeft);
-        g.setColour(Ink::textNow());g.setFont(juce::Font(zs::type::title,juce::Font::bold));g.drawText(PL("Dopracuj początek i koniec"),main.removeFromTop(36),juce::Justification::centredLeft);
-        g.setColour(Ink::textNext());g.setFont(juce::Font(zs::type::body));g.drawFittedText(PL("Uchwyty przycinają początek i koniec. Przeciągnij po przebiegu, aby wyciąć fragment."),main.removeFromTop(24),juce::Justification::centredLeft,1);
-        drawWave(g,main.removeFromTop(waveHeight()));main.removeFromTop(8);
-        auto row=main.removeFromTop(54);auto left=row.removeFromLeft((row.getWidth()-16)/2);row.removeFromLeft(16);
-        g.setFont(juce::Font(zs::type::small));g.drawText(PL("Początek: ")+juce::String(trimStart.getValue(),1)+" s",left,juce::Justification::topLeft);g.drawText(PL("Koniec: ")+juce::String(trimEnd.getValue(),1)+" s",row,juce::Justification::topLeft);
-        g.setColour(Ink::textNow());g.setFont(juce::Font(zs::type::heading,juce::Font::bold));g.drawText(PL("Obróbka głosu"),side.reduced(22,24).removeFromTop(32),juce::Justification::centredLeft);
+        g.setColour(Ink::textDim());g.setFont(juce::Font(zs::type::tiny,juce::Font::bold));g.drawText(PL("03 / ODSŁUCH I MONTAŻ"),main.removeFromTop(18),juce::Justification::centredLeft);
+        g.setColour(Ink::textNow());g.setFont(juce::Font(zs::type::title,juce::Font::bold));g.drawText(PL("Posłuchaj i popraw"),main.removeFromTop(36),juce::Justification::centredLeft);
+        g.setColour(Ink::textNext());g.setFont(juce::Font(zs::type::body));
+        g.drawFittedText(cutPanel.empty() ? PL("Surowe nagranie, jeszcze bez miksu. Kliknij falę, aby posłuchać; przeciągnij, aby zaznaczyć fragment.")
+                                          : PL("Surowe nagranie, jeszcze bez miksu. Najpierw zdecyduj o poprawkach po R."),
+                         main.removeFromTop(24),juce::Justification::centredLeft,1);
+        drawWave(g,main.removeFromTop(waveHeight()));
+        drawStrip(g,main.removeFromTop(zs::ui::review::strip));main.removeFromTop(8);
+        main.removeFromTop(44);
+        if(cutPanel.empty()) {
+            auto row=main.removeFromTop(54);auto left=row.removeFromLeft((row.getWidth()-16)/2);row.removeFromLeft(16);
+            g.setFont(juce::Font(zs::type::small));g.drawText(PL("Początek: ")+juce::String(trimStart.getValue(),1)+" s",left,juce::Justification::topLeft);g.drawText(PL("Koniec: ")+juce::String(trimEnd.getValue(),1)+" s",row,juce::Justification::topLeft);
+        }
+        g.setColour(Ink::textNow());g.setFont(juce::Font(zs::type::heading,juce::Font::bold));g.drawText(PL("Do sprawdzenia"),side.reduced(22,24).removeFromTop(32),juce::Justification::centredLeft);
         g.setFont(juce::Font(zs::type::small));g.setColour(Ink::textNext());g.drawFittedText(note,feedbackArea,juce::Justification::topLeft,2);
-        g.setColour(Ink::green().withAlpha(.15f));g.fillRoundedRectangle(summaryArea.toFloat(),4.f);g.setColour(Ink::green());g.drawFittedText(PL("Oryginalne nagranie pozostaje bez zmian. Eksport obejmie wybrany fragment."),summaryArea.reduced(10,4),juce::Justification::centredLeft,3);
+        if(!summaryArea.isEmpty()) {
+            g.setColour(Ink::green().withAlpha(.15f));g.fillRoundedRectangle(summaryArea.toFloat(),4.f);g.setColour(Ink::green());
+            g.drawFittedText(PL("Oryginalne nagranie zostaje bez zmian na dysku. Zmiany dotyczą kopii, z której powstanie miks."),summaryArea.reduced(10,4),juce::Justification::centredLeft,3);
+        }
     }
     // cutRange usuwa zakres: najpierw koniec, potem poczatek, aby czasy
     // wybranego fragmentu pozostaly w osi pierwotnej kopii. DSP bez zmian.
     // Eksport czeka na nowy miks; cofanie przywraca cala kopie sprzed ciecia.
-    void saveSelection() {
-        if(!canEdit())return;
+    /** "Dalej: miks": przyciecie poczatku i konca (kopia w pamieci), potem miks
+        liczony raz. Gdy ta sama wersja byla juz zmiksowana tym brzmieniem —
+        bez liczenia od nowa. */
+    void goToMix() {
+        if (! canEdit()) return;
+        if (! cutPanel.empty()) {
+            note = PL("Najpierw zdecyduj o poprawkach po R i kliknij „Zastosuj poprawki”.");
+            if (! editMode) { editMode = true; setRawMaterial(); }
+            assessment.setText (montageSummary(), false); resized();
+            repaint(); return;
+        }
+        player.pause(); stopSeam();
         const double from=trimStart.getValue(),to=trimEnd.getValue(),total=review.seconds();
-        if(!editMode || (from<=0 && to>=total)) {save();return;}
-        std::vector<float> audio=review.rawAudio(), cropped;
-        if(to<total) {if(!zs::cutRange(audio,sr,to,total,cropped))return;audio=std::move(cropped);}
-        if(from>0) {if(!zs::cutRange(audio,sr,0,from,cropped))return;audio=std::move(cropped);}
-        undoAudio=review.rawAudio();pendingSave=true;restartEdit(std::move(audio));
+        if (from > 0.0 || to < total) {
+            std::vector<float> audio=review.rawAudio(), cropped;
+            if(to<total) {if(!zs::cutRange(audio,sr,to,total,cropped))return;audio=std::move(cropped);}
+            if(from>0) {if(!zs::cutRange(audio,sr,0,from,cropped))return;audio=std::move(cropped);}
+            undoAudio=review.rawAudio();
+            restartEdit(std::move(audio));
+        }
+        editMode = false; detailsMode = false; doneMode = false;
+        if (mixedVersion == takeVersion && mixedStyle == wish.style && review.stage() == zs::TakeReview::Stage::Ready)
+            adoptResult();
+        else
+            startMix();
+        resized(); repaint();
     }
-    bool canEdit() const { return review.stage()==zs::TakeReview::Stage::Ready && !isThreadRunning(); }
+
+    void startMix() {
+        player.pause(); recorder.attachPlayer (nullptr); ready.store (false); player.clear();
+        for (auto* b : { &playButton, &abButton, &saveButton, &editToggle }) b->setEnabled (false);
+        afterEnv = {}; words.clear(); assessment.clear();
+        busySinceMs = juce::jmax (1u, juce::Time::getMillisecondCounter());
+        startThread();
+    }
+
+    /** Odsluch surowego nagrania (krok montazu): przed = po = surowe. */
+    void setRawMaterial() {
+        const double rate = recorder.currentSampleRate() > 0 ? recorder.currentSampleRate() : sr;
+        if (std::abs (rate - sr) > 0.1) {
+            mix::Resampler convert; convert.prepare ((int) sr, (int) rate, 64);
+            std::vector<float> r; convert.render (review.rawAudio(), r);
+            player.setMaterial (r, r, rate, true);
+        } else player.setMaterial (review.rawAudio(), review.rawAudio(), sr, true);
+        player.showAfter (false);
+        recorder.attachPlayer (&player);
+        playButton.setEnabled (true);
+    }
+
+    void updateMontageButtons() {
+        const bool editable = canEdit();
+        playButton.setEnabled (editable);
+        trimStart.setEnabled(editable);trimEnd.setEnabled(editable);startHandle.setEnabled(editable);endHandle.setEnabled(editable);
+        markStart.setEnabled(editable);markEnd.setEnabled(editable);
+        cutButton.setEnabled(editable && cutFrom>=0 && cutTo>cutFrom);
+        undoButton.setEnabled(editable && !undoAudio.empty());
+        nextButton.setEnabled (editable && ! review.timeline().empty());
+        saveButton.setEnabled (editable && cutPanel.empty());
+    }
+
+    /** Montaz: jest surowe nagranie i nic sie nie liczy w tle. */
+    bool canEdit() const { return review.stage() != zs::TakeReview::Stage::Empty && ! isThreadRunning(); }
+    /** Miks: policzony i nic sie nie liczy w tle. */
+    bool mixReady() const { return review.stage() == zs::TakeReview::Stage::Ready && ! isThreadRunning(); }
 
     /** Brzmienie miksu: ten sam surowy dzwiek, miks od nowa w tle. */
     void chooseStyle (mix::Decide::Style st)
     {
-        if (st == wish.style || ! canEdit()) return;
+        if (st == wish.style || ! mixReady()) return;
         wish.style = st;
         updateStyleButtons();
-        player.pause(); recorder.attachPlayer (nullptr); ready.store (false); player.clear();
-        for (auto* b : { &playButton, &abButton, &saveButton, &editToggle }) b->setEnabled (false);
-        afterEnv = {};
         note = PL ("Miks ") + PL (mix::Decide::styleName (st)).toLowerCase() + PL (" liczy się…");
         styleNote = true;
-        startThread();
+        startMix();
         repaint();
     }
 
@@ -844,21 +956,24 @@ private:
             selection.setText(PL("Cięcie: ")+(cutFrom>=0?juce::String(cutFrom,2)+" s":"—")+"  →  "+(cutTo>=0?juce::String(cutTo,2)+" s":"—"),juce::dontSendNotification);
         repaint();
     }
+    /** Zmiana w montazu (wyciecie, cofniecie, przyciecie): nowa kopia surowego
+        nagrania. Miksu nie liczymy — policzy sie raz po "Dalej: miks". */
     void restartEdit(std::vector<float> audio) {
         player.pause();recorder.attachPlayer(nullptr);ready.store(false);player.clear();
-        for(auto* b:{&playButton,&abButton,&saveButton,&editToggle,&markStart,&markEnd,&cutButton,&undoButton})b->setEnabled(false);
-        trimStart.setEnabled(false);trimEnd.setEnabled(false);startHandle.setEnabled(false);endHandle.setEnabled(false);
         auto events=zs::TakeReview::listenOffline(audio,sr);
         review.setTake(std::move(audio),sr,std::move(events));
-        beforeEnv.build(review.rawAudio(),sr,1400);afterEnv={};resetTrim();resized();
+        ++takeVersion;
+        beforeEnv.build(review.rawAudio(),sr,1400);afterEnv={};resetTrim();
         cutFrom=cutTo=-1;
-        selection.setText(PL("Zmiana zastosowana. Miks liczy się ponownie; odsłuchaj miejsce cięcia."),juce::dontSendNotification);
-        words.clear();assessment.clear();saved=juce::File();note=PL("Montaż zmienia kopię w pamięci. Zapisz miks, aby zachować wynik.");
-        startThread();repaint();
+        selection.setText(PL("Zmiana zastosowana. Posłuchaj miejsca cięcia."),juce::dontSendNotification);
+        words.clear();saved=juce::File();note=PL("Montaż zmienia kopię w pamięci; oryginał zostaje na dysku.");
+        setRawMaterial();
+        assessment.setText (montageSummary(), false);
+        resized();repaint();
     }
     //==========================================================================
     /** Rosnie z oknem — liczby i uzasadnienie w zs::ui::review (UiRules.h). */
-    int waveHeight() const { if(!cutPanel.empty() && !editMode) return getHeight()<720 ? 0 : 80; const int h=zs::ui::review::waveHeight(getHeight()); return editMode ? juce::jmax(120,h-(middleMode?72:16)) : h; }
+    int waveHeight() const { if(!cutPanel.empty() && editMode) return getHeight()<720 ? 0 : 80; const int h=zs::ui::review::waveHeight(getHeight()); return editMode ? juce::jmax(120,h-(middleMode?72:16)) : h; }
 
     juce::Rectangle<int> waveArea() const
     {
@@ -887,6 +1002,7 @@ private:
     void adoptResult()
     {
         if (styleNote) { note.clear(); styleNote = false; }   // "Miks ... liczy się…" juz nieaktualne
+        mixedVersion = takeVersion; mixedStyle = wish.style;
         afterEnv.build (review.mixedAudio(), sr, 1400);
 
         const double playbackRate=recorder.currentSampleRate()>0?recorder.currentSampleRate():sr;
@@ -908,23 +1024,18 @@ private:
         words.setText (all.trimEnd(), false);
         juce::String summary;
         if (!review.says().empty()) summary << PL(review.says().front().c_str()) << "\n\n";
-        summary << PL("MIEJSCA DO POWTÓRKI\n");
-        if (review.toRedo().empty()) summary << PL("Nie ma fragmentów do powtórzenia.\n\n");
-        for (const auto& redo : review.toRedo())
-            summary << plr::clock (redo.fromSec) << PL("–") << plr::clock (redo.toSec)
-                    << "  " << plr::kind (redo.kind) << "\n";
-        summary << PL("\nUZASADNIENIE\n");
+        summary << PL("UZASADNIENIE\n");
         for (size_t i = 1; i < review.says().size(); ++i)
             summary << PL(review.says()[i].c_str()) << "\n\n";
         reviewSummary=summary; assessment.setText (summary, false);
         playButton.setEnabled (true); abButton.setEnabled (true);
         editToggle.setEnabled (true); saveButton.setEnabled (true);
-        nextButton.setEnabled (!review.toRedo().empty());
 
-        resetTrim();
         updateAbText();
+        // Wynik dotarl, gdy czlowiek jest w montazu (podglad, powrot z miksu):
+        // tam slychac surowe nagranie i widac liste do sprawdzenia, nie miks.
+        if (editMode && ! doneMode) { setRawMaterial(); assessment.setText (montageSummary(), false); updateMontageButtons(); }
         resized();
-        if(pendingSave) {pendingSave=false;save();}
         repaint();
     }
 
@@ -932,7 +1043,7 @@ private:
     void togglePlay()
     {
         stopSeam();
-        if (review.stage() != zs::TakeReview::Stage::Ready) return;
+        if (! (editMode ? canEdit() : mixReady())) return;
 
         if (player.isPlaying()) player.pause();
         else                    player.play();
@@ -942,7 +1053,7 @@ private:
 
     void toggleAb()
     {
-        if (review.stage() != zs::TakeReview::Stage::Ready) return;
+        if (editMode || ! mixReady()) return;           // w montazu nie ma jeszcze miksu
 
         player.toggle();
         updateAbText();
@@ -959,28 +1070,26 @@ private:
         // znacza u nas "dobrze" i "uwaga". Stan mowi napis.
     }
 
+    /** Nastepne miejsce do sprawdzenia: kazdy pasek pod fala, nie tylko te do
+        powtorki (audyt 14.10: "8 miejsc na osi", a przycisk byl wylaczony). */
     void nextTrouble()
     {
         const double now = player.positionSec();
-
-        for (const auto& t : review.timeline())
-            if (t.mustRedo && t.fromSec > now + 0.3)
+        auto startOf = [] (const auto& t) { return juce::jmax (0.0, (t.mustRedo ? t.redoFrom : t.fromSec) - 0.3); };
+        const auto& all = review.timeline();
+        if (all.empty()) return;
+        for (const auto& t : all)
+            if (startOf (t) > now + 0.3)
             {
-                player.seekSec (juce::jmax (0.0, t.redoFrom - 0.3));
+                player.seekSec (startOf (t));
                 if (! player.isPlaying()) player.play();
                 repaint();
                 return;
             }
-
-        // Nie ma nic dalej — wracamy do pierwszego, zeby klawisz zawsze cos
-        // robil. Milczacy klawisz czlowiek uznaje za zepsuty.
-        for (const auto& t : review.timeline())
-            if (t.mustRedo)
-            {
-                player.seekSec (juce::jmax (0.0, t.redoFrom - 0.3));
-                repaint();
-                return;
-            }
+        // Nie ma nic dalej — wracamy do pierwszego, zeby klawisz zawsze cos robil.
+        player.seekSec (startOf (all.front()));
+        if (! player.isPlaying()) player.play();
+        repaint();
     }
 
     //==========================================================================
@@ -1069,7 +1178,18 @@ private:
             return;
         }
 
-        const int v = damagedRecording ? 2 : review.verdict();
+        // Krok "Miks": werdykt o miksie, nie o miejscach do odsluchu — te byly
+        // w montazu. Do powtorki (przester, brak sygnalu) wciaz na czerwono.
+        int v = 0;
+        juce::String line = PL ("Miks gotowy. Posłuchaj przed i po, wybierz brzmienie i zapisz.");
+        if (damagedRecording) { v = 2; line = PL ("Podczas zapisu utracono dane. Nagraj materiał ponownie."); }
+        else if (! review.mixValid()) { v = 2; line = PL (review.verdictLine().c_str()); }
+        else if (! review.toRedo().empty())
+        {
+            v = 2;
+            line = PL ("Miks gotowy, ale w nagraniu zostały fragmenty do nagrania jeszcze raz (")
+                 + juce::String ((int) review.toRedo().size()) + PL (") — miks ich nie naprawi.");
+        }
 
         auto c = v == 2 ? Ink::clip() : v == 1 ? Ink::yellow() : Ink::green();
 
@@ -1084,8 +1204,7 @@ private:
 
         g.setColour (c);
         g.setFont (juce::Font (17.0f, juce::Font::bold));
-        g.drawFittedText ((damagedRecording ? PL("Podczas zapisu utracono dane. Nagraj materiał ponownie.") : PL(review.verdictLine().c_str())),
-                          txt.removeFromTop (84), juce::Justification::topLeft, 5);
+        g.drawFittedText (line, txt.removeFromTop (84), juce::Justification::topLeft, 5);
     }
 
     //==========================================================================
@@ -1235,9 +1354,19 @@ private:
         if (ready.exchange (false))
             adoptResult();
 
-        cutPanel.setEnabled(review.stage() == zs::TakeReview::Stage::Ready);
+        cutPanel.setEnabled(canEdit());
         if(seamPlaying && !seamPlayer.isPlaying()) stopSeam();
         folderButton.setEnabled (doneMode ? saved.existsAsFile() : (file.existsAsFile() || saved.existsAsFile()));
+
+        if (editMode && ! doneMode)          // krok montazu: surowe nagranie, bez miksu
+        {
+            updateMontageButtons();
+            const bool playing = player.isPlaying();
+            if (playing != wasPlaying) { wasPlaying = playing; playButton.setButtonText (playing ? PL ("Zatrzymaj") : PL ("Odtwórz")); }
+            if (playing) repaint (waveArea());
+            if (isThreadRunning()) repaint();
+            return;
+        }
 
         if (review.stage() != zs::TakeReview::Stage::Ready)
         {
@@ -1251,12 +1380,6 @@ private:
         }
 
         busySinceMs = 0;
-        const bool editable=canEdit();
-        trimStart.setEnabled(editable);trimEnd.setEnabled(editable);startHandle.setEnabled(editable);endHandle.setEnabled(editable);
-        nextButton.setEnabled(editable && !review.toRedo().empty());
-        markStart.setEnabled(editable);markEnd.setEnabled(editable);
-        cutButton.setEnabled(editable && cutFrom>=0 && cutTo>cutFrom);
-        undoButton.setEnabled(editable && !undoAudio.empty());
         const bool playingNow = player.isPlaying();
 
         if (playingNow != wasPlaying)
@@ -1274,7 +1397,7 @@ private:
         seamPlayer.pause(); seamPlaying=false; recorder.attachPlayer(&player);
     }
     void listenCut(double from, double to) {
-        if(review.stage()!=zs::TakeReview::Stage::Ready) return;
+        if(!canEdit()) return;
         player.pause(); seamPlayer.pause();
         const auto& raw=review.rawAudio();
         const double total=raw.size()/sr;
@@ -1296,7 +1419,7 @@ private:
         recorder.attachPlayer(&seamPlayer); seamPlaying=true; seamPlayer.play();
     }
     void applyProposals(const std::vector<tw::CutProposal>& proposals) {
-        if(review.stage()!=zs::TakeReview::Stage::Ready || cutPanel.empty()) return;
+        if(!canEdit() || cutPanel.empty()) return;
         player.pause(); stopSeam();
         const auto result=zs::applyCutList(file,proposals);
         if(result.error.isNotEmpty()) { note=PL("Nie udało się zastosować poprawek: ")+result.error; repaint(); return; }
@@ -1356,10 +1479,12 @@ private:
     juce::TextButton playButton, abButton, saveButton, backButton;
     juce::TextButton styleButtons[3];
     bool styleNote = false;                 ///< note to "Miks ... liczy się…" z chooseStyle
+    int takeVersion = 0, mixedVersion = -1; ///< ktora wersja montazu jest zmiksowana...
+    mix::Decide::Style mixedStyle = mix::Decide::Style::Studyjny;   ///< ...i jakim brzmieniem
     juce::TextEditor words, assessment;
     zs::StepBar flow;
     juce::TextButton markStart,markEnd,cutButton,undoButton,editToggle,detailsToggle,nextButton;
-    bool editMode=false,detailsMode=false,middleMode=false,pendingSave=false,doneMode=false;
+    bool editMode=false,detailsMode=false,middleMode=false,doneMode=false;
     juce::TextButton doneEditButton,newTakeButton;
     juce::TextEditor savedPath,savedName;
     TrimSlider trimStart,trimEnd;
