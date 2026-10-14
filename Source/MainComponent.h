@@ -283,6 +283,9 @@ public:
 
         recButton.setButtonText ("Nagraj");
         recButton.onClick = [this] { toggleRecord(); };
+        // Bez fokusu: inaczej po kliknieciu spacja nie trafia do promptera
+        // (pauza), tylko tu — i konczy nagranie (przeglad 14.10, nr 7).
+        recButton.setWantsKeyboardFocus (false);
         addAndMakeVisible (recButton);
 
         // "Powtorz wers" istnieje tylko w trakcie nagrywania z tekstem — bez
@@ -290,6 +293,7 @@ public:
         repeatButton.setButtonText (PL ("Powtórz wers"));
         zs::Look::setKey (repeatButton, "R");
         repeatButton.onClick = [this] { repeatLine(); };
+        repeatButton.setWantsKeyboardFocus (false);
         addChildComponent (repeatButton);
 
         hints.setColour (juce::Label::textColourId, zs::Ink::textNext());
@@ -555,6 +559,10 @@ public:
                                           recorder.isRecording(), inPrompter && prompter != nullptr && prompter->hasText());
 
         if (a == zs::ui::KeyAction::StopAndReview) { toggleRecord(); return true; }
+        // W prompterze spacja w trakcie nagrania to pauza, nie koniec — nawet
+        // gdy klawisz trafil tu, a nie do promptera.
+        if (a == zs::ui::KeyAction::StartStop && inPrompter && prompter != nullptr && recorder.isRecording())
+        { prompter->spacePressed(); return true; }
         if (a == zs::ui::KeyAction::StartStop && startStop()) return true;
         if (a == zs::ui::KeyAction::RepeatLine) { repeatLine(); return true; }
         return false;

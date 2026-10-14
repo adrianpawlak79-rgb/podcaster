@@ -130,7 +130,11 @@ public:
             if (! merged.empty() && x.from <= merged.back().to)
             {
                 merged.back().to = std::max (merged.back().to, x.to);
-                if (x.lineFirst != merged.back().lineFirst) merged.back().mixedLines = true;
+                // Rozne wersy = nie wiadomo, co jest w srodku — chyba ze oba
+                // miejsca wskazal czlowiek (pauza): wtedy suma jest dokladnie tym,
+                // co chcial wyciac (przeglad 14.10, nr 3).
+                if (x.lineFirst != merged.back().lineFirst && ! (merged.back().byHand && x.byHand))
+                    merged.back().mixedLines = true;
                 merged.back().byHand = merged.back().byHand && x.byHand;
             }
             else merged.push_back (x);
