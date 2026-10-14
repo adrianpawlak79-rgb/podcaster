@@ -213,6 +213,17 @@ namespace review
         const double est = std::max (5.0, recordingSec * mixSecondsPerSecond);
         return (int) (std::ceil (est / 5.0) * 5.0);
     }
+
+    /** Przesluchanie nagrania po wczytaniu albo cieciu (listenOffline):
+        zmierzone 57 s na godzine (Linux, 14.10). Krotkie nagrania — bez
+        obietnic ponizej 5 s. */
+    constexpr double listenSecondsPerSecond = 0.02;
+
+    inline int listenEstimateSec (double recordingSec)
+    {
+        const double est = std::max (5.0, recordingSec * listenSecondsPerSecond);
+        return (int) (std::ceil (est / 5.0) * 5.0);
+    }
 }
 
 //==============================================================================
