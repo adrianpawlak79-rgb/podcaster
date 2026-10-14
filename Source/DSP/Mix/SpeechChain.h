@@ -499,10 +499,15 @@ public:
 
         const double afterStage = measureLufs (stage);
 
+        // Kopia robocza nie jest juz potrzebna — tylko jej dlugosc. Przy godzinie
+        // nagrania to 0,7 GB (Tools/zs-dlugo.cpp: szczyt 3,2 GB po miksie).
+        const size_t n = pre.size();
+        std::vector<float>().swap (pre);
+
         // ---- wyrownanie glosnosci, iteracyjnie -------------------------------
         const bool canNormalise=stage.size()>=size_t(sr*.4) && afterStage>-69.0;
         double gainDb = canNormalise ? params.targetLufs - afterStage : 0.0;
-        out.resize (pre.size());
+        out.resize (n);
 
         // Osiem przejsc, nie trzy. Limiter jest jedyna nieliniowoscia po
         // korekcie, ale przy mocnym limitowaniu kazdy dodany decybel wchodzi
@@ -526,19 +531,19 @@ public:
         {
             const float g = dbToGain ((float) gainDb);
 
-            for (size_t i = 0; i < pre.size(); ++i)
+            for (size_t i = 0; i < n; ++i)
                 out[i] = stage[i] * g;
 
             limiter.params.ceilingDb = (float) (params.ceilingDbTp - extraMarginDb);
             limiter.prepare (sr, 1);
 
             const size_t delay = (size_t) limiter.latencySamples();
-            out.resize (pre.size() + delay, 0.0f);
+            out.resize (n + delay, 0.0f);
             float* io[1] = { out.data() };
             limiter.process (io, 1, (int) out.size());
             rep.limitMaxGrDb = limiter.maxGainReductionDb();
             std::move (out.begin() + (ptrdiff_t) delay, out.end(), out.begin());
-            out.resize (pre.size());
+            out.resize (n);
 
             const double overTp = measurePeak (out) - params.ceilingDbTp;
 

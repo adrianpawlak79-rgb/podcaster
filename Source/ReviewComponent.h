@@ -49,6 +49,7 @@
 #include "StepBar.h"
 #include "Recorder.h"
 #include "Wav.h"
+#include "ReadMono.h"
 #include "CutReviewPanel.h"
 #include <limits>
 
@@ -305,22 +306,12 @@ public:
         }
         const int n = (int) reader->lengthInSamples;
 
-        juce::AudioBuffer<float> buf ((int) reader->numChannels, juce::jmax (1, n));
-        if(!reader->read (&buf, 0, n, 0, true, true)) {
-            note=PL("Nie udało się odczytać całego nagrania.");review.setTake({},48000,{});repaint();return;
-        }
-
-        std::vector<float> mono ((size_t) juce::jmax (0, n), 0.0f);
-
         // Nagrywamy mono (Recorder::writeMono), ale jesli kiedys bedzie inaczej,
-        // suma z zapasem jest lepsza niz wziecie pierwszego kanalu i zdziwienie.
-        for (int c = 0; c < buf.getNumChannels(); ++c)
-        {
-            const float* src = buf.getReadPointer (c);
-            const float  g   = 1.0f / (float) buf.getNumChannels();
-
-            for (int i = 0; i < n; ++i)
-                mono[(size_t) i] += src[i] * g;
+        // srednia kanalow jest lepsza niz wziecie pierwszego i zdziwienie.
+        // Kawalkami, bez drugiej kopii w buforze (ReadMono.h — godzina to 0,7 GB).
+        std::vector<float> mono;
+        if (! zs::readMono (*reader, n, mono)) {
+            note=PL("Nie udało się odczytać całego nagrania.");review.setTake({},48000,{});repaint();return;
         }
 
         sr = reader->sampleRate;
