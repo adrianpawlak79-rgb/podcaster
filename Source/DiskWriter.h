@@ -41,6 +41,14 @@ private:
                    (nb && !writer->writeFromAudioSampleBuffer(buffer,b,nb))) failed.store(true);
             }
             fifo.finishedRead(na+nb);
+            // Naglowek WAV z biezaca dlugoscia co ~2 s (flush w JUCE go przepisuje).
+            // Bez tego naglowek mowil "0 probek" az do zatrzymania i po awarii
+            // programu nagranie wygladalo na puste (audyt 14.10).
+            sinceHeader+=na+nb;
+            if(!failed.load() && sinceHeader>=(long long)(writer->getSampleRate()*2.0)) {
+                sinceHeader=0;
+                if(!writer->flush())failed.store(true);
+            }
         }
         if(!writer->flush())failed.store(true);
     }
@@ -48,4 +56,5 @@ private:
     juce::AudioBuffer<float> buffer;
     juce::AbstractFifo fifo;
     std::atomic<bool> failed{false};
+    long long sinceHeader=0;     // tylko watek zapisu
 };

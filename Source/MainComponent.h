@@ -10,6 +10,7 @@
 
 #include <juce_audio_utils/juce_audio_utils.h>
 #include "Recorder.h"
+#include "WavRepair.h"
 #include "LampLogic.h"
 #include "PrompterComponent.h"
 #include "WizardComponent.h"
@@ -373,6 +374,7 @@ public:
         };
         addAndMakeVisible (preparationButton);
         sessionFolder = settings.sessionFolder();
+        if (! previewMode) recoverInterrupted();   // nie w zrzutach ekranu
 
         // ---- kreator idzie pierwszy, ale tylko raz --------------------------
         //
@@ -927,8 +929,20 @@ private:
         if (recorder.isRecording())
         {
             const auto justRecorded = recorder.currentFile();
-
             recorder.stop();
+            finishStoppedTake (justRecorded);
+            return;
+        }
+
+        preparation = false;
+        startRecording();
+    }
+
+    /** Po zatrzymaniu — przez czlowieka albo przez urzadzenie: wyciecie po R,
+        lampka, ocena. */
+    void finishStoppedTake (const juce::File& justRecorded)
+    {
+        {
             recButton.setButtonText ("Nagraj");
             zs::Look::setKey (recButton, {});
             append ("--- zatrzymane: " + justRecorded.getFileName());
@@ -973,10 +987,11 @@ private:
             // tylko tyle, ze przez pierwsze tygodnie go nie znajdzie, a potem
             // zapomni, ze istnieje — i program zostanie dyktafonem z lampka.
             openReview (justRecorded);
-            return;
         }
+    }
 
-        preparation = false;
+    void startRecording()
+    {
         const auto err = recorder.start (previewFolder != juce::File() ? previewFolder : sessionFolder);
 
         if (err.isNotEmpty())
@@ -1045,6 +1060,21 @@ private:
 
     void timerCallback() override
     {
+        // Mikrofon albo karta przestaly dzialac w trakcie nagrania (audyt 14.10):
+        // to, co nagrane, jest zamkniete i zapisane — mowimy wprost i idziemy dalej.
+        if (recorder.takeStoppedByDevice())
+        {
+            const auto justRecorded = recorder.currentFile();
+            append (PL ("--- nagrywanie przerwane: urządzenie dźwiękowe przestało działać"));
+            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, PL ("Nagrywanie przerwane"),
+                PL ("Mikrofon albo karta dźwiękowa przestała działać (odłączony kabel, Bluetooth, zmiana w ustawieniach Windows).\n\n")
+                + PL ("Wszystko, co nagrałeś do tej chwili, jest zapisane — za chwilę możesz to odsłuchać. Resztę nagrasz po ponownym podłączeniu."));
+            finishStoppedTake (justRecorded);
+            return;
+        }
+        if (recovered != juce::File() && ! inWizard && ! inReview && ! recorder.isRecording())
+            offerRecovered();
+
         lamp.setRecording(recorder.isRecording());
         // Kreator potrzebuje czestotliwosci probkowania, a ta jest znana dopiero
         // wtedy, gdy urzadzenie ruszy — stad start z opoznieniem, a nie w
@@ -1190,6 +1220,8 @@ private:
     }
 
     juce::AudioDeviceManager deviceManager;
+    juce::File recovered;                 ///< odzyskane po awarii, do zaproponowania
+    double recoveredSeconds = 0.0;
     Recorder recorder;
 
     /* Rozpoznawanie mowy dla promptera. Model wczytuje sie w tle od startu
@@ -1405,6 +1437,41 @@ private:
     //==========================================================================
     /** Ekran po nagraniu. Powstaje przy pierwszym nagraniu i juz zostaje —
         wczytanie nowego materialu jest tansze niz budowanie okna od nowa. */
+    /** Nagrania przerwane awaria (zostal znacznik ".nagrywanie"): naprawa
+        naglowka (WavRepair.h) i propozycja otwarcia najnowszego. */
+    void recoverInterrupted()
+    {
+        if (! sessionFolder.isDirectory()) return;
+        double secs = 0.0;
+        for (const auto& marker : sessionFolder.findChildFiles (juce::File::findFiles, true, "*.wav.nagrywanie"))
+        {
+            const auto wav = marker.getSiblingFile (marker.getFileNameWithoutExtension());
+            const auto r = wav.existsAsFile() ? wavio::repairHeader (wav.getFullPathName().toStdString()) : wavio::RepairResult {};
+            marker.deleteFile();
+            if (! r.ok || r.seconds < 0.5) continue;
+            append (PL ("--- odzyskane nagranie: ") + wav.getFileName() + " (" + juce::String (r.seconds, 1) + " s)");
+            if (recovered == juce::File() || wav.getLastModificationTime() > recovered.getLastModificationTime())
+            { recovered = wav; secs = r.seconds; }
+        }
+        recoveredSeconds = secs;
+    }
+
+    void offerRecovered()
+    {
+        const auto wav = recovered;
+        recovered = juce::File();
+        const int s = (int) recoveredSeconds;
+        juce::AlertWindow::showOkCancelBox (juce::AlertWindow::QuestionIcon, PL ("Odzyskane nagranie"),
+            PL ("Program zamknął się w trakcie nagrania. Odzyskałem nagranie „") + wav.getFileNameWithoutExtension()
+              + PL ("” (") + juce::String (s / 60) + ":" + juce::String (s % 60).paddedLeft ('0', 2)
+              + PL (") — leży w folderze nagrań.\n\nOtworzyć je teraz do odsłuchu?"),
+            PL ("Otwórz"), PL ("Później"), this,
+            juce::ModalCallbackFunction::create ([safe = juce::Component::SafePointer<MainComponent> (this), wav] (int result)
+            {
+                if (result == 1 && safe != nullptr && wav.existsAsFile()) safe->openReview (wav, false, true);
+            }));
+    }
+
     void openReview (const juce::File& wavFile, bool waitForIt = false, bool fromDisk = false)
     {
         if (! wavFile.existsAsFile())

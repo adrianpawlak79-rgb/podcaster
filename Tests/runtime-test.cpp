@@ -75,5 +75,25 @@ int main(int argc,char** argv) {
     // Queue never overwrites unread data.
     zs::SpscQueue<int,4> q;int value=0;
     check(q.push(1)&&q.push(2)&&q.push(3)&&!q.push(4)&&q.pop(value)&&value==1,"full event queue preserves oldest unread record");
+    // Audyt 14.10: po awarii w trakcie nagrania plik mial naglowek "0 probek".
+    // Teraz: znacznik ".nagrywanie" przez caly czas nagrania i naglowek
+    // aktualny co ~2 s; zatrzymanie przez urzadzenie jest zglaszane.
+    {
+        check(r.start(folder).isEmpty(),"crash-safety session starts");
+        const auto wavNow=r.currentFile();
+        check(Recorder::markerFile(wavNow).existsAsFile(),"marker exists while recording");
+        for(int i=0;i<512;++i)input[i]=.1f;
+        for(int k=0;k<300;++k){block();std::this_thread::sleep_for(std::chrono::microseconds(300));}   // ~3,2 s
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        juce::int64 midLen=0;
+        { std::unique_ptr<juce::AudioFormatReader> rd(wav.createReaderFor(wavNow.createInputStream().release(),true)); if(rd)midLen=rd->lengthInSamples; }
+        check(midLen>=2*48000,"header is current while still recording (crash leaves a readable file)");
+        r.audioDeviceStopped();                                // odlaczony mikrofon
+        check(!r.isRecording() && r.takeStoppedByDevice() && !r.takeStoppedByDevice(),"device stop is reported once");
+        check(!Recorder::markerFile(wavNow).existsAsFile(),"marker removed after a clean close");
+        std::unique_ptr<juce::AudioFormatReader> rd(wav.createReaderFor(wavNow.createInputStream().release(),true));
+        check(rd && rd->lengthInSamples==300*512,"file after device stop holds every sample");
+        r.prepareDevice(48000,512,1);
+    }
     std::printf("Failures: %d\n",failures);return failures?1:0;
 }
