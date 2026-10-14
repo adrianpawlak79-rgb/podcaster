@@ -648,11 +648,15 @@ private:
         g.setColour (I::textDim()); g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
         g.drawText (PL ("CZAS NAGRANIA"), side.removeFromTop (18), juce::Justification::centredLeft);
         const double t = recorder.isRecording() ? recorder.recordedSeconds() : 0.0;
-        g.setColour (I::textNow()); g.setFont (juce::Font (46.0f, juce::Font::bold));
+        const bool nearLimit = recorder.isRecording()
+                            && zs::ui::session::phase (t) != zs::ui::session::Phase::Ok;
+        g.setColour (nearLimit ? I::yellow() : I::textNow()); g.setFont (juce::Font (46.0f, juce::Font::bold));
         g.drawText (pl::hhmmss (t), side.removeFromTop (60), juce::Justification::centredLeft);
-        g.setColour (I::textNext()); g.setFont (juce::Font (zs::type::small));
-        g.drawText (recorder.isRecording() ? PL ("Nagrywanie trwa. Patrz na lampkę.") : PL ("Twoje miejsce i Twój głos."),
-                    side.removeFromTop (24), juce::Justification::centredLeft);
+        g.setColour (nearLimit ? I::yellow() : I::textNext()); g.setFont (juce::Font (zs::type::small));
+        g.drawFittedText (nearLimit ? PL ("Zostało ") + juce::String (zs::ui::session::minutesLeft (t))
+                                        + PL (" min — w 60. minucie nagrywanie zatrzyma się samo.")
+                        : recorder.isRecording() ? PL ("Nagrywanie trwa. Patrz na lampkę.") : PL ("Twoje miejsce i Twój głos."),
+                          side.removeFromTop (24), juce::Justification::centredLeft, 1, 0.8f);
         if (! inPrompter)
         {
             if (recorder.isRecording())
@@ -1093,6 +1097,21 @@ private:
             juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, PL ("Nagrywanie przerwane"),
                 PL ("Mikrofon albo karta dźwiękowa przestała działać (odłączony kabel, Bluetooth, zmiana w ustawieniach Windows).\n\n")
                 + PL ("Wszystko, co nagrałeś do tej chwili, jest zapisane — za chwilę możesz to odsłuchać. Resztę nagrasz po ponownym podłączeniu."));
+            finishStoppedTake (justRecorded);
+            return;
+        }
+        // Limit sesji (UiRules.h, zs::ui::session): w 60. minucie stop i ocena,
+        // jak przy odlaczonej karcie — wszystko zapisane.
+        if (recorder.isRecording()
+            && zs::ui::session::phase (recorder.recordedSeconds()) == zs::ui::session::Phase::Stop)
+        {
+            const auto justRecorded = recorder.currentFile();
+            recorder.stop();
+            append (PL ("--- nagrywanie zatrzymane: sesja ma 60 minut"));
+            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::InfoIcon, PL ("Sesja ma 60 minut"),
+                PL ("Tyle program sprawdził w jednej sesji, więc nagrywanie zatrzymało się samo. ")
+                + PL ("Wszystko jest zapisane — za chwilę możesz to odsłuchać.\n\n")
+                + PL ("Dalszą część nagraj jako nową sesję („Wróć do nagrywania”)."));
             finishStoppedTake (justRecorded);
             return;
         }

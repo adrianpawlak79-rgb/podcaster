@@ -227,6 +227,16 @@ int main()
     check (hintLine (true, false).find ("R \xe2\x80\x94") == std::string::npos,
            "bez tekstu nie podpowiada R", hintLine (true, false));
 
+    // Limit sesji (audyt 14.10): tyle, ile sprawdzil zs-dlugo.
+    {
+        namespace S = zs::ui::session;
+        check (S::phase (0) == S::Phase::Ok && S::phase (54 * 60.0) == S::Phase::Ok, "do 55. minuty bez ostrzezen", "");
+        check (S::phase (55 * 60.0) == S::Phase::Warn && S::phase (3599.0) == S::Phase::Warn, "od 55. minuty ostrzezenie", "");
+        check (S::phase (3600.0) == S::Phase::Stop, "w 60. minucie stop", "");
+        check (S::minutesLeft (55 * 60.0) == 5 && S::minutesLeft (3599.5) == 1, "zostalo: pelne minuty, co najmniej 1",
+               std::to_string (S::minutesLeft (55 * 60.0)));
+    }
+
     std::printf ("\n%s\n\n", fails == 0 ? "wszystko przeszlo" : "SA BLEDY");
     return fails;
 }
