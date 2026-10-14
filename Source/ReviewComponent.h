@@ -179,6 +179,15 @@ public:
         detailsToggle.onClick=[this] { detailsMode=!detailsMode;resized();repaint(); };
         nextButton.setButtonText(PL("Następne miejsce do sprawdzenia"));
         nextButton.onClick=[this] { nextTrouble(); };
+        // Powiekszenie fali: wokol igly (kolko myszy — wokol kursora).
+        zoomIn.setButtonText ("+"); zoomOut.setButtonText (PL ("−")); zoomAllButton.setButtonText (PL ("Całość"));
+        zoomIn.setTooltip (PL ("Powiększ falę (kółko myszy albo +)"));
+        zoomOut.setTooltip (PL ("Pomniejsz falę (kółko myszy albo −)"));
+        zoomAllButton.setTooltip (PL ("Całe nagranie (0)"));
+        zoomIn.onClick  = [this] { if (canEdit()) zoomBy (1.0 / zs::ui::review::zoomStep, player.positionSec()); };
+        zoomOut.onClick = [this] { if (canEdit()) zoomBy (zs::ui::review::zoomStep, player.positionSec()); };
+        zoomAllButton.onClick = [this] { zoomAll(); };
+        for (auto* b : { &zoomIn, &zoomOut, &zoomAllButton }) { b->setWantsKeyboardFocus (false); addChildComponent (b); }
         for(auto* b:{&editToggle,&detailsToggle,&nextButton})addAndMakeVisible(b);
         markStart.setButtonText(PL("Początek cięcia"));
         markEnd.setButtonText(PL("Koniec cięcia"));
@@ -346,7 +355,7 @@ public:
         }
 
         review.setTake (std::move (mono), sr, std::move (events));
-        ++takeVersion;
+        ++takeVersion; viewLen = 0.0; viewFrom = 0.0;
 
         cutPanel.load(file, review.rawAudio(), sr);
         beforeEnv.build (review.rawAudio(), sr, 1400);
@@ -419,13 +428,21 @@ public:
         if (editMode && (c == juce::KeyPress::leftKey || c == juce::KeyPress::rightKey)) {
             trimStart.setValue (trimStart.getValue() + (c == juce::KeyPress::leftKey ? -0.1 : 0.1)); return true;
         }
-        if (c == juce::KeyPress::leftKey)  { player.seekSec (player.positionSec() - 2.0); return true; }
-        if (c == juce::KeyPress::rightKey) { player.seekSec (player.positionSec() + 2.0); return true; }
-        if (c == juce::KeyPress::homeKey)  { player.seekSec (0.0); return true; }
+        if (c == juce::KeyPress::leftKey)  { player.seekSec (player.positionSec() - 2.0); follow (player.positionSec()); return true; }
+        if (c == juce::KeyPress::rightKey) { player.seekSec (player.positionSec() + 2.0); follow (player.positionSec()); return true; }
+        if (c == juce::KeyPress::homeKey)  { player.seekSec (0.0); follow (0.0); return true; }
 
         // Skok do nastepnego miejsca, ktore wymaga powtorzenia. Gdy jest ich
         // kilka, przeklikanie listy jest tym, co czlowiek i tak zrobi — wiec
         // niech bedzie jeden klawisz, a nie polowanie myszka na paski.
+        if (editMode && canEdit())
+        {
+            const auto ch = k.getTextCharacter();
+            if (ch == '+' || ch == '=') { zoomBy (1.0 / zs::ui::review::zoomStep, player.positionSec()); return true; }
+            if (ch == '-')              { zoomBy (zs::ui::review::zoomStep, player.positionSec()); return true; }
+            if (ch == '0')              { zoomAll(); return true; }
+        }
+
         if (k.getTextCharacter() == 'n' || k.getTextCharacter() == 'N')
         {
             nextTrouble();
@@ -453,8 +470,7 @@ public:
             || ! (editMode ? canEdit() : mixReady()))
             return;
 
-        const double t = (e.position.x - strip.getX()) / juce::jmax (1, strip.getWidth())
-                       * review.seconds();
+        const double t = tAt (e.position.x, strip);
 
         stopSeam();
         player.seekSec (t);
@@ -477,12 +493,13 @@ public:
         if (! editMode || dragX0 < 0.0f || ! canEdit()) return;
 
         const auto strip = waveArea();
+        const auto v = view();
         const auto r = zs::ui::review::dragRange (dragX0, e.position.x, strip.getX(),
-                                                  strip.getWidth(), review.seconds());
+                                                  strip.getWidth(), v.len);
         if (! r.isDrag()) return;
 
-        cutFrom = r.from;
-        cutTo   = r.to;
+        cutFrom = v.from + r.from;
+        cutTo   = v.from + r.to;
 
         if (! middleMode) { middleMode = true; resized(); }
         updateSelection();
@@ -494,6 +511,89 @@ public:
         if (editMode && dragX0 >= 0.0f && std::abs (e.position.x - dragX0) < 4.0f && ! player.isPlaying())
             player.play();
         dragX0 = -1.0f;
+    }
+
+    /** Montaz: kolko nad fala powieksza wokol kursora, z Shiftem (albo
+        kolko poziome) przesuwa widok. */
+    void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
+    {
+        const auto strip = waveArea();
+        if (! editMode || doneMode || ! strip.contains (e.getPosition()) || ! canEdit()) return;
+        const float dx = e.mods.isShiftDown() ? w.deltaY : w.deltaX;
+        if (std::abs (dx) > std::abs (e.mods.isShiftDown() ? 0.0f : w.deltaY))
+        {
+            const auto v = view();
+            viewFrom = v.from - dx * v.len * 0.5;
+            zoomChanged();
+            return;
+        }
+        if (w.deltaY == 0.0f) return;
+        zoomBy (w.deltaY > 0 ? 1.0 / zs::ui::review::zoomStep : zs::ui::review::zoomStep, tAt (e.position.x, strip));
+    }
+
+    //==========================================================================
+    /* Powiekszenie fali (audyt 14.10). Tylko w montazu — tam sie tnie; miks
+       zawsze pokazuje cale nagranie. viewLen 0 = cale nagranie. */
+    struct View { double from = 0.0, len = 1.0; };
+    View view() const
+    {
+        const double total = review.seconds();
+        if (! editMode || total <= 0.0 || viewLen <= 0.0 || viewLen >= total)
+            return { 0.0, juce::jmax (0.001, total) };
+        const double len = juce::jlimit (juce::jmin (zs::ui::review::minViewSec, total), total, viewLen);
+        return { juce::jlimit (0.0, total - len, viewFrom), len };
+    }
+    bool zoomed() const { return view().len < review.seconds() - 1.0e-6; }
+    float xAt (double t, juce::Rectangle<int> r) const
+    {
+        const auto v = view();
+        return r.getX() + (float) ((t - v.from) / v.len * r.getWidth());
+    }
+    double tAt (float x, juce::Rectangle<int> r) const
+    {
+        const auto v = view();
+        return v.from + juce::jlimit (0.0, 1.0, (double) (x - r.getX()) / juce::jmax (1, r.getWidth())) * v.len;
+    }
+    /** factor < 1 = blizej; anchor zostaje w tym samym miejscu ekranu. */
+    void zoomBy (double factor, double anchor)
+    {
+        const double total = review.seconds();
+        if (! editMode || total <= 0.0) return;
+        const auto v = view();
+        const double len = juce::jlimit (juce::jmin (zs::ui::review::minViewSec, total), total, v.len * factor);
+        const double rel = (anchor - v.from) / v.len;
+        viewLen = len;
+        viewFrom = anchor - rel * len;
+        zoomChanged();
+    }
+    void zoomAll() { viewLen = 0.0; viewFrom = 0.0; zoomChanged(); }
+    void zoomChanged()
+    {
+        const auto v = view();
+        viewFrom = v.from;
+        if (v.len >= review.seconds() - 1.0e-6) viewLen = 0.0;
+        resized();      // przyciski i uchwyty (uchwyt poza widokiem znika)
+        repaint();
+    }
+    /** Odtwarzanie albo skok poza widok: widok idzie za igla. */
+    void follow (double t)
+    {
+        if (! zoomed()) return;
+        const auto v = view();
+        if (t >= v.from && t <= v.from + v.len) return;
+        viewFrom = t - v.len * 0.1;
+        zoomChanged();
+    }
+    /** Fala widoku liczona z probek tylko dla tego, co widac. */
+    const zs::Envelope& viewEnvelope (int columns)
+    {
+        const auto v = view();
+        if (viewEnvFrom != v.from || viewEnvLen != v.len || viewEnvCols != columns || viewEnvVersion != takeVersion)
+        {
+            viewEnv.buildRange (review.rawAudio(), sr, columns, v.from, v.from + v.len);
+            viewEnvFrom = v.from; viewEnvLen = v.len; viewEnvCols = columns; viewEnvVersion = takeVersion;
+        }
+        return viewEnv;
     }
 
     /* W trakcie sluchania i miksu: komunikat na caly ekran.
@@ -559,6 +659,7 @@ public:
     {
         cutPanel.setVisible(!doneMode && editMode && !cutPanel.empty());   // decyzje po R: w montazu
         for (auto& b : styleButtons) b.setVisible (false);      // tylko w zwyklym widoku oceny
+        for (auto* b : { &zoomIn, &zoomOut, &zoomAllButton }) b->setVisible (false);   // tylko w montazu
         if (doneMode) { layoutDone(); return; }
         doneEditButton.setVisible (false); newTakeButton.setVisible (false);
         savedPath.setVisible (false); savedName.setVisible (false);
@@ -731,7 +832,7 @@ private:
     public:
         std::function<void(double)> move, step;
         juce::Rectangle<int> axis;
-        double seconds = 0;
+        double seconds = 0, from = 0;   ///< widoczny fragment osi (powiekszenie)
         TrimHandle() { setWantsKeyboardFocus (true); setMouseCursor (juce::MouseCursor::LeftRightResizeCursor); }
         void paint (juce::Graphics& g) override {
             g.setColour (Ink::accent()); g.fillRect (getWidth()/2-1, 0, 2, getHeight());
@@ -740,7 +841,7 @@ private:
         }
         void mouseDown (const juce::MouseEvent&) override { grabKeyboardFocus(); }
         void mouseDrag (const juce::MouseEvent& e) override {
-            if (move && axis.getWidth()>0) move ((e.getEventRelativeTo(getParentComponent()).position.x-axis.getX())/axis.getWidth()*seconds);
+            if (move && axis.getWidth()>0) move (from + (e.getEventRelativeTo(getParentComponent()).position.x-axis.getX())/axis.getWidth()*seconds);
         }
         bool keyPressed (const juce::KeyPress& k) override {
             if (k.getKeyCode()!=juce::KeyPress::leftKey && k.getKeyCode()!=juce::KeyPress::rightKey) return false;
@@ -761,10 +862,16 @@ private:
     }
     void positionHandles() {
         auto axis = waveArea().withHeight (waveHeight());
-        for (auto* h : { &startHandle, &endHandle }) { h->axis=axis; h->seconds=review.seconds(); }
-        const double total = juce::jmax (0.001, review.seconds());
-        startHandle.setBounds (axis.getX()+int(trimStart.getValue()/total*axis.getWidth())-7, axis.getY(), 14, axis.getHeight());
-        endHandle.setBounds (axis.getX()+int(trimEnd.getValue()/total*axis.getWidth())-7, axis.getY(), 14, axis.getHeight());
+        const auto v = view();
+        for (auto* h : { &startHandle, &endHandle }) { h->axis=axis; h->seconds=v.len; h->from=v.from; }
+        // uchwyt poza powiekszonym widokiem chowamy, zamiast kleic go do krawedzi
+        auto place = [&] (TrimHandle& h, double t) {
+            const int x = (int) xAt (t, axis);
+            h.setBounds (x - 7, axis.getY(), 14, axis.getHeight());
+            if (x < axis.getX() - 1 || x > axis.getRight() + 1) h.setVisible (false);
+        };
+        place (startHandle, trimStart.getValue());
+        place (endHandle, trimEnd.getValue());
     }
     /** Krok 3 "Odsluch i montaz": surowe nagranie, bez miksu. Najpierw decyzje
         po R (gdy sa), potem przyciecie poczatku i konca albo wyciecie srodka. */
@@ -780,6 +887,14 @@ private:
         auto row = main.removeFromTop (36);
         playButton.setBounds (row.removeFromLeft (112)); row.removeFromLeft (8);
         nextButton.setVisible (true); nextButton.setBounds (row.removeFromLeft (juce::jmin (260, row.getWidth())));
+        if (row.getWidth() >= 16 + 2 * 40 + 80 + 12)
+        {
+            row.removeFromLeft (16);
+            for (auto* b : { &zoomOut, &zoomIn }) { b->setVisible (true); b->setBounds (row.removeFromLeft (40)); row.removeFromLeft (6); }
+            zoomAllButton.setVisible (true); zoomAllButton.setBounds (row.removeFromLeft (80));
+        }
+        zoomIn.setEnabled (view().len > juce::jmin (zs::ui::review::minViewSec, review.seconds()) + 1.0e-6);
+        zoomOut.setEnabled (zoomed()); zoomAllButton.setEnabled (zoomed());
         main.removeFromTop (8);
         if (decide)
         {
@@ -838,7 +953,7 @@ private:
     void paintEdit(juce::Graphics& g) {
         g.fillAll(Ink::bg());
         zs::ScreenFrame::paint(g,getLocalBounds(),file.getFileNameWithoutExtension(),
-            cutPanel.empty() ? PL("Klik — posłuchaj · przeciągnij — zaznacz · ← → uchwyt · N — następne miejsce · Esc — wróć")
+            cutPanel.empty() ? PL("Klik — posłuchaj · przeciągnij — zaznacz · kółko albo + − — powiększ · N — następne miejsce · Esc — wróć")
                              : PL("Spacja — połączenie · Enter — wytnij · Backspace — zostaw · ↑↓ — miejsca · Esc — wróć"));
         auto side=zs::ScreenFrame::sidebar(getLocalBounds());g.setColour(Ink::bar());g.fillRect(side);
         g.setColour(Ink::edge());g.drawVerticalLine(side.getX(),side.getY(),side.getBottom());
@@ -962,7 +1077,7 @@ private:
         player.pause();recorder.attachPlayer(nullptr);ready.store(false);player.clear();
         auto events=zs::TakeReview::listenOffline(audio,sr);
         review.setTake(std::move(audio),sr,std::move(events));
-        ++takeVersion;
+        ++takeVersion; viewLen=0.0; viewFrom=0.0;
         beforeEnv.build(review.rawAudio(),sr,1400);afterEnv={};resetTrim();
         cutFrom=cutTo=-1;
         selection.setText(PL("Zmiana zastosowana. Posłuchaj miejsca cięcia."),juce::dontSendNotification);
@@ -1082,12 +1197,14 @@ private:
             if (startOf (t) > now + 0.3)
             {
                 player.seekSec (startOf (t));
+                follow (startOf (t));
                 if (! player.isPlaying()) player.play();
                 repaint();
                 return;
             }
         // Nie ma nic dalej — wracamy do pierwszego, zeby klawisz zawsze cos robil.
         player.seekSec (startOf (all.front()));
+        follow (startOf (all.front()));
         if (! player.isPlaying()) player.play();
         repaint();
     }
@@ -1215,10 +1332,11 @@ private:
         g.setColour (Ink::edge()); g.drawRoundedRectangle (r.toFloat().reduced (0.5f), 6.0f, 1.0f);
 
         const bool after = player.showingAfter() && ! afterEnv.peakDb.empty();
-        const auto& env  = after ? afterEnv : beforeEnv;
-
-        if (env.peakDb.empty() || review.seconds() <= 0.0)
+        if ((after ? afterEnv : beforeEnv).peakDb.empty() || review.seconds() <= 0.0)
             return;
+        // powiekszona fala (tylko montaz, czyli surowe nagranie): z probek widoku
+        const auto& env = zoomed() && ! after ? viewEnvelope (juce::jmax (1, r.getWidth() / 3))
+                                              : (after ? afterEnv : beforeEnv);
 
         const float mid = (float) r.getCentreY();
         const float half = r.getHeight() * 0.46f;
@@ -1256,28 +1374,34 @@ private:
             g.fillRect ((float) r.getX(), mid + half * ceil, (float) r.getWidth(), 1.0f);
         }
 
+        const auto rf = r.toFloat();
+        auto clampX = [&] (float x) { return juce::jlimit (rf.getX(), rf.getRight(), x); };
         if(cutFrom>=0 && cutTo>cutFrom) {
-            const float a=r.getX()+float(cutFrom/review.seconds())*r.getWidth();
-            const float b=r.getX()+float(cutTo/review.seconds())*r.getWidth();
+            const float a=clampX(xAt(cutFrom,r)), b=clampX(xAt(cutTo,r));
             g.setColour(Ink::yellow().withAlpha(.20f));g.fillRect(a,float(r.getY()),b-a,float(r.getHeight()));
         }
         if(editMode) {
-            const float a=r.getX()+float(trimStart.getValue()/review.seconds())*r.getWidth();
-            const float b=r.getX()+float(trimEnd.getValue()/review.seconds())*r.getWidth();
+            const float a=clampX(xAt(trimStart.getValue(),r)), b=clampX(xAt(trimEnd.getValue(),r));
             g.setColour(Ink::accent().withAlpha(.12f));g.fillRect(a,float(r.getY()),b-a,float(r.getHeight()));
             g.setColour(Ink::bg().withAlpha(.75f));g.fillRect(float(r.getX()),float(r.getY()),a-r.getX(),float(r.getHeight()));g.fillRect(b,float(r.getY()),r.getRight()-b,float(r.getHeight()));
         }
         // igla
-        const double pos = player.positionSec() / juce::jmax (0.001, review.seconds());
-        const float  px  = r.getX() + (float) (pos * r.getWidth());
-
-        g.setColour (Ink::textNow());
-        g.fillRect (px, (float) r.getY(), 1.5f, (float) r.getHeight());
+        const float px = xAt (player.positionSec(), r);
+        if (px >= rf.getX() && px <= rf.getRight())
+        {
+            g.setColour (Ink::textNow());
+            g.fillRect (px, (float) r.getY(), 1.5f, (float) r.getHeight());
+        }
 
         g.setColour (Ink::textDim());
         g.setFont (juce::Font (11.0f));
-        g.drawText (plr::clock (player.positionSec()) + " / " + plr::clock (review.seconds()),
-                    r.reduced (6, 4), juce::Justification::topRight);
+        juce::String clock = plr::clock (player.positionSec()) + " / " + plr::clock (review.seconds());
+        if (zoomed())
+        {
+            const auto v = view();
+            clock = PL ("widać ") + plr::clock (v.from) + PL ("–") + plr::clock (v.from + v.len) + "   " + clock;
+        }
+        g.drawText (clock, r.reduced (6, 4), juce::Justification::topRight);
     }
 
     //==========================================================================
@@ -1299,8 +1423,9 @@ private:
 
         for (const auto& t : review.timeline())
         {
-            const float x1 = strip.getX() + (float) (t.fromSec / total * strip.getWidth());
-            const float x2 = strip.getX() + (float) (t.toSec   / total * strip.getWidth());
+            float x1 = xAt (t.fromSec, strip), x2 = xAt (t.toSec, strip);
+            if (x2 < strip.getX() || x1 > strip.getRight()) continue;
+            x1 = juce::jmax ((float) strip.getX(), x1); x2 = juce::jmin ((float) strip.getRight(), x2);
 
             // Czerwony znaczy "wracaj do mikrofonu" i nic innego. Cisza
             // cyfrowa, ktorej nie liczymy jako powodu do powtorzenia, nie moze
@@ -1363,7 +1488,7 @@ private:
             updateMontageButtons();
             const bool playing = player.isPlaying();
             if (playing != wasPlaying) { wasPlaying = playing; playButton.setButtonText (playing ? PL ("Zatrzymaj") : PL ("Odtwórz")); }
-            if (playing) repaint (waveArea());
+            if (playing) { follow (player.positionSec()); repaint (waveArea()); }
             if (isThreadRunning()) repaint();
             return;
         }
@@ -1498,6 +1623,11 @@ private:
     juce::TextButton folderButton;
     juce::uint32 busySinceMs = 0;   ///< kiedy zaczelo sie sluchanie/miks; 0 = nic nie trwa
     float dragX0 = -1.0f;           ///< poczatek przeciagniecia w montazu; < 0 = brak
+    double viewFrom = 0.0, viewLen = 0.0;   ///< powiekszenie fali; viewLen 0 = cale nagranie
+    zs::Envelope viewEnv;
+    double viewEnvFrom = -1.0, viewEnvLen = -1.0;
+    int viewEnvCols = 0, viewEnvVersion = -1;
+    juce::TextButton zoomIn, zoomOut, zoomAllButton;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ReviewComponent)
 };

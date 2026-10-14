@@ -220,19 +220,36 @@ struct Envelope
 
     void build (const std::vector<float>& x, double sr, int columns)
     {
+        build (x, sr, columns, 0, x.size());
+    }
+
+    /** Tylko fragment [fromSec, toSec) — powiekszona fala w montazu. Bez
+        kopii probek: godzina to 0,7 GB, a fragment liczy sie przy kazdym
+        powiekszeniu. */
+    void buildRange (const std::vector<float>& x, double sr, int columns, double fromSec, double toSec)
+    {
+        if (sr <= 0.0) { build (x, sr, columns, 0, 0); return; }
+        const size_t a = (size_t) std::clamp (fromSec * sr, 0.0, (double) x.size());
+        const size_t b = (size_t) std::clamp (toSec   * sr, (double) a, (double) x.size());
+        build (x, sr, columns, a, b);
+    }
+
+    void build (const std::vector<float>& x, double sr, int columns, size_t first, size_t last)
+    {
         peakDb.assign ((size_t) std::max (1, columns), -140.0f);
-        seconds = sr > 0.0 ? x.size() / sr : 0.0;
+        seconds = sr > 0.0 ? (last - first) / sr : 0.0;
 
-        if (x.empty() || columns <= 0) return;
+        if (last <= first || columns <= 0) return;
 
+        const size_t n = last - first;
         for (int c = 0; c < columns; ++c)
         {
-            const size_t from = (size_t) ((double) c       / columns * x.size());
-            const size_t to   = (size_t) ((double) (c + 1) / columns * x.size());
+            const size_t from = first + (size_t) ((double) c       / columns * n);
+            const size_t to   = first + (size_t) ((double) (c + 1) / columns * n);
 
             float peak = 0.0f;
 
-            for (size_t i = from; i < to && i < x.size(); ++i)
+            for (size_t i = from; i < to && i < last; ++i)
                 peak = std::max (peak, std::fabs (x[i]));
 
             peakDb[(size_t) c] = peak > 1.0e-7f ? 20.0f * std::log10 (peak) : -140.0f;

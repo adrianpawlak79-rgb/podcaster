@@ -477,6 +477,19 @@ int main (int argc, char** argv)
         zs::Envelope z;
         z.build ({}, sr, 600);
         check (z.peakDb.size() == 600, "puste nagranie tez daje sie narysowac");
+
+        // Powiekszona fala (montaz): tylko fragment, bez kopii probek.
+        // Glosno tylko w 4-5 s; widok 3-6 s ma to w srodkowej tercji.
+        std::vector<float> x ((size_t) (sr * 10.0), 0.0f);
+        for (size_t i = (size_t) (4.0 * sr); i < (size_t) (5.0 * sr); ++i) x[i] = 0.5f;
+        zs::Envelope part;
+        part.buildRange (x, sr, 300, 3.0, 6.0);
+        check (part.peakDb.size() == 300 && std::fabs (part.seconds - 3.0) < 1e-9, "fragment: tyle kolumn, ile trzeba, 3 s");
+        check (part.peakDb[50] < -100.0f && part.peakDb[150] > -7.0f && part.peakDb[250] < -100.0f,
+               "fragment: glosne tylko w srodkowej tercji widoku");
+        zs::Envelope beyond;
+        beyond.buildRange (x, sr, 10, 20.0, 30.0);
+        check (beyond.peakDb.size() == 10 && beyond.peakDb[0] < -100.0f, "widok poza nagraniem nie wywraca programu");
     }
 
     std::printf ("\n%s\n\n", fails == 0 ? "wszystko przeszlo"
