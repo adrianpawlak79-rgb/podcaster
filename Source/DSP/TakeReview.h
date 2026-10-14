@@ -375,6 +375,7 @@ public:
         prog.store (0.95);
 
         buildLines();
+        buildPlain (wish);
 
         st.store (Stage::Ready);
         prog.store (1.0);
@@ -395,6 +396,10 @@ public:
 
     /** Zdania dla czlowieka, w kolejnosci waznosci. */
     const std::vector<std::string>& says() const noexcept { return lines; }
+
+    /** To samo bez liczb, dla poczatkujacego: co slychac i czego posluchac.
+        Liczby zostaja w says() — pod "Szczegoly miksu" (audyt 14.10). */
+    const std::vector<std::string>& plainSays() const noexcept { return plain; }
 
     //==========================================================================
     /** Jedno zdanie na gorze ekranu: werdykt.
@@ -630,6 +635,56 @@ private:
     }
 
     //==========================================================================
+    /* Audyt 14.10: "Kompresja 2,5:1 od -31,9 dBFS" nie mowi poczatkujacemu,
+       czego sluchac. Tu skutek i co sprawdzic uchem — z tych samych
+       parametrow, ktore naprawde poszly do lancucha, wiec zdanie nie obieca
+       niczego, czego miks nie zrobil. */
+    void buildPlain (const mix::Decide::Wish& wish)
+    {
+        plain.clear();
+        const auto& p = decision.params;
+        char b[300];
+
+        if (report.peakAfter > p.ceilingDbTp + 0.1)
+            plain.push_back ("Uwaga: miks wyszedł za głośny na szczytach. To błąd programu, nie nagrania — zgłoś go.");
+
+        if (wish.studio)
+        {
+            using St = mix::Decide::Style;
+            plain.push_back (wish.style == St::Delikatny ? "Brzmienie delikatne: głos prawie bez zmian, tylko równiejszy."
+                           : wish.style == St::Mocny     ? "Brzmienie mocne: gęściej i bliżej, jak w radiu."
+                                                         : "Brzmienie studyjne: równy, wyraźny głos, jak w dobrym podcaście.");
+        }
+
+        plain.push_back ("Wyrównano ciche i głośne fragmenty. Sprawdź, czy głos nadal brzmi naturalnie.");
+
+        if (report.denoiseDb < 0.0)
+            plain.push_back ("Ściszono szum tła. Posłuchaj pauz: tło nie powinno „pływać”, a końcówki słów mają zostać.");
+        if (p.useGate)
+            plain.push_back ("Między zdaniami tło jest jeszcze ciszej.");
+        if (p.useBreath && report.breaths > 0)
+            plain.push_back ("Oddechy są ciszej, ale zostały — tak brzmi naturalnie.");
+        if (! p.preEq.empty())
+            plain.push_back ("Mniej dudnienia i „pudełka” w głosie.");
+        if (p.useDeEsser)
+            plain.push_back ("Złagodzono ostre „s”, „sz” i „c”.");
+
+        if (report.clicksRepaired > 0)
+        {
+            std::snprintf (b, sizeof (b), "Naprawiono trzaski: %d. Posłuchaj tych miejsc.", report.clicksRepaired);
+            plain.push_back (b);
+        }
+
+        if (decision.roomLouderDb > 0.0)
+            plain.push_back ("Tło jest głośniejsze niż przy sprawdzaniu pokoju. Coś się włączyło — wentylator, lodówka, okno?");
+
+        if (silenceIsTheMaterial())
+            plain.push_back ("Długie fragmenty są zupełnie ciche. Sprawdź, czy nie zginęły tam słowa.");
+
+        plain.push_back ("Głośność ustawiona dla nagrania mono, jak w podcastach. Odsłuchaj całość przed publikacją.");
+    }
+
+    //==========================================================================
     /* Zdania o tym, co program zrobil.
 
        Uzasadnienia z Decide.h mowia, CO program postanowil i z jakiej liczby.
@@ -718,7 +773,7 @@ private:
     mix::Decision    decision;
     mix::ChainReport report;
 
-    std::vector<std::string> lines;
+    std::vector<std::string> lines, plain;
 
     double silentPart = 0.0;
 

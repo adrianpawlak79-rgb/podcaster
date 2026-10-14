@@ -52,6 +52,8 @@
 #include "ReadMono.h"
 #include "CutReviewPanel.h"
 #include <limits>
+#include <memory>
+#include <thread>
 
 //==============================================================================
 namespace plr
@@ -132,7 +134,7 @@ public:
         addAndMakeVisible (saveButton);
 
         backButton.setButtonText (PL ("Wróć do nagrywania"));
-        backButton.onClick = [this] { if (onClose) onClose(); };
+        backButton.onClick = [this] { if (job == nullptr && onClose) onClose(); };
         addAndMakeVisible (backButton);
 
         savedPath.setJustification (juce::Justification::centred);
@@ -197,14 +199,21 @@ public:
         markEnd.onClick=[this] { if(canEdit()) { player.pause(); cutTo=player.positionSec(); updateSelection(); } };
         cutButton.onClick=[this] {
             if(!canEdit())return;
-            std::vector<float> edited;
-            if(!zs::cutRange(review.rawAudio(),sr,cutFrom,cutTo,edited)) {
+            if(!(cutFrom>=0 && cutTo>cutFrom && cutTo-cutFrom<review.seconds())) {
                 note=PL("Wskaż początek, potem późniejszy koniec cięcia na osi czasu.");repaint();return;
             }
-            undoAudio=review.rawAudio();
-            restartEdit(std::move(edited));
+            const double from=cutFrom,to=cutTo,rate=sr;
+            restartEdit([this,from,to,rate](std::vector<float>& out) {
+                std::vector<float> edited;
+                if(!zs::cutRange(review.rawAudio(),rate,from,to,edited)) return false;
+                out=std::move(edited); return true;
+            }, true);
         };
-        undoButton.onClick=[this] { if(canEdit() && !undoAudio.empty()) restartEdit(std::move(undoAudio)); };
+        undoButton.onClick=[this] {
+            if(!canEdit() || undoAudio.empty()) return;
+            auto back=std::make_shared<std::vector<float>>(std::move(undoAudio)); undoAudio.clear();
+            restartEdit([back](std::vector<float>& out) { out=std::move(*back); return true; }, false);
+        };
         for(auto* b:{&markStart,&markEnd,&cutButton,&undoButton}) addAndMakeVisible(b);
         selection.setColour(juce::Label::textColourId,Ink::textNext());
         selection.setText(PL("Przeciągnij po fali, aby zaznaczyć fragment do wycięcia. Oryginał zostaje na dysku."),juce::dontSendNotification);
@@ -216,7 +225,7 @@ public:
         doneEditButton.setButtonText (PL("← Wróć do miksu"));
         doneEditButton.onClick = [this] { setEditMode (false); };
         newTakeButton.setButtonText (PL("Nagraj nowe podejście"));
-        newTakeButton.onClick = [this] { if (onClose) onClose(); };
+        newTakeButton.onClick = [this] { if (job == nullptr && onClose) onClose(); };
         addAndMakeVisible (doneEditButton); addAndMakeVisible (newTakeButton);
         for (auto* editor : { &savedPath, &savedName }) {
             editor->setMultiLine (true); editor->setReadOnly (true);
@@ -269,6 +278,7 @@ public:
         // przebiegu.
         signalThreadShouldExit();
         waitForThreadToExit(-1);
+        abandonJob();
         ready.store(false);
         player.clear();
     }
@@ -294,10 +304,11 @@ public:
         pokazaniem okna i pierwsza klatka jest juz ta wlasciwa. Program
         uruchamiany normalnie nigdy tedy nie idzie. */
     void load (const juce::File& wavFile, std::vector<tw::Event> events,
-               bool watchedLive, bool waitForIt = false)
+               bool watchedLive, bool waitForIt = false, std::function<void()> then = nullptr)
     {
         signalThreadShouldExit();
         waitForThreadToExit(-1);
+        abandonJob();
         ready.store(false);
         seamPlayer.clear(); seamPlaying=false;
         player.clear();
@@ -311,72 +322,85 @@ public:
         file  = wavFile;
         saved = juce::File();
         note.clear();
-
-        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (wavFile));
-
-        if (reader == nullptr)
-        {
-            note = PL ("Nie mogę odczytać ") + wavFile.getFileName() + ".";
-            review.setTake ({}, 48000.0, {});
-            repaint();
-            return;
-        }
-
-        if(reader->lengthInSamples<=0 || reader->lengthInSamples>std::numeric_limits<int>::max()
-           || reader->sampleRate<=0 || reader->numChannels==0) {
-            note=PL("Plik jest pusty lub za duży do wczytania.");review.setTake({},48000,{});repaint();return;
-        }
-        const int n = (int) reader->lengthInSamples;
-
-        // Nagrywamy mono (Recorder::writeMono), ale jesli kiedys bedzie inaczej,
-        // srednia kanalow jest lepsza niz wziecie pierwszego i zdziwienie.
-        // Kawalkami, bez drugiej kopii w buforze (ReadMono.h — godzina to 0,7 GB).
-        std::vector<float> mono;
-        if (! zs::readMono (*reader, n, mono)) {
-            note=PL("Nie udało się odczytać całego nagrania.");review.setTake({},48000,{});repaint();return;
-        }
-
-        sr = reader->sampleRate;
-
-        // Nagranie otwarte z dysku nie ma listy zdarzen — nikt nie patrzyl
-        // wtedy na lampke. Wtedy przesluchujemy je tym samym wykrywaczem.
-        //
-        // Decyduje o tym, czy nagranie BYLO sledzone, a nie czy lista jest
-        // pusta: czyste nagranie tez daje pusta liste, a przesluchiwanie go
-        // drugi raz to kilka sekund czekania po kazdym udanym podejsciu.
-        // File is authoritative: callback events may have been lost or delayed.
-        (void)watchedLive;
-        if (true)
-        {
-            events = zs::TakeReview::listenOffline (mono, sr);
-
-            if (! events.empty())
-                note = PL ("Nagranie wczytane z pliku — przesłuchałem je od nowa.");
-        }
-
-        review.setTake (std::move (mono), sr, std::move (events));
-        ++takeVersion; viewLen = 0.0; viewFrom = 0.0;
-
-        cutPanel.load(file, review.rawAudio(), sr);
-        beforeEnv.build (review.rawAudio(), sr, 1400);
-        afterEnv = {};
-
-        // Krok 3: odsluch i montaz na surowym nagraniu. Miks liczy sie dopiero
-        // po "Dalej: miks" — raz, na koncu, a nie po kazdym cieciu.
-        editMode = true;
-        setRawMaterial();
-        resetTrim();
-        assessment.setText (montageSummary(), false);
-        updateMontageButtons();
-
-        if (waitForIt)                  // tylko zrzuty ekranu przy budowaniu
-        {
-            review.run (wish);
-            adoptResult();
-        }
-
+        // stara kopia nie jest juz potrzebna (godzina = 0,7 GB), a fala nie
+        // moze pokazywac poprzedniego nagrania pod napisem "wczytuje"
+        review.setTake ({}, 48000.0, {});
+        beforeEnv = {}; afterEnv = {};
+        editMode = ! waitForIt;         // pod napisem "wczytuje" krok montazu, nie miksu
         resized();
-        repaint();
+
+        // Odczyt i przesluchanie w tle: godzina nagrania to ok. minuty pracy.
+        struct Out { juce::String error; std::vector<float> mono; double rate = 48000.0;
+                     std::vector<tw::Event> events; zs::Envelope env; };
+        auto out = std::make_shared<Out>();
+        auto reader = std::shared_ptr<juce::AudioFormatReader> (formats.createReaderFor (wavFile));
+        (void) events; (void) watchedLive;   // plik jest wazniejszy niz zdarzenia z nagrywania
+
+        double expect = 0.0;
+        if (reader != nullptr && reader->sampleRate > 0)
+            expect = (double) reader->lengthInSamples / reader->sampleRate;
+
+        runJob (PL ("Wczytuję i słucham nagrania…"), zs::ui::review::listenEstimateSec (expect),
+            [out, reader]
+            {
+                if (reader == nullptr) { out->error = "read"; return; }
+                if (reader->lengthInSamples <= 0 || reader->lengthInSamples > std::numeric_limits<int>::max()
+                    || reader->sampleRate <= 0 || reader->numChannels == 0) { out->error = "size"; return; }
+
+                // Nagrywamy mono (Recorder::writeMono), ale jesli kiedys bedzie inaczej,
+                // srednia kanalow jest lepsza niz wziecie pierwszego i zdziwienie.
+                // Kawalkami, bez drugiej kopii w buforze (ReadMono.h — godzina to 0,7 GB).
+                if (! zs::readMono (*reader, (int) reader->lengthInSamples, out->mono)) { out->error = "part"; return; }
+                out->rate = reader->sampleRate;
+
+                // Zdarzenia z nagrywania moga sie spoznic albo zgubic, wiec
+                // przesluchujemy plik tym samym wykrywaczem.
+                out->events = zs::TakeReview::listenOffline (out->mono, out->rate);
+                out->env.build (out->mono, out->rate, 1400);
+            },
+            [this, out, waitForIt, then, name = wavFile.getFileName()]
+            {
+                if (out->error.isNotEmpty())
+                {
+                    note = out->error == "read" ? PL ("Nie mogę odczytać ") + name + "."
+                         : out->error == "size" ? PL ("Plik jest pusty lub za duży do wczytania.")
+                                                : PL ("Nie udało się odczytać całego nagrania.");
+                    review.setTake ({}, 48000.0, {});
+                    editMode = false;
+                    resized(); repaint();
+                    return;
+                }
+
+                sr = out->rate;
+                if (! out->events.empty())
+                    note = PL ("Nagranie wczytane z pliku — przesłuchałem je od nowa.");
+
+                review.setTake (std::move (out->mono), sr, std::move (out->events));
+                ++takeVersion; viewLen = 0.0; viewFrom = 0.0;
+
+                cutPanel.load(file, review.rawAudio(), sr);
+                beforeEnv = std::move (out->env);
+                afterEnv = {};
+
+                // Krok 3: odsluch i montaz na surowym nagraniu. Miks liczy sie dopiero
+                // po "Dalej: miks" — raz, na koncu, a nie po kazdym cieciu.
+                editMode = true;
+                setRawMaterial();
+                resetTrim();
+                assessment.setText (montageSummary(), false);
+                updateMontageButtons();
+
+                if (waitForIt)                  // tylko zrzuty ekranu przy budowaniu
+                {
+                    review.run (wish);
+                    adoptResult();
+                }
+
+                resized();
+                repaint();
+                if (then) then();
+            },
+            waitForIt);
     }
 
     /** true = krok "Odsluch i montaz" (surowe nagranie), false = krok "Miks". */
@@ -392,7 +416,7 @@ public:
     }
 
     // Podglad przechodzi ta sama droga zapisu co zwykly przycisk.
-    void previewDone() { if (! editMode) save(); }
+    void previewDone() { if (! editMode) { previewSave = true; save(); previewSave = false; } }
 
     bool hasTake() const { return review.stage() != zs::TakeReview::Stage::Empty; }
 
@@ -412,6 +436,7 @@ public:
     bool keyPressed (const juce::KeyPress& k) override
     {
         const int c = k.getKeyCode();
+        if (job != nullptr) return true;      // praca w tle: plik sesji wlasnie sie zmienia
         if (doneMode) {
             if (c == juce::KeyPress::escapeKey) { setEditMode (false); return true; }
             return false;
@@ -605,6 +630,7 @@ public:
        raportuje postepu w trakcie, pasek stalby na 35% przez pol minuty. */
     void paintOverChildren (juce::Graphics& g) override
     {
+        if (job != nullptr) { drawJob (g); return; }
         const auto st = review.stage();
         // tylko gdy watek naprawde liczy: w montazu etap jest "Listening" (miksu
         // jeszcze nie bylo), a nakladka zaslonilaby caly ekran
@@ -648,6 +674,45 @@ public:
         text << "\n" << (elapsed > expect * 3 / 2
                             ? PL ("Trwa dłużej niż zwykle, ale program pracuje — nie zamykaj go.")
                             : PL ("Ekran sam się odświeży, gdy miks będzie gotowy."));
+
+        g.setColour (Ink::textNext());
+        g.setFont (juce::Font (zs::type::body));
+        g.drawFittedText (text, r, juce::Justification::topLeft, 3);
+    }
+
+    /** Praca w tle (runJob): ten sam wyglad co "Miksuje…", inny napis. */
+    void drawJob (juce::Graphics& g)
+    {
+        auto area = getLocalBounds().withTrimmedTop (zs::ui::frame::header + zs::ui::frame::steps)
+                                    .withTrimmedBottom (zs::ui::frame::footer);
+        g.setColour (Ink::bg().withAlpha (0.88f));
+        g.fillRect (area);
+
+        auto box = area.withSizeKeepingCentre (juce::jmin (560, area.getWidth() - 40), 196);
+        g.setColour (Ink::panel()); g.fillRoundedRectangle (box.toFloat(), 8.0f);
+        g.setColour (Ink::edge());  g.drawRoundedRectangle (box.toFloat().reduced (0.5f), 8.0f, 1.0f);
+
+        auto r = box.reduced (28, 24);
+        g.setColour (Ink::textNow());
+        g.setFont (juce::Font (zs::type::title, juce::Font::bold));
+        g.drawText (jobLabel, r.removeFromTop (40), juce::Justification::centredLeft);
+
+        r.removeFromTop (10);
+        const auto bar = r.removeFromTop (8).toFloat();
+        g.setColour (Ink::raised()); g.fillRoundedRectangle (bar, 4.0f);
+        const float phase = (float) (juce::Time::getMillisecondCounter() % 1600u) / 1600.0f;
+        const float w = bar.getWidth() * 0.28f;
+        const float x = bar.getX() - w + phase * (bar.getWidth() + w);
+        g.setColour (Ink::accent());
+        g.fillRoundedRectangle (juce::Rectangle<float> (x, bar.getY(), w, bar.getHeight())
+                                    .getIntersection (bar), 4.0f);
+
+        r.removeFromTop (16);
+        const int elapsed = jobSinceMs == 0 ? 0
+                          : (int) ((juce::Time::getMillisecondCounter() - jobSinceMs) / 1000u);
+        juce::String text = PL ("Minęło ") + juce::String (elapsed) + " s.";
+        if (jobExpectSec > 0) text << PL (" Zwykle trwa to do ") << juce::String (jobExpectSec) << " s.";
+        text << "\n" << PL ("Program pracuje — nie zamykaj go. Ekran sam się odświeży.");
 
         g.setColour (Ink::textNext());
         g.setFont (juce::Font (zs::type::body));
@@ -933,8 +998,8 @@ private:
     {
         juce::String t;
         if (! cutPanel.empty())
-            t << PL("Najpierw poprawki po R: przy każdej posłuchaj połączenia i zdecyduj — wytnij albo zostaw. ")
-              << PL("Potem „Zastosuj poprawki”.\n\n");
+            t << PL("Najpierw poprawki po R: przy każdej posłuchaj połączenia i zdecyduj — zaznacz do wycięcia albo zostaw. ")
+              << PL("Nagranie zmieni się dopiero po „Wytnij zaznaczone”.\n\n");
         const int marks = (int) review.timeline().size();
         if (marks == 0) t << PL("Program nie zaznaczył miejsc do sprawdzenia.\n\n");
         else t << PL("Paski pod falą to miejsca do sprawdzenia (") << marks
@@ -954,7 +1019,7 @@ private:
         g.fillAll(Ink::bg());
         zs::ScreenFrame::paint(g,getLocalBounds(),file.getFileNameWithoutExtension(),
             cutPanel.empty() ? PL("Klik — posłuchaj · przeciągnij — zaznacz · kółko albo + − — powiększ · N — następne miejsce · Esc — wróć")
-                             : PL("Spacja — połączenie · Enter — wytnij · Backspace — zostaw · ↑↓ — miejsca · Esc — wróć"));
+                             : PL("Spacja — połączenie · Enter — zaznacz do wycięcia · Backspace — zostaw · ↑↓ — miejsca · Esc — wróć"));
         auto side=zs::ScreenFrame::sidebar(getLocalBounds());g.setColour(Ink::bar());g.fillRect(side);
         g.setColour(Ink::edge());g.drawVerticalLine(side.getX(),side.getY(),side.getBottom());
         auto main=zs::ScreenFrame::mainArea(getLocalBounds());
@@ -987,19 +1052,22 @@ private:
     void goToMix() {
         if (! canEdit()) return;
         if (! cutPanel.empty()) {
-            note = PL("Najpierw zdecyduj o poprawkach po R i kliknij „Zastosuj poprawki”.");
+            note = PL("Najpierw zdecyduj o poprawkach po R i kliknij „Wytnij zaznaczone”.");
             if (! editMode) { editMode = true; setRawMaterial(); }
             assessment.setText (montageSummary(), false); resized();
             repaint(); return;
         }
         player.pause(); stopSeam();
-        const double from=trimStart.getValue(),to=trimEnd.getValue(),total=review.seconds();
+        const double from=trimStart.getValue(),to=trimEnd.getValue(),total=review.seconds(),rate=sr;
         if (from > 0.0 || to < total) {
-            std::vector<float> audio=review.rawAudio(), cropped;
-            if(to<total) {if(!zs::cutRange(audio,sr,to,total,cropped))return;audio=std::move(cropped);}
-            if(from>0) {if(!zs::cutRange(audio,sr,0,from,cropped))return;audio=std::move(cropped);}
-            undoAudio=review.rawAudio();
-            restartEdit(std::move(audio));
+            // przyciecie w tle; po nim ten sam krok jeszcze raz (juz bez przyciecia)
+            restartEdit([this,from,to,total,rate](std::vector<float>& out) {
+                std::vector<float> audio=review.rawAudio(), cropped;
+                if(to<total) {if(!zs::cutRange(audio,rate,to,total,cropped))return false;audio=std::move(cropped);}
+                if(from>0) {if(!zs::cutRange(audio,rate,0,from,cropped))return false;audio=std::move(cropped);}
+                out=std::move(audio); return true;
+            }, true, [this] { goToMix(); });
+            return;
         }
         editMode = false; detailsMode = false; doneMode = false;
         if (mixedVersion == takeVersion && mixedStyle == wish.style && review.stage() == zs::TakeReview::Stage::Ready)
@@ -1042,9 +1110,9 @@ private:
     }
 
     /** Montaz: jest surowe nagranie i nic sie nie liczy w tle. */
-    bool canEdit() const { return review.stage() != zs::TakeReview::Stage::Empty && ! isThreadRunning(); }
+    bool canEdit() const { return review.stage() != zs::TakeReview::Stage::Empty && ! isThreadRunning() && job == nullptr; }
     /** Miks: policzony i nic sie nie liczy w tle. */
-    bool mixReady() const { return review.stage() == zs::TakeReview::Stage::Ready && ! isThreadRunning(); }
+    bool mixReady() const { return review.stage() == zs::TakeReview::Stage::Ready && ! isThreadRunning() && job == nullptr; }
 
     /** Brzmienie miksu: ten sam surowy dzwiek, miks od nowa w tle. */
     void chooseStyle (mix::Decide::Style st)
@@ -1073,18 +1141,66 @@ private:
     }
     /** Zmiana w montazu (wyciecie, cofniecie, przyciecie): nowa kopia surowego
         nagrania. Miksu nie liczymy — policzy sie raz po "Dalej: miks". */
-    void restartEdit(std::vector<float> audio) {
-        player.pause();recorder.attachPlayer(nullptr);ready.store(false);player.clear();
-        auto events=zs::TakeReview::listenOffline(audio,sr);
-        review.setTake(std::move(audio),sr,std::move(events));
-        ++takeVersion; viewLen=0.0; viewFrom=0.0;
-        beforeEnv.build(review.rawAudio(),sr,1400);afterEnv={};resetTrim();
-        cutFrom=cutTo=-1;
-        selection.setText(PL("Zmiana zastosowana. Posłuchaj miejsca cięcia."),juce::dontSendNotification);
-        words.clear();saved=juce::File();note=PL("Montaż zmienia kopię w pamięci; oryginał zostaje na dysku.");
-        setRawMaterial();
-        assessment.setText (montageSummary(), false);
-        resized();repaint();
+    /** make: buduje nowa kopie (w tle; czyta review.rawAudio(), nic nie
+        zmienia). keepUndo: obecna kopia trafia do "Cofnij cięcie". then: co
+        dalej na watku okna, gdy kopia jest gotowa. */
+    void restartEdit(std::function<bool(std::vector<float>&)> make, bool keepUndo,
+                     std::function<void()> then = nullptr) {
+        struct Out { bool ok=false; std::vector<float> audio; std::vector<tw::Event> events; zs::Envelope env; };
+        auto out=std::make_shared<Out>();
+        const double rate=sr;
+        runJob(PL("Stosuję zmianę…"), zs::ui::review::listenEstimateSec(review.seconds()),
+            [out,make,rate] {
+                if(!make(out->audio)) return;
+                out->events=zs::TakeReview::listenOffline(out->audio,rate);
+                out->env.build(out->audio,rate,1400);
+                out->ok=true;
+            },
+            [this,out,keepUndo,then] {
+                if(!out->ok) { note=PL("Wskaż początek, potem późniejszy koniec cięcia na osi czasu."); repaint(); return; }
+                player.pause();recorder.attachPlayer(nullptr);ready.store(false);player.clear();
+                if(keepUndo) undoAudio=review.rawAudio();
+                review.setTake(std::move(out->audio),sr,std::move(out->events));
+                ++takeVersion; viewLen=0.0; viewFrom=0.0;
+                beforeEnv=std::move(out->env);afterEnv={};resetTrim();
+                cutFrom=cutTo=-1;
+                selection.setText(PL("Zmiana zastosowana. Posłuchaj miejsca cięcia."),juce::dontSendNotification);
+                words.clear();saved=juce::File();note=PL("Montaż zmienia kopię w pamięci; oryginał zostaje na dysku.");
+                setRawMaterial();
+                assessment.setText (montageSummary(), false);
+                resized();repaint();
+                if(then) then();
+            });
+    }
+
+    //==========================================================================
+    /* Praca w tle (audyt 14.10). work: tylko na wlasnych danych i odczyt
+       review (w tym czasie canEdit()/mixReady() = false, wiec nikt go nie
+       zmienia). finish: na watku okna, z timerCallback. Przy zrzutach
+       ekranu (waitForIt) wszystko od razu, bo liczy sie pierwsza klatka. */
+    void runJob(const juce::String& label, int expectSec, std::function<void()> work,
+                std::function<void()> finish, bool now = false) {
+        jassert(job == nullptr);
+        player.pause(); stopSeam();
+        if(now) { work(); if(finish) finish(); return; }
+        jobLabel=label; jobExpectSec=expectSec; jobFinish=std::move(finish);
+        jobSinceMs=juce::jmax(1u,juce::Time::getMillisecondCounter());
+        jobDone.store(false);
+        job=std::make_unique<std::thread>([this,w=std::move(work)] { w(); jobDone.store(true); });
+        updateMontageButtons();
+        repaint();
+    }
+    void finishJob() {
+        if(job) { job->join(); job.reset(); }
+        jobSinceMs=0;
+        auto f=std::move(jobFinish); jobFinish=nullptr;
+        if(f) f();
+        repaint();
+    }
+    /** Nowe nagranie albo zamkniecie: poczekaj na prace, wyniku nie uzywaj. */
+    void abandonJob() {
+        if(job) { job->join(); job.reset(); }
+        jobFinish=nullptr; jobSinceMs=0;
     }
     //==========================================================================
     /** Rosnie z oknem — liczby i uzasadnienie w zs::ui::review (UiRules.h). */
@@ -1137,11 +1253,11 @@ private:
             all << PL (line.c_str()) << "\n\n";
 
         words.setText (all.trimEnd(), false);
+        // Po prawej skutek prostymi slowami; liczby pod "Szczegoly miksu" (audyt 14.10).
         juce::String summary;
-        if (!review.says().empty()) summary << PL(review.says().front().c_str()) << "\n\n";
-        summary << PL("UZASADNIENIE\n");
-        for (size_t i = 1; i < review.says().size(); ++i)
-            summary << PL(review.says()[i].c_str()) << "\n\n";
+        for (const auto& line : review.plainSays())
+            summary << PL ("• ") << PL (line.c_str()) << "\n\n";
+        summary << PL ("Liczby i ustawienia: „Szczegóły miksu”.");
         reviewSummary=summary; assessment.setText (summary, false);
         playButton.setEnabled (true); abButton.setEnabled (true);
         editToggle.setEnabled (true); saveButton.setEnabled (true);
@@ -1221,7 +1337,7 @@ private:
        odsluch-test — a nie przez druga droge, ktorej nikt nie sprawdza. */
     void save()
     {
-        if (review.stage() != zs::TakeReview::Stage::Ready) return;
+        if (! mixReady()) return;
         if (damagedRecording || !review.mixValid()) {
             note=PL("Nie zapisuję wersji do publikacji: nagranie lub miks wymaga sprawdzenia.");
             repaint();return;
@@ -1241,26 +1357,37 @@ private:
 
         // Bez kopii miksu (godzina = 0,7 GB), z kontrola kazdego kroku zapisu i
         // podmiana pliku dopiero po poprawnym zamknieciu (Wav.h, audyt 14.10).
-        const auto& mixed = review.mixedAudio();
-        const auto err = wavio::writePcm (target.getFullPathName().toStdString(), { mixed.data() },
-                                          mixed.size(), (int) sr, 24);
+        // W tle: godzina miksu to kilka sekund zapisu. W tym czasie miks sie
+        // nie zmienia (mixReady() = false, styl ani montaz nie ruszy).
+        auto err = std::make_shared<std::string>();
+        const auto path = target.getFullPathName().toStdString();
+        const int rate = (int) sr;
+        runJob (PL ("Zapisuję miks…"), 0,
+            [this, err, path, rate]
+            {
+                const auto& mixed = review.mixedAudio();
+                *err = wavio::writePcm (path, { mixed.data() }, mixed.size(), rate, 24);
+            },
+            [this, err, target]
+            {
+                if (! err->empty())
+                {
+                    note = PL ("Nie udało się zapisać miksu — sprawdź wolne miejsce na dysku i dostęp do folderu. ")
+                         + PL ("Nagranie jest bezpieczne, możesz spróbować jeszcze raz.");
+                    repaint();
+                    return;
+                }
 
-        if (! err.empty())
-        {
-            note = PL ("Nie udało się zapisać miksu — sprawdź wolne miejsce na dysku i dostęp do folderu. ")
-                 + PL ("Nagranie jest bezpieczne, możesz spróbować jeszcze raz.");
-            repaint();
-            return;
-        }
-
-        saved = target;
-        note  = PL ("Zapisane: ") + target.getFileName();
-        player.pause();
-        savedPath.setText (saved.getFullPathName(), false);
-        savedName.setText (saved.getFileName(), false);
-        doneMode = true;
-        resized();
-        repaint();
+                saved = target;
+                note  = PL ("Zapisane: ") + target.getFileName();
+                player.pause();
+                savedPath.setText (saved.getFullPathName(), false);
+                savedName.setText (saved.getFileName(), false);
+                doneMode = true;
+                resized();
+                repaint();
+            },
+            previewSave);
     }
 
     //==========================================================================
@@ -1476,6 +1603,12 @@ private:
     //==========================================================================
     void timerCallback() override
     {
+        if (job != nullptr)
+        {
+            if (jobDone.load()) finishJob();
+            else { repaint(); return; }       // napis "pracuje" i licznik sekund
+        }
+
         if (ready.exchange (false))
             adoptResult();
 
@@ -1545,19 +1678,31 @@ private:
     }
     void applyProposals(const std::vector<tw::CutProposal>& proposals) {
         if(!canEdit() || cutPanel.empty()) return;
-        player.pause(); stopSeam();
-        const auto result=zs::applyCutList(file,proposals);
+        // Plik sesji, kopia do "surowe" i lista — w tle (godzina = 0,7 GB na dysku).
+        struct Out { zs::PunchResult result; bool archived=false; };
+        auto out=std::make_shared<Out>();
+        const auto wav=file;
+        runJob(PL("Stosuję poprawki…"), 0,
+            [out,wav,proposals] {
+                out->result=zs::applyCutList(wav,proposals);
+                if(out->result.error.isEmpty() && !out->result.applied && tw::acceptedCuts(proposals).empty()) {
+                    // Wszystkie decyzje "zostaw": archiwum decyzji i pelnego nagrania,
+                    // aby reczny montaz nie odziedziczyl listy ze starymi czasami.
+                    const auto dir=wav.getParentDirectory().getChildFile("surowe");
+                    const auto raw=dir.getNonexistentChildFile(wav.getFileNameWithoutExtension(),".wav",false);
+                    out->archived=dir.createDirectory() && wav.copyFileTo(raw)
+                                  && zs::cutListFile(wav).moveFileTo(zs::cutListFile(raw));
+                }
+            },
+            [this,out,proposals] { afterProposals(out->result,out->archived,proposals); });
+    }
+    void afterProposals(const zs::PunchResult& result,bool archived,const std::vector<tw::CutProposal>& proposals) {
         if(result.error.isNotEmpty()) { note=PL("Nie udało się zastosować poprawek: ")+result.error; repaint(); return; }
         if(!result.applied) {
             if(!tw::acceptedCuts(proposals).empty()) {
                 note=PL("Nie udało się zastosować poprawek. Sprawdź plik nagrania."); repaint(); return;
             }
-            // Wszystkie decyzje "zostaw": archiwum decyzji i pelnego nagrania,
-            // aby reczny montaz nie odziedziczyl listy ze starymi czasami.
-            const auto dir=file.getParentDirectory().getChildFile("surowe");
-            const auto raw=dir.getNonexistentChildFile(file.getFileNameWithoutExtension(),".wav",false);
-            if(!dir.createDirectory() || !file.copyFileTo(raw)
-               || !zs::cutListFile(file).moveFileTo(zs::cutListFile(raw))) {
+            if(!archived) {
                 note=PL("Nie udało się zachować pełnego nagrania i listy w folderze surowe."); repaint(); return;
             }
             cutPanel.load(file,review.rawAudio(),sr); resized();
@@ -1575,11 +1720,12 @@ private:
         if(staleList) {
             message+=PL(" Nie udało się usunąć starej listy cięć — sprawdź plik .ciecia.tsv przed ponownym otwarciem.");
         }
-        load(file,{},false);
-        if(staleList) { cutPanel.load(juce::File(),{},sr); resized(); }
-        note=message;
         juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon,PL("Poprawki po R"),message);
-        repaint();
+        // nowa wersja pliku: wczytanie i przesluchanie znow w tle
+        load(file,{},false,false,[this,staleList,message] {
+            if(staleList) { cutPanel.load(juce::File(),{},sr); resized(); }
+            note=message; repaint();
+        });
     }
     CutReviewPanel cutPanel;
     zs::Audition seamPlayer;
@@ -1622,6 +1768,17 @@ private:
     std::vector<float> undoAudio;
     juce::TextButton folderButton;
     juce::uint32 busySinceMs = 0;   ///< kiedy zaczelo sie sluchanie/miks; 0 = nic nie trwa
+
+    // Praca w tle poza miksem (audyt 14.10): wczytanie, ciecie, poprawki po R,
+    // zapis. Godzina nagrania to ~1 min przesluchiwania — na watku okna
+    // program wygladal na zawieszony. Patrz runJob().
+    std::unique_ptr<std::thread> job;
+    std::atomic<bool> jobDone { false };
+    std::function<void()> jobFinish;
+    juce::String jobLabel;
+    int jobExpectSec = 0;
+    bool previewSave = false;       ///< zrzut ekranu: zapis od razu, bez pracy w tle
+    juce::uint32 jobSinceMs = 0;
     float dragX0 = -1.0f;           ///< poczatek przeciagniecia w montazu; < 0 = brak
     double viewFrom = 0.0, viewLen = 0.0;   ///< powiekszenie fali; viewLen 0 = cale nagranie
     zs::Envelope viewEnv;

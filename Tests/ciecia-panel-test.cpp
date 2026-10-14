@@ -35,12 +35,14 @@ int main()
     juce::MemoryBlock before; wav.loadFileAsData(before);
     CutReviewPanel panel; panel.setSize(900,600); panel.load(wav,audio,10000);
     check(!panel.decided(),"jest miejsce do sprawdzenia");
-    auto* apply=button(panel,PL("Zastosuj poprawki"));
-    check(apply && apply->isEnabled(),"Zastosuj dziala od razu (niezatwierdzone zostaja w nagraniu)");
-    auto* restore=button(panel,PL("Przywróć")); restore->onClick();
-    check(zs::readCutList(wav)[0].state==tw::CutProposal::State::Rejected,"Przywroc zapisuje Rejected");
-    auto* cut=button(panel,PL("Wytnij")); cut->onClick();
-    check(zs::readCutList(wav)[0].state==tw::CutProposal::State::Accepted,"Wytnij zapisuje Accepted");
+    auto* apply=button(panel,PL("Wytnij zaznaczone (2)"));
+    check(apply && apply->isEnabled(),"Wytnij zaznaczone dziala od razu i mowi, ile wytnie");
+    auto* restore=button(panel,PL("Odznacz")); restore->onClick();
+    check(zs::readCutList(wav)[0].state==tw::CutProposal::State::Rejected,"Odznacz zapisuje Rejected");
+    check(apply->getButtonText()==PL("Wytnij zaznaczone (1)"),"licznik na przycisku spada");
+    auto* cut=button(panel,PL("Zaznacz do wycięcia")); cut->onClick();
+    check(zs::readCutList(wav)[0].state==tw::CutProposal::State::Accepted,"Zaznacz do wyciecia zapisuje Accepted");
+    check(juce::File(wav).existsAsFile() && apply->getButtonText()==PL("Wytnij zaznaczone (2)"),"zaznaczenie nie tnie, tylko liczy");
     panel.keyPressed(juce::KeyPress(juce::KeyPress::downKey));
     panel.keyPressed(juce::KeyPress(juce::KeyPress::downKey));
     int heard=0; double heardFrom=0,heardTo=0;
@@ -52,7 +54,7 @@ int main()
     check(zs::readCutList(wav)[2].state==tw::CutProposal::State::Accepted,"Tnij tu zapisane w TSV");
     // Mysza przesuwamy poczatek w poblize 4.25 s. Pauza 0-4.4 s
     // przyciaga go do 4.25 s; przesuniecie cofa Accepted do Pending.
-    auto* row=button(panel,PL("Wytnij"))->getParentComponent();
+    auto* row=button(panel,PL("Zaznaczone"))->getParentComponent();
     const float width=float(row->getWidth()-16);
     auto event=[&](double t) {
         juce::Point<float> pt(8+float((t-1)/7)*width,90);
@@ -74,7 +76,7 @@ int main()
     check(before==after,"decyzje i odsluch nie zmieniaja WAV");
     int applied=0; zs::PunchResult result;
     panel.onApply=[&](const auto& proposals){++applied;result=zs::applyCutList(wav,proposals);};
-    button(panel,PL("Zastosuj poprawki"))->onClick();
+    button(panel,PL("Wytnij zaznaczone (2)"))->onClick();
     check(applied==1 && result.applied && result.cuts==1,"dopiero Zastosuj wycina zaakceptowane (scalone) fragmenty");
     check(result.rawCopy.existsAsFile() && zs::readCutList(wav).empty(),"surowe i lista zarchiwizowane");
     panel.load(wav,audio,10000); check(panel.empty(),"po sukcesie panel znika");
