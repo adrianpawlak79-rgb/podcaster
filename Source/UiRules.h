@@ -193,6 +193,13 @@ namespace review
 
     struct Range { double from = -1.0, to = -1.0; bool isDrag() const { return from >= 0.0 && to > from; } };
 
+    /** Powiekszenie fali w montazu (audyt 14.10: fala godzinnego nagrania
+        jest za gesta, zeby trafic w granice slowa). Najwiecej: 4 s na cala
+        szerokosc — przy 720 px to ok. 5 ms na piksel, czyli widac pauze
+        miedzy slowami. Krok kolka/klawisza: dwa razy. */
+    constexpr double minViewSec = 4.0;
+    constexpr double zoomStep   = 2.0;
+
     inline Range dragRange (float x0, float x1, int left, int width, double seconds)
     {
         if (width <= 0 || seconds <= 0.0 || std::abs (x1 - x0) < (float) minDragPx) return {};
