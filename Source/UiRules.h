@@ -252,5 +252,34 @@ inline std::string hintLine (bool recording, bool hasScript)
                      : "Spacja albo Nagraj — zacznij nagrywać";
 }
 
+/** Najdluzsza sesja (audyt 14.10: "ogranicz i przetestuj dlugosc sesji").
+
+    60 min to tyle, ile sprawdzil zs-dlugo (13.10): nagranie, R, ocena i miks
+    godziny w ok. 2,6 GB pamieci. Dluzej nikt nie sprawdzal, a miks trzyma
+    w pamieci kilka kopii calosci — wiec program mowi to wprost: od 55. minuty
+    licznik ostrzega, w 60. nagranie zatrzymuje sie samo i idzie do oceny
+    (jak przy odlaczonej karcie: wszystko zapisane). Rozdzial dluzszy niz
+    godzina = dwie sesje. */
+namespace session
+{
+    constexpr double limitSec = 60.0 * 60.0;
+    constexpr double warnSec  = 55.0 * 60.0;
+
+    enum class Phase { Ok, Warn, Stop };
+
+    inline Phase phase (double recordedSec)
+    {
+        if (recordedSec >= limitSec) return Phase::Stop;
+        if (recordedSec >= warnSec)  return Phase::Warn;
+        return Phase::Ok;
+    }
+
+    /** Ile pelnych minut zostalo (do napisu "Zostały 3 min"), co najmniej 1. */
+    inline int minutesLeft (double recordedSec)
+    {
+        return std::max (1, (int) std::ceil ((limitSec - recordedSec) / 60.0));
+    }
+}
+
 } // namespace ui
 } // namespace zs
