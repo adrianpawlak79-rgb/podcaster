@@ -163,7 +163,7 @@ public:
     {
         switch (s)
         {
-            case SetupStep::Device:  return "Powiedz cokolwiek — sprawdzam, czy słyszę TEN mikrofon.";
+            case SetupStep::Device:  return "Powiedz cokolwiek — sprawdzam sygnał z wybranego wejścia.";
             case SetupStep::Room:    return "Teraz cisza. Nie ruszaj się przez sześć sekund.";
             case SetupStep::Level:   return "Powiedz dwa zdania normalnym głosem, tak jak będziesz mówić.";
             case SetupStep::Plosive: return "Powiedz: „Piotr popija pyszną kawę”.";

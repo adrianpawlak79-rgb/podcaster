@@ -75,9 +75,9 @@ public:
         switch (state())
         {
             case State::NoLibrary: return juce::String (juce::CharPointer_UTF8 (
-                "Brak libvosk — prompter liczy sylaby. Zainstaluj program instalatorem, żeby szedł za słowami."));
+                "Śledzenie słów niedostępne — tekst przewija się orientacyjnie, a R tylko proponuje miejsce. Zainstaluj program instalatorem."));
             case State::NoModel:   return juce::String (juce::CharPointer_UTF8 (
-                "Brak modelu mowy obok programu — prompter liczy sylaby."));
+                "Śledzenie słów niedostępne (brak modelu mowy) — tekst przewija się orientacyjnie, a R tylko proponuje miejsce."));
             case State::Failed:    return juce::String (juce::CharPointer_UTF8 (
                 "Model mowy nie dał się wczytać — prompter liczy sylaby."));
             default:               return {};

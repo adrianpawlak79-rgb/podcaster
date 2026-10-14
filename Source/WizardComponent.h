@@ -82,7 +82,7 @@ public:
                           PL ("Głoski p i b"), PL ("Słuchawki"), PL ("Odsłuch") });
         addAndMakeVisible (steps);
         addAndMakeVisible (flow);
-        flow.setSteps ({ PL("Przygotowanie"), PL("Nagranie"), PL("Odsłuch"), PL("Montaż"), PL("Gotowe") });
+        flow.setSteps ({ PL("Przygotowanie"), PL("Nagranie"), PL("Odsłuch i montaż"), PL("Miks"), PL("Gotowe") });
         flow.setCurrent (0);
 
         title.setFont (juce::Font (zs::type::title, juce::Font::bold));

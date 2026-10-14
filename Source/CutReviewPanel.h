@@ -76,7 +76,7 @@ public:
         g.setColour(Ink::textDim()); g.setFont(juce::Font(zs::type::small));
         const juce::String hint = pending > 0
             ? tr("Posłuchaj miejsc oznaczonych „sprawdź”. Czego nie zatwierdzisz, zostanie w nagraniu.")
-            : cut > 0 ? tr("Posłuchaj szwów. „Zastosuj” wytnie ") + places(cut) + tr(" — pełne nagranie zostanie w folderze surowe.")
+            : cut > 0 ? tr("Posłuchaj połączeń. „Zastosuj” wytnie ") + places(cut) + tr(" — pełne nagranie zostanie w folderze surowe.")
                       : tr("Nic nie zostanie wycięte.");
         g.drawFittedText(hint, getLocalBounds().reduced(8).withTrimmedBottom(36).removeFromBottom(25),
                          juce::Justification::centredLeft, 1);
@@ -131,7 +131,7 @@ private:
                 for (const auto& pause : finder.pauses()) snaps.push_back(left + std::max(pause.first, pause.second-0.15));
             }
             setWantsKeyboardFocus(false);
-            listen.setButtonText(p.sure ? tr("Posłuchaj szwu") : tr("Posłuchaj"));
+            listen.setButtonText(p.sure ? tr("Posłuchaj połączenia") : tr("Posłuchaj"));
             listen.onClick = [this] { select(); if(owner.onListen) owner.onListen(from,to); };
             yes.onClick = [this] {
                 if(owner.list[index].sure && owner.list[index].state == tw::CutProposal::State::Accepted) reject();

@@ -245,7 +245,7 @@ inline std::string hintLine (bool recording, bool hasScript)
 {
     if (recording)
         return hasScript ? "Spacja — pauza / nagraj   ·   R — powtórz wers   ·   Esc — zakończ"
-                         : "Spacja — stop i ocena";
+                         : "Spacja albo Esc — zakończ i oceń";
 
     return hasScript ? "Spacja — nagrywaj   ·   strzałki — popraw miejsce   ·   Home — na początek   ·   "
                        "+ / − — wielkość tekstu   ·   L — lustro   ·   Esc — wyjdź"

@@ -677,7 +677,7 @@ public:
             g.fillRect (hint.getX() + 5.0f, hint.getCentreY() - 5.0f, 3.0f, 10.0f);
             text = pz.tooOld   ? PL ("PAUZA  ·  ten wers jest dalej niż 5 minut wstecz — tak daleko nie nagrasz od nowa; popraw go w Montażu")
                  : pz.resuming ? PL ("PAUZA  ·  za chwilę nagrywanie od czerwonej linii")
-                 : pz.selected ? PL ("PAUZA  ·  Nagraj — od czerwonej linii (dalej zostanie zastąpione)  ·  kliknij, by zmienić")
+                 : pz.selected ? PL ("PAUZA  ·  Nagraj: czytasz od czerwonej linii, stara wersja zostaje w folderze „surowe”  ·  kliknij, by zmienić")
                                : PL ("PAUZA  ·  kliknij wers albo miejsce na fali, od którego chcesz nagrać  ·  kółko — przewiń");
             g.drawText (text, hint.withTrimmedLeft (14.0f).toNearestInt(), juce::Justification::centredLeft);
         }
@@ -1276,7 +1276,7 @@ public:
             text = "# wyciete pomylki (klawisz R): " + juce::String (res.cuts) + ", razem "
                  + juce::String (res.removedSec, 1) + " s; surowe nagranie: " + res.rawCopy.getFileName()
                  + " w folderze surowe"
-                 + (res.audibleSeams > 0 ? "; szwy z inna cisza (posluchaj): " + juce::String (res.audibleSeams) : juce::String())
+                 + (res.audibleSeams > 0 ? "; polaczenia z inna cisza (posluchaj): " + juce::String (res.audibleSeams) : juce::String())
                  + "\n" + text;
         for (const auto& s : res.skipped)
             text = "# NIE wyciete (" + juce::String (s.cut.from, 2) + "-" + juce::String (s.cut.to, 2) + " s): "
@@ -1401,8 +1401,8 @@ private:
         {
             g.setColour (Ink::textDim());
             g.setFont (juce::Font (zs::type::small));
-            g.drawText (speech->whyNot(), guide.withY (guide.getBottom() + 4).withHeight (20).reduced (12, 0),
-                        juce::Justification::centredRight);
+            g.drawFittedText (speech->whyNot(), guide.withY (guide.getBottom() + 4).withHeight (34).reduced (12, 0),
+                              juce::Justification::topRight, 2);
         }
     }
 
