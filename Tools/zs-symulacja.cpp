@@ -115,16 +115,54 @@ static const char* gradeName (tw::LineGrade g)
 }
 
 //==============================================================================
+/** Waga sprawdzenia (audyt 14.10: "217/224 nie mowi, jak powazne byly
+    pozostale przypadki — utrata poprawnego slowa i brak automatycznego
+    ciecia to zupelnie inne konsekwencje").
+      Krytyczne — stracony albo zepsuty material: wyciete dobre slowa, plik
+                  nie powstal, zapis na pauzie, ciecie bez modelu mowy.
+      Wazne     — pomylka zostaje w nagraniu, wada niezgloszona, zle miejsce
+                  ciecia, slyszalne polaczenie, miks poza celem.
+      Drobne    — wygoda: ktory wiersz pokazuje prompter, falszywy alarm,
+                  ocena wiersza, pre-roll bez modelu. */
+enum class Waga { Krytyczne, Wazne, Drobne };
+
 struct Report
 {
     std::string md;
     int checks = 0, fails = 0;
+    int byChecks[3] = {}, byFails[3] = {};
+    std::vector<std::string> failed[3];
 
     void line (const std::string& s = {}) { md += s + "\n"; }
-    void check (bool ok, const std::string& what, const std::string& got, const std::string& want)
+    void check (Waga w, bool ok, const std::string& what, const std::string& got, const std::string& want)
     {
-        ++checks; if (! ok) ++fails;
-        md += std::string ("| ") + (ok ? "✅" : "❌") + " | " + what + " | " + got + " | " + want + " |\n";
+        const int i = (int) w;
+        ++checks; ++byChecks[i];
+        if (! ok) { ++fails; ++byFails[i]; failed[i].push_back (what + " (" + got + ")"); }
+        static const char* mark[3] = { " K", " W", "" };
+        md += std::string ("| ") + (ok ? "✅" : "❌") + (ok ? "" : mark[i]) + " | " + what + " | " + got + " | " + want + " |\n";
+    }
+
+    /** Podsumowanie wedlug wagi: najpierw to, co kosztuje material. */
+    void summary()
+    {
+        static const char* name[3] = { "krytyczne (stracony albo zepsuty materiał)", "ważne (pomyłka zostaje, wada niezgłoszona)",
+                                       "drobne (wygoda)" };
+        line ("## Według wagi");
+        line();
+        line ("| waga | zgodne | niezgodne |");
+        line ("|---|---|---|");
+        for (int i = 0; i < 3; ++i)
+            line (std::string ("| ") + name[i] + " | " + std::to_string (byChecks[i] - byFails[i]) + " z " + std::to_string (byChecks[i])
+                  + " | " + std::to_string (byFails[i]) + " |");
+        line();
+        for (int i = 0; i < 2; ++i)
+            if (! failed[i].empty())
+            {
+                line (std::string ("**Niezgodne — ") + (i == 0 ? "krytyczne" : "ważne") + ":**");
+                for (const auto& f : failed[i]) line ("- " + f);
+                line();
+            }
     }
 };
 
@@ -319,8 +357,8 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
         rep.line();
         rep.line ("| | co | wynik | próg |");
         rep.line ("|---|---|---|---|");
-        rep.check (right >= 0.6 * during, "pokazuje czytany wiersz", pct (right, during), "≥ 60%");
-        rep.check (nearRight >= 0.9 * during, "najwyżej wiersz obok", pct (nearRight, during), "≥ 90%");
+        rep.check (Waga::Drobne, right >= 0.6 * during, "pokazuje czytany wiersz", pct (right, during), "≥ 60%");
+        rep.check (Waga::Drobne, nearRight >= 0.9 * during, "najwyżej wiersz obok", pct (nearRight, during), "≥ 90%");
         rep.line();
     }
 
@@ -337,7 +375,7 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
             {
                 // mlaskow lampka nie zglasza (waga "pozniej") — ma je usunac miks
                 const int fixedClicks = review.whatIDid().clicksRepaired;
-                rep.check (fixedClicks >= 3, t.what, f1 (t.from) + " s",
+                rep.check (Waga::Wazne, fixedClicks >= 3, t.what, f1 (t.from) + " s",
                            "miks naprawił trzasków: " + std::to_string (fixedClicks) + " | naprawione w miksie (≥ 3)");
                 continue;
             }
@@ -349,7 +387,7 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
                     got += std::string (got.empty() ? "" : ", ") + kindName (e.kind);
                     hit = hit || kindMatches (t.what, e.kind);
                 }
-            rep.check (hit, t.what, f1 (t.from) + " s", (got.empty() ? "nic" : got) + " | zgłoszone");
+            rep.check (Waga::Wazne, hit, t.what, f1 (t.from) + " s", (got.empty() ? "nic" : got) + " | zgłoszone");
         }
         int falseAlarms = 0;
         std::string list;
@@ -374,7 +412,7 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
         rep.line();
         rep.line ("| | co | wynik | próg |");
         rep.line ("|---|---|---|---|");
-        rep.check (falseAlarms <= 1, "fałszywe alarmy (lampka bez wady)", std::to_string (falseAlarms) + (list.empty() ? "" : " (" + list + ")"), "≤ 1");
+        rep.check (Waga::Drobne, falseAlarms <= 1, "fałszywe alarmy (lampka bez wady)", std::to_string (falseAlarms) + (list.empty() ? "" : " (" + list + ")"), "≤ 1");
         rep.line();
     }
 
@@ -399,13 +437,13 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
                 }
             if (! ideal)
             {
-                rep.check (key.plan.audio.empty(), "R " + f1 (t.from) + " s", "pre-roll: " + std::string (key.plan.audio.empty() ? "nie gra" : "gra"),
+                rep.check (Waga::Drobne, key.plan.audio.empty(), "R " + f1 (t.from) + " s", "pre-roll: " + std::string (key.plan.audio.empty() ? "nie gra" : "gra"),
                            "nie gra | bez modelu mowy R tylko cofa tekst");
                 continue;
             }
             const bool lineOk = key.line == t.line;
             const bool inGap = ! key.plan.audio.empty() && key.plan.toSec >= prevEnd - 0.05 && key.plan.toSec <= lineStart + 0.02;
-            rep.check (lineOk && inGap, "R " + f1 (t.from) + " s",
+            rep.check (Waga::Wazne, lineOk && inGap, "R " + f1 (t.from) + " s",
                        std::to_string (t.line + 1) + " → " + std::to_string (key.line + 1),
                        (key.plan.audio.empty() ? std::string ("brak pre-rollu") : f2 (key.plan.toSec) + " s (pauza " + f2 (prevEnd) + "–" + f2 (lineStart) + ")")
                        + " | ten sam wers, koniec w pauzie przed nim");
@@ -433,23 +471,23 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
         if (! ideal)
         {
             // bez modelu mowy R tylko cofa tekst (tw::retakeSource) — nic nie moze zniknac samo
-            rep.check (! punched.applied && goodCut <= 0.0, "bez modelu mowy R niczego nie wycina",
+            rep.check (Waga::Krytyczne, ! punched.applied && goodCut <= 0.0, "bez modelu mowy R niczego nie wycina",
                        punched.applied ? "wycięto " + f2 (cutTotal) + " s" : "nic", "nic | pomyłki zostają do Montażu");
         }
         else
         {
-            rep.check (punched.applied, "plik po wycięciu powstał", punched.applied ? "tak, cięć: " + std::to_string (punched.cuts) : "nie: " + punched.error.toStdString(), "tak");
+            rep.check (Waga::Krytyczne, punched.applied, "plik po wycięciu powstał", punched.applied ? "tak, cięć: " + std::to_string (punched.cuts) : "nie: " + punched.error.toStdString(), "tak");
             // pomylka nie wycieta, ale pokazana czlowiekowi (do wskazania) tez jest w porzadku
             double flagged = 0;
             for (const auto& t : truth)
                 if (t.kind == "mowa" && t.what == "pomylka")
                     for (const auto& sk : punched.skipped) flagged += overlap (t.from, t.to, sk.cut.from, sk.cut.to);
-            rep.check (mistakeCut + flagged >= 0.95 * mistake, "pomyłki wycięte albo do wskazania",
+            rep.check (Waga::Wazne, mistakeCut + flagged >= 0.95 * mistake, "pomyłki wycięte albo do wskazania",
                        f2 (mistakeCut) + " s wycięte + " + f2 (flagged) + " s do wskazania z " + f2 (mistake) + " s", "≥ 95%");
             for (const auto& sk : punched.skipped)
                 rep.line ("| ℹ️ | do wskazania " + f2 (sk.cut.from) + "–" + f2 (sk.cut.to) + " s | " + sk.why + " | |");
-            rep.check (goodCut <= 0.05, "wycięte z dobrego czytania", f2 (goodCut) + " s", "≤ 0,05 s");
-            rep.check (punched.audibleSeams == 0, "słyszalne szwy (zmiana tła)", std::to_string (punched.audibleSeams), "0");
+            rep.check (Waga::Krytyczne, goodCut <= 0.05, "wycięte z dobrego czytania", f2 (goodCut) + " s", "≤ 0,05 s");
+            rep.check (Waga::Wazne, punched.audibleSeams == 0, "słyszalne szwy (zmiana tła)", std::to_string (punched.audibleSeams), "0");
         }
         rep.line();
         rep.line ("Razem wycięto " + f2 (cutTotal) + " s (pomyłki + pauzy po R).");
@@ -477,7 +515,7 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
                     if (it != grades.end() && it->second > worst) worst = it->second;
                 }
             const std::string got = gradeName (worst);
-            rep.check (got == w.second, "wiersz " + std::to_string (w.first + 1), got, w.second + " | zgodny");
+            rep.check (Waga::Drobne, got == w.second, "wiersz " + std::to_string (w.first + 1), got, w.second + " | zgodny");
         }
         rep.line();
     }
@@ -493,9 +531,9 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
         rep.line ("|---|---|---|---|");
         // cel z decyzji: miks studyjny -19 LUFS (mono, AES), inne -16
         const double target = review.whatIDecided().params.targetLufs;
-        rep.check (std::fabs (did.lufsAfter - target) <= 1.0, "głośność po miksie", f1 (did.lufsAfter) + " LUFS", f1 (target) + " ± 1 (cel miksu)");
-        rep.check (did.peakAfter <= -0.9, "szczyt po miksie", f1 (did.peakAfter) + " dBTP", "≤ −1");
-        rep.check ((int) review.toRedo().size() >= 1 && (int) review.toRedo().size() <= unfixable,
+        rep.check (Waga::Wazne, std::fabs (did.lufsAfter - target) <= 1.0, "głośność po miksie", f1 (did.lufsAfter) + " LUFS", f1 (target) + " ± 1 (cel miksu)");
+        rep.check (Waga::Wazne, did.peakAfter <= -0.9, "szczyt po miksie", f1 (did.peakAfter) + " dBTP", "≤ −1");
+        rep.check (Waga::Wazne, (int) review.toRedo().size() >= 1 && (int) review.toRedo().size() <= unfixable,
                    "miejsca do powtórzenia", std::to_string (review.toRedo().size()), "1–" + std::to_string (unfixable) + " (wady nie do naprawy)");
         rep.line();
         rep.line ("Co program mówi na ekranie oceny:");
@@ -781,7 +819,7 @@ static void passTransport (const std::vector<Truth>& truth, const std::string& t
         double quietestNear = 1.0e9;
         for (double q = pe - 0.3; q <= ls + 0.3; q += 0.01) quietestNear = std::min (quietestNear, rmsDb (q - 0.04, q + 0.04) - speechDb);
         const bool quietOk = vosk ? level <= std::max (-12.0, quietestNear + 3.0) : level <= -20.0;
-        rep.check (lineOk && inGap && quietOk, f1 (d.stop.at) + " s" + how,
+        rep.check (Waga::Wazne, lineOk && inGap && quietOk, f1 (d.stop.at) + " s" + how,
                    std::to_string (d.stop.line + 1) + " → " + std::to_string (d.line + 1) + " | "
                    + f2 (d.cutRec) + " s | " + f2 (pe) + "–" + f2 (ls) + " | " + f1 (level) + " dB"
                    + (vosk ? " (najciszej obok " + f1 (quietestNear) + ")" : ""),
@@ -815,18 +853,18 @@ static void passTransport (const std::vector<Truth>& truth, const std::string& t
     const double expectRec = (double) len / sr - dropped;
     rep.line ("| | co | wynik | próg |");
     rep.line ("|---|---|---|---|");
-    rep.check (std::fabs (recordedSec - expectRec) <= 0.05, "na pauzie nic się nie zapisało",
+    rep.check (Waga::Krytyczne, std::fabs (recordedSec - expectRec) <= 0.05, "na pauzie nic się nie zapisało",
                f2 (recordedSec) + " s nagrania z " + f2 ((double) len / sr) + " s wejścia, pauzy " + f2 (dropped) + " s", "różnica ≤ 0,05 s");
-    rep.check (punched.applied, "plik po wycięciu powstał", punched.applied ? "tak, cięć: " + std::to_string (punched.cuts) : "nie: " + punched.error.toStdString(), "tak");
-    rep.check (mistakeCut >= 0.95 * mistake, "powtarzane kawałki wycięte", f2 (mistakeCut) + " z " + f2 (mistake) + " s", "≥ 95%");
+    rep.check (Waga::Krytyczne, punched.applied, "plik po wycięciu powstał", punched.applied ? "tak, cięć: " + std::to_string (punched.cuts) : "nie: " + punched.error.toStdString(), "tak");
+    rep.check (Waga::Wazne, mistakeCut >= 0.95 * mistake, "powtarzane kawałki wycięte", f2 (mistakeCut) + " z " + f2 (mistake) + " s", "≥ 95%");
     const double lostMax = vosk ? 0.3 * (double) done.size() : 0.05;
-    rep.check (lostGood <= lostMax, "wycięte z dobrego czytania (zgubione słowa)", f2 (lostGood) + " s",
+    rep.check (Waga::Krytyczne, lostGood <= lostMax, "wycięte z dobrego czytania (zgubione słowa)", f2 (lostGood) + " s",
                vosk ? "≤ 0,3 s na pauzę (czasy z Vosk)" : "≤ 0,05 s");
     if (vosk)
         rep.line ("| ℹ️ | słyszalne szwy (zmiana tła) | " + std::to_string (punched.audibleSeams)
                   + " | tło audiobooka jest obrobione (bramki, cisza cyfrowa) — nie oceniamy |");
     else
-        rep.check (punched.audibleSeams == 0, "słyszalne szwy (zmiana tła)", std::to_string (punched.audibleSeams), "0");
+        rep.check (Waga::Wazne, punched.audibleSeams == 0, "słyszalne szwy (zmiana tła)", std::to_string (punched.audibleSeams), "0");
     for (const auto& sk : punched.skipped)
         rep.line ("| ℹ️ | nie wycięte " + f2 (sk.cut.from) + "–" + f2 (sk.cut.to) + " s | " + sk.why + " | |");
     rep.line();
@@ -867,6 +905,7 @@ int main (int argc, char** argv)
     passTransport (truth, text, input, sr, len, dir, true,  rep);
 
     rep.line ("---");
+    rep.summary();
     rep.line ("**Wynik: " + std::to_string (rep.checks - rep.fails) + " z " + std::to_string (rep.checks) + " sprawdzeń zgodnych z prawdą.**");
 
     const juce::File reportFile = argc > 2 ? juce::File::getCurrentWorkingDirectory().getChildFile (argv[2])

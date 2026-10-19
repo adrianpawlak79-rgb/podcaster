@@ -19,6 +19,19 @@ Pomysł Adriana (11.10.2026): sprawdzać program kompleksowo, bez nagrywania za 
 4. GitHub Actions (`.github/workflows/symulacja.yml`) robi to przy każdym PR; raport jest
    w podsumowaniu przebiegu. Na razie raport, nie bramka.
 
+**Waga (19.10.2026, audyt 14.10):** każde sprawdzenie ma wagę, a na końcu raportu jest tabela
+„Według wagi” i lista niezgodnych krytycznych i ważnych. Jedna liczba „61 z 71” mówiła za mało:
+utrata dobrego słowa i niewycięty mlask to zupełnie inne konsekwencje.
+
+- **krytyczne** — stracony albo zepsuty materiał: wycięte dobre czytanie, plik po cięciu nie
+  powstał, coś zapisało się na pauzie, cięcie bez modelu mowy;
+- **ważne** — pomyłka zostaje w nagraniu, wada niezgłoszona, złe miejsce cięcia, słyszalne
+  połączenie, miks poza celem;
+- **drobne** — wygoda: który wiersz pokazuje prompter, fałszywy alarm, ocena wiersza.
+
+Pierwszy przebieg z wagami (syntezator, main po #84): krytyczne 9/9, ważne 27/29 (dwa razy mlaski
+niewyczyszczone przez miks), drobne 25/33.
+
 ## Czego nie sprawdza
 
 Wyglądu (od tego są zrzuty `--preview-ui`), prawdziwego rozpoznawania mowy (Vosk), brzmienia.
