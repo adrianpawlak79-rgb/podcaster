@@ -1124,8 +1124,15 @@ private:
         // konstruktorze.
         if (inWizard)
         {
-            if (! wizardStarted && recorder.currentSampleRate() > 0.0)
+            // Kreator rusza dopiero przy otwartej karcie Z WEJSCIEM; do tego
+            // czasu mowi, czego mu brakuje (a nie pusty panel).
+            auto* dev = deviceManager.getCurrentAudioDevice();
+            const bool haveInput = recorder.currentSampleRate() > 0.0 && dev != nullptr
+                                && ! dev->getActiveInputChannels().isZero();
+            if (! wizardStarted) wizard->setWaitingForDevice (! haveInput);
+            if (! wizardStarted && haveInput)
             {
+                wizard->setWaitingForDevice (false);
                 wizard->begin (recorder.currentSampleRate());
                 wizardStarted = true;
             }
@@ -1288,6 +1295,7 @@ private:
     juce::TextEditor nameInput, scriptInput;
     juce::ComboBox deviceBox, inputBox;   ///< karta i wejscie z mikrofonem
     bool noDevice = false;                ///< --preview-ui: karty nie otwieramy
+    juce::TooltipWindow tooltips { this, 700 };   ///< podpowiedzi po najechaniu (bez tego setTooltip nic nie pokazuje)
     juce::Label heardLabel;               ///< "slysze wejscie 2"
     juce::TextButton prepareButton, preparationButton;
     bool preparation = true;

@@ -142,6 +142,32 @@ public:
         if (isShowing()) grabKeyboardFocus();
     }
 
+    /** Zanim ruszy pomiar: nie ma karty albo wejscia. Dawniej pusty panel i
+        aktywne "Dalej" — poczatkujacy, ktory zapomnial podlaczyc mikrofon, nie
+        wiedzial, na co program czeka (sprawdzone 19.10 bez karty). */
+    void setWaitingForDevice (bool waiting)
+    {
+        if (waiting == waitingForDevice) return;
+        waitingForDevice = waiting;
+        if (waiting)
+        {
+            title.setText (PL ("Nie widzę mikrofonu"), juce::dontSendNotification);
+            body.setText (PL ("Podłącz mikrofon albo kartę dźwiękową. Jeśli jest podłączony, kliknij „Pomiń sprawdzanie”, ")
+                        + PL ("potem „Mikrofon i sprzęt” i wybierz urządzenie oraz wejście — a „Sprawdź sprzęt” uruchomi to sprawdzanie jeszcze raz.\n\n")
+                        + PL ("Na Windows sprawdź też: Ustawienia → Prywatność i zabezpieczenia → Mikrofon (dostęp dla aplikacji)."),
+                          juce::dontSendNotification);
+            measured.setText ({}, juce::dontSendNotification);
+        }
+        else
+        {
+            title.setText ({}, juce::dontSendNotification);
+            body.setText ({}, juce::dontSendNotification);
+        }
+        nextButton.setEnabled (! waiting && judged);
+        againButton.setEnabled (! waiting && judged);
+        repaint();
+    }
+
     //==========================================================================
     void paint (juce::Graphics& g) override
     {
@@ -423,6 +449,7 @@ private:
     tw::SetupWizard wizard;
     tw::SetupFinding finding;
     bool judged = false;
+    bool waitingForDevice = false;
     bool calibArmed = false;
     bool finishedProperly = false;
 
