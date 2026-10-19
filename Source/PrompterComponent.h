@@ -1007,6 +1007,7 @@ private:
         }
 
         const double now = recorder.recordedSeconds();
+        writeJournal();
 
         // Na pauzie prompter stoi tam, gdzie czlowiek wskazal. Bez tego timer
         // dopisywal znacznik wybranego wersu z czasem pauzy (drugi klik w ten sam
@@ -1249,9 +1250,33 @@ public:
         sie ocena: wyciecie pomylek po R (PunchFile.h) i zapis wersow obok
         nagrania (sesja_<data>.wersy.txt). Bez tekstu w prompterze — nic.
         Blad nie zatrzymuje programu: surowe nagranie zostaje nietkniete. */
+    /** Dziennik nagrania co ok. 2 s, gdy cos sie zmienilo (TakeJournal.h):
+        po awarii z niego wracaja R i miejsce w tekscie. Zapis przez plik
+        tymczasowy (replaceWithText), wiec urwany zapis nie psuje poprzedniego. */
+    void writeJournal()
+    {
+        const auto nowMs = juce::Time::getMillisecondCounter();
+        if (journalAtMs != 0 && nowMs - journalAtMs < 2000) return;
+        journalAtMs = juce::jmax (1u, nowMs);
+        const auto wav = recorder.currentFile();
+        if (wav == juce::File() || lineLog.marks().empty()) return;
+
+        tw::TakeJournal j;
+        j.marks = lineLog.marks();
+        j.heard = heardWords;
+        j.script = script.source();
+        auto text = j.toText();
+        if (text == journalText) return;
+        if (zs::journalFile (wav).replaceWithText (juce::String::fromUTF8 (text.c_str()), false, false, "\n"))
+            journalText = std::move (text);
+    }
+
     zs::PunchResult finishTake (const juce::File& wav)
     {
         zs::PunchResult res;
+        // zwykle zatrzymanie: dziennik na wypadek awarii juz niepotrzebny
+        zs::journalFile (wav).deleteFile();
+        journalText.clear(); journalAtMs = 0;
         regrade();                // znaczki z pelnego nagrania, zanim zapis wersow sie wyczysci
         if (lineLog.marks().empty() || wav == juce::File()) return res;
 
@@ -1483,6 +1508,8 @@ private:
     std::vector<Line> lines;
     std::vector<tw::LineSpan> spans;     ///< te same wersy, same numery slow
     tw::LineLog lineLog;                 ///< kiedy zaczal sie ktory wers (zapis obok nagrania)
+    std::string journalText;             ///< ostatnio zapisany dziennik (TakeJournal.h)
+    juce::uint32 journalAtMs = 0;
     std::vector<tw::Event> liveEvents;                 ///< zdarzenia lampki tego nagrania
     std::vector<tw::HeardWord> heardWords;             ///< co uslyszalo rozpoznawanie (straznik wyciecia)
     int lastHeard = -1;

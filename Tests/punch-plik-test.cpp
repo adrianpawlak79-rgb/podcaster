@@ -74,6 +74,30 @@ int main()
             "po R nie przeczytano wersu jeszcze raz: nic nie wyciete (" + juce::String::fromUTF8 (noCut.skipped.empty() ? "" : noCut.skipped[0].why.c_str()) + ")");
     }
 
+    // po awarii: dziennik nagrania (TakeJournal) -> propozycje ciec po R, plik nietkniety (audyt 14.10)
+    {
+        const auto crashed = dir.getChildFile ("sesja_awaria.wav");
+        wav.copyFileTo (crashed);
+        tw::TakeJournal j; j.marks = marks; j.heard = heard;
+        j.script = "wers zero\nwers jeden\nwers dwa\nwers trzy\n";
+        zs::journalFile (crashed).replaceWithText (juce::String::fromUTF8 (j.toText().c_str()));
+        const auto rec = zs::recoverJournal (crashed);
+        const auto list = zs::readCutList (crashed);
+        ok (rec.found && rec.error.isEmpty() && rec.proposals >= 1 && (int) list.size() == rec.proposals,
+            "awaria: z dziennika propozycje ciec po R (" + juce::String (rec.proposals) + ")");
+        ok (! list.empty() && list[0].from < good && list[0].to > bad, "awaria: propozycja obejmuje pomylke");
+        ok (crashed.getSize() == rawBytes, "awaria: nagranie nietkniete (decyzja w montazu)");
+        ok (rec.lastLine == "wers 3", "awaria: wiadomo, na ktorym wersie skonczono (" + rec.lastLine + ")");
+        ok (! zs::journalFile (crashed).existsAsFile()
+            && crashed.getSiblingFile ("sesja_awaria.dziennik.odzyskany.txt").existsAsFile()
+            && crashed.getSiblingFile ("sesja_awaria.wersy.txt").existsAsFile(),
+            "awaria: dziennik przetworzony raz, zapis wersow obok");
+        ok (! zs::recoverJournal (crashed).found, "awaria: drugi start nie przetwarza drugi raz");
+        const auto plain = dir.getChildFile ("bez_tekstu.wav");
+        wav.copyFileTo (plain);
+        ok (! zs::recoverJournal (plain).found && ! zs::cutListFile (plain).existsAsFile(), "nagranie bez dziennika: nic sie nie dzieje");
+    }
+
     auto res = zs::applyPunch (wav, marks, heard);
 
     ok (res.applied && res.cuts == 1, "jedno R -> jedno wyciecie (" + juce::String (res.removedSec, 2) + " s)");

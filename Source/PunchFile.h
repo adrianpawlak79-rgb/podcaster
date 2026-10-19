@@ -22,6 +22,8 @@
 #include "DSP/LineLog.h"
 #include "DSP/Punch.h"
 #include "DSP/CutList.h"
+#include "DSP/PrompterLines.h"
+#include "DSP/TakeJournal.h"
 #include "ReadMono.h"
 
 namespace zs
@@ -239,6 +241,61 @@ inline PunchResult applyPunch (const juce::File& wav, std::vector<tw::LineMark>&
     cut.skipped = res.skipped;
     cut.proposals = proposals;
     return cut;
+}
+
+//==============================================================================
+/** Dziennik nagrania z tekstem (DSP/TakeJournal.h): prompter pisze go w trakcie
+    nagrywania, zwykle zatrzymanie go usuwa. Zostaje tylko po awarii. */
+inline juce::File journalFile (const juce::File& wav)
+{
+    return wav.getSiblingFile (wav.getFileNameWithoutExtension() + ".dziennik.txt");
+}
+
+struct JournalRecovery
+{
+    bool found = false;          ///< byl dziennik
+    int proposals = 0;           ///< miejsca po R na ekran Montaz
+    juce::String lastLine;       ///< wers, na ktorym czytanie sie urwalo
+    juce::String error;
+};
+
+/** Po awarii (audyt 14.10): z dziennika propozycje ciec po R (.ciecia.tsv —
+    tak, jakby nagranie zatrzymano zwyczajnie z wylaczonym automatycznym
+    cieciem) i zapis wersow. Dziennik zostaje jako .dziennik.odzyskany.txt,
+    zeby nie przetwarzac go drugi raz. */
+inline JournalRecovery recoverJournal (const juce::File& wav)
+{
+    JournalRecovery r;
+    const auto jf = journalFile (wav);
+    if (! jf.existsAsFile() || ! wav.existsAsFile()) return r;
+    r.found = true;
+
+    auto j = tw::TakeJournal::parse (jf.loadFileAsString().toStdString());
+    if (const auto* last = j.lastLine()) r.lastLine = juce::String::fromUTF8 (last->text.c_str()).trim();
+
+    if (j.anyRetake())
+    {
+        tw::PrompterText script;
+        script.set (j.script);
+        auto marks = j.marks;
+        const auto res = applyPunch (wav, marks, j.heard, false,
+                                     tw::similarlyStartingLines (script, tw::lineSpans (script)));
+        r.error = res.error;
+        if (! res.proposals.empty())
+        {
+            if (writeCutList (wav, res.proposals)) r.proposals = (int) res.proposals.size();
+            else r.error = "nie moge zapisac listy ciec";
+        }
+    }
+
+    tw::LineLog out;
+    out.begin();
+    for (const auto& m : j.marks) out.restart (m, m.source);
+    wav.getSiblingFile (wav.getFileNameWithoutExtension() + ".wersy.txt")
+       .replaceWithText ("# odzyskane z dziennika po awarii\n" + juce::String::fromUTF8 (out.toText().c_str()), false, false, "\n");
+
+    jf.moveFileTo (wav.getSiblingFile (wav.getFileNameWithoutExtension() + ".dziennik.odzyskany.txt"));
+    return r;
 }
 
 } // namespace zs

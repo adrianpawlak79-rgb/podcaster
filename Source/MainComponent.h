@@ -1276,6 +1276,8 @@ private:
     juce::AudioDeviceManager deviceManager;
     juce::File recovered;                 ///< odzyskane po awarii, do zaproponowania
     double recoveredSeconds = 0.0;
+    juce::String recoveredLine;           ///< ostatni czytany wers (dziennik nagrania)
+    int recoveredProposals = 0;           ///< miejsca po R czekajace w montazu
     Recorder recorder;
 
     /* Rozpoznawanie mowy dla promptera. Model wczytuje sie w tle od startu
@@ -1505,8 +1507,11 @@ private:
             marker.deleteFile();
             if (! r.ok || r.seconds < 0.5) continue;
             append (PL ("--- odzyskane nagranie: ") + wav.getFileName() + " (" + juce::String (r.seconds, 1) + " s)");
+            // nagranie z tekstem: R i miejsce w tekscie z dziennika (audyt 14.10)
+            const auto j = zs::recoverJournal (wav);
+            if (j.error.isNotEmpty()) append (PL ("--- dziennik nagrania: ") + j.error);
             if (recovered == juce::File() || wav.getLastModificationTime() > recovered.getLastModificationTime())
-            { recovered = wav; secs = r.seconds; }
+            { recovered = wav; secs = r.seconds; recoveredLine = j.lastLine; recoveredProposals = j.proposals; }
         }
         recoveredSeconds = secs;
     }
@@ -1519,7 +1524,11 @@ private:
         juce::AlertWindow::showOkCancelBox (juce::AlertWindow::QuestionIcon, PL ("Odzyskane nagranie"),
             PL ("Program zamknął się w trakcie nagrania. Odzyskałem nagranie „") + wav.getFileNameWithoutExtension()
               + PL ("” (") + juce::String (s / 60) + ":" + juce::String (s % 60).paddedLeft ('0', 2)
-              + PL (") — leży w folderze nagrań.\n\nOtworzyć je teraz do odsłuchu?"),
+              + PL (") — leży w folderze nagrań.")
+              + (recoveredLine.isNotEmpty() ? PL ("\n\nCzytanie urwało się na wersie: „") + recoveredLine + PL ("”.") : juce::String())
+              + (recoveredProposals > 0 ? PL ("\nMiejsca po R (") + juce::String (recoveredProposals)
+                                          + PL (") czekają na decyzję w montażu.") : juce::String())
+              + PL ("\n\nOtworzyć je teraz do odsłuchu?"),
             PL ("Otwórz"), PL ("Później"), this,
             juce::ModalCallbackFunction::create ([safe = juce::Component::SafePointer<MainComponent> (this), wav] (int result)
             {
