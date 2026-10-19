@@ -190,6 +190,7 @@ public:
         zoomOut.onClick = [this] { if (canEdit()) zoomBy (zs::ui::review::zoomStep, player.positionSec()); };
         zoomAllButton.onClick = [this] { zoomAll(); };
         for (auto* b : { &zoomIn, &zoomOut, &zoomAllButton }) { b->setWantsKeyboardFocus (false); addChildComponent (b); }
+        addChildComponent (jobShield);
         for(auto* b:{&editToggle,&detailsToggle,&nextButton})addAndMakeVisible(b);
         markStart.setButtonText(PL("Początek cięcia"));
         markEnd.setButtonText(PL("Koniec cięcia"));
@@ -407,7 +408,7 @@ public:
     void setEditMode (bool enabled)
     {
         if (! enabled) { goToMix(); return; }
-        if (isThreadRunning()) return;           // miks wlasnie sie liczy
+        if (isThreadRunning() || job != nullptr) return;   // miks albo zapis wlasnie trwa
         player.pause(); stopSeam();
         doneMode = false; editMode = true; detailsMode = false;
         setRawMaterial();
@@ -609,6 +610,16 @@ public:
         viewFrom = t - v.len * 0.1;
         zoomChanged();
     }
+    /** Odtwarzanie: strona dalej tylko wtedy, gdy igla byla w widoku i wyszla
+        za prawa krawedz. Dawniej follow() co klatke — nie dalo sie przewinac
+        widoku w trakcie odtwarzania, wracal do igly (przeglad 19.10). */
+    void followPlayback (double t)
+    {
+        const auto v = view();
+        const bool wasIn = followPrev >= v.from && followPrev <= v.from + v.len;
+        followPrev = t;
+        if (zoomed() && wasIn && t > v.from + v.len) { viewFrom = t - v.len * 0.1; zoomChanged(); followPrev = t; }
+    }
     /** Fala widoku liczona z probek tylko dla tego, co widac. */
     const zs::Envelope& viewEnvelope (int columns)
     {
@@ -722,6 +733,7 @@ public:
     //==========================================================================
     void resized() override
     {
+        jobShield.setBounds (getLocalBounds()); jobShield.toFront (false);
         cutPanel.setVisible(!doneMode && editMode && !cutPanel.empty());   // decyzje po R: w montazu
         for (auto& b : styleButtons) b.setVisible (false);      // tylko w zwyklym widoku oceny
         for (auto* b : { &zoomIn, &zoomOut, &zoomAllButton }) b->setVisible (false);   // tylko w montazu
@@ -893,6 +905,14 @@ private:
             return juce::Slider::keyPressed(k);
         }
     };
+    /** Praca w tle: przezroczysta zaslona nad wszystkim. Lapie mysz i
+        klawisze, zeby nic (np. panel decyzji po R, ktory ma wlasny fokus)
+        nie zmienialo plikow sesji, ktore watek wlasnie przepisuje (przeglad
+        19.10). Napis "pracuje" rysuje paintOverChildren. */
+    struct JobShield : public juce::Component {
+        JobShield() { setWantsKeyboardFocus (true); setInterceptsMouseClicks (true, false); }
+        bool keyPressed (const juce::KeyPress&) override { return true; }
+    };
     class TrimHandle : public juce::Component {
     public:
         std::function<void(double)> move, step;
@@ -933,7 +953,8 @@ private:
         auto place = [&] (TrimHandle& h, double t) {
             const int x = (int) xAt (t, axis);
             h.setBounds (x - 7, axis.getY(), 14, axis.getHeight());
-            if (x < axis.getX() - 1 || x > axis.getRight() + 1) h.setVisible (false);
+            h.setVisible (editMode && ! doneMode && cutPanel.empty()
+                          && x >= axis.getX() - 1 && x <= axis.getRight() + 1);
         };
         place (startHandle, trimStart.getValue());
         place (endHandle, trimEnd.getValue());
@@ -1066,7 +1087,8 @@ private:
                 if(to<total) {if(!zs::cutRange(audio,rate,to,total,cropped))return false;audio=std::move(cropped);}
                 if(from>0) {if(!zs::cutRange(audio,rate,0,from,cropped))return false;audio=std::move(cropped);}
                 out=std::move(audio); return true;
-            }, true, [this] { goToMix(); });
+            }, true, [this] { goToMix(); },
+               PL("Nie udało się przyciąć początku i końca. Przesuń uchwyty i spróbuj jeszcze raz."));
             return;
         }
         editMode = false; detailsMode = false; doneMode = false;
@@ -1145,7 +1167,8 @@ private:
         zmienia). keepUndo: obecna kopia trafia do "Cofnij cięcie". then: co
         dalej na watku okna, gdy kopia jest gotowa. */
     void restartEdit(std::function<bool(std::vector<float>&)> make, bool keepUndo,
-                     std::function<void()> then = nullptr) {
+                     std::function<void()> then = nullptr,
+                     juce::String failNote = PL("Wskaż początek, potem późniejszy koniec cięcia na osi czasu.")) {
         struct Out { bool ok=false; std::vector<float> audio; std::vector<tw::Event> events; zs::Envelope env; };
         auto out=std::make_shared<Out>();
         const double rate=sr;
@@ -1156,8 +1179,8 @@ private:
                 out->env.build(out->audio,rate,1400);
                 out->ok=true;
             },
-            [this,out,keepUndo,then] {
-                if(!out->ok) { note=PL("Wskaż początek, potem późniejszy koniec cięcia na osi czasu."); repaint(); return; }
+            [this,out,keepUndo,then,failNote] {
+                if(!out->ok) { note=failNote; repaint(); return; }
                 player.pause();recorder.attachPlayer(nullptr);ready.store(false);player.clear();
                 if(keepUndo) undoAudio=review.rawAudio();
                 review.setTake(std::move(out->audio),sr,std::move(out->events));
@@ -1187,12 +1210,17 @@ private:
         jobSinceMs=juce::jmax(1u,juce::Time::getMillisecondCounter());
         jobDone.store(false);
         job=std::make_unique<std::thread>([this,w=std::move(work)] { w(); jobDone.store(true); });
-        updateMontageButtons();
+        // przyciski zostaja jak byly — zaslona i tak lapie wszystko; w miksie
+        // updateMontageButtons wylaczal "Zapisz" na stale (przeglad 19.10)
+        jobShield.setBounds (getLocalBounds()); jobShield.setVisible (true); jobShield.toFront (false);
+        if (isShowing()) jobShield.grabKeyboardFocus();
         repaint();
     }
     void finishJob() {
         if(job) { job->join(); job.reset(); }
         jobSinceMs=0;
+        jobShield.setVisible(false);
+        if(isShowing()) grabKeyboardFocus();
         auto f=std::move(jobFinish); jobFinish=nullptr;
         if(f) f();
         repaint();
@@ -1201,6 +1229,7 @@ private:
     void abandonJob() {
         if(job) { job->join(); job.reset(); }
         jobFinish=nullptr; jobSinceMs=0;
+        jobShield.setVisible(false);
     }
     //==========================================================================
     /** Rosnie z oknem — liczby i uzasadnienie w zs::ui::review (UiRules.h). */
@@ -1621,7 +1650,7 @@ private:
             updateMontageButtons();
             const bool playing = player.isPlaying();
             if (playing != wasPlaying) { wasPlaying = playing; playButton.setButtonText (playing ? PL ("Zatrzymaj") : PL ("Odtwórz")); }
-            if (playing) { follow (player.positionSec()); repaint (waveArea()); }
+            if (playing) { followPlayback (player.positionSec()); repaint (waveArea()); }
             if (isThreadRunning()) repaint();
             return;
         }
@@ -1785,6 +1814,8 @@ private:
     double viewEnvFrom = -1.0, viewEnvLen = -1.0;
     int viewEnvCols = 0, viewEnvVersion = -1;
     juce::TextButton zoomIn, zoomOut, zoomAllButton;
+    JobShield jobShield;
+    double followPrev = -1.0;       ///< igla w poprzedniej klatce (widok idzie za odtwarzaniem)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ReviewComponent)
 };
