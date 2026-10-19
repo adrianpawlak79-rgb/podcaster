@@ -34,6 +34,11 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q cmake ninja-build g++ mingw-w64 g++-mingw-w64-x86-64-posix \
             gcc-mingw-w64-x86-64-posix nsis curl unzip
+          # juceaide (narzedzie JUCE) buduje sie natywnie, na Linuksie — potrzebuje
+          # tych samych naglowkow co program dla Linuksa (jak w symulacja.yml)
+          sudo apt-get install -y -q libasound2-dev libfreetype-dev libfontconfig1-dev libx11-dev \
+            libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev \
+            libglu1-mesa-dev mesa-common-dev
 
       - name: Pobrane wczesniej (Vosk, model)
         uses: actions/cache@v4
