@@ -979,12 +979,20 @@ private:
                          static_cast<juce::Component*>(&middleToggle) }) c->setVisible (! decide);
         auto row = main.removeFromTop (36);
         playButton.setBounds (row.removeFromLeft (112)); row.removeFromLeft (8);
-        nextButton.setVisible (true); nextButton.setBounds (row.removeFromLeft (juce::jmin (260, row.getWidth())));
-        if (row.getWidth() >= 16 + 2 * 40 + 80 + 12)
+        // Waskie okno (np. skalowanie 150% w Windows): najpierw znika "Calosc"
+        // (zostaje klawisz 0), potem - i + (zostaje kolko); "Nastepne miejsce"
+        // nie mniejsze niz 220 px, bo napis by sie ucial.
+        const int zoomSmall = 16 + 40 + 6 + 40, zoomFull = zoomSmall + 6 + 80;
+        const bool zoomAll = row.getWidth() >= 260 + zoomFull, zoomPart = ! zoomAll && row.getWidth() >= 220 + zoomSmall;
+        nextButton.setVisible (true);
+        nextButton.setBounds (row.removeFromLeft (zoomAll ? 260 : zoomPart ? juce::jmin (260, row.getWidth() - zoomSmall)
+                                                                         : juce::jmin (260, row.getWidth())));
+        if (zoomAll || zoomPart)
         {
             row.removeFromLeft (16);
-            for (auto* b : { &zoomOut, &zoomIn }) { b->setVisible (true); b->setBounds (row.removeFromLeft (40)); row.removeFromLeft (6); }
-            zoomAllButton.setVisible (true); zoomAllButton.setBounds (row.removeFromLeft (80));
+            zoomOut.setVisible (true); zoomOut.setBounds (row.removeFromLeft (40)); row.removeFromLeft (6);
+            zoomIn.setVisible (true);  zoomIn.setBounds (row.removeFromLeft (40));
+            if (zoomAll) { row.removeFromLeft (6); zoomAllButton.setVisible (true); zoomAllButton.setBounds (row.removeFromLeft (80)); }
         }
         zoomIn.setEnabled (view().len > juce::jmin (zs::ui::review::minViewSec, review.seconds()) + 1.0e-6);
         zoomOut.setEnabled (zoomed()); zoomAllButton.setEnabled (zoomed());
@@ -1046,7 +1054,7 @@ private:
     void paintEdit(juce::Graphics& g) {
         g.fillAll(Ink::bg());
         zs::ScreenFrame::paint(g,getLocalBounds(),file.getFileNameWithoutExtension(),
-            cutPanel.empty() ? PL("Klik — posłuchaj · przeciągnij — zaznacz · kółko albo + − — powiększ · N — następne miejsce · Esc — wróć")
+            cutPanel.empty() ? PL("Klik — posłuchaj · przeciągnij — zaznacz · kółko, + − — powiększ · N — następne · Esc — wróć")
                              : PL("Spacja — połączenie · Enter — zaznacz do wycięcia · Backspace — zostaw · ↑↓ — miejsca · Esc — wróć"));
         auto side=zs::ScreenFrame::sidebar(getLocalBounds());g.setColour(Ink::bar());g.fillRect(side);
         g.setColour(Ink::edge());g.drawVerticalLine(side.getX(),side.getY(),side.getBottom());

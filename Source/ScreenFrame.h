@@ -79,10 +79,12 @@ struct ScreenFrame
                     juce::Justification::centredLeft);
         g.setFont (juce::Font (type::small)); g.setColour (Ink::textDim());
         auto foot = footer.reduced (22, 0);
-        g.drawText (name, foot.removeFromLeft (foot.getWidth() / 2),
-                    juce::Justification::centredLeft);
+        // Nazwa tyle, ile potrzebuje (najwyzej 1/3), reszta dla podpowiedzi —
+        // w waskim oknie stala polowa ucinala "Esc — wroc" (19.10, 1000 px).
+        const int nameW = juce::jmin (foot.getWidth() / 3, juce::Font (type::small).getStringWidth (name) + 24);
+        g.drawText (name, foot.removeFromLeft (nameW), juce::Justification::centredLeft);
         g.setColour (Ink::textNext());
-        g.drawText (hint, foot, juce::Justification::centredRight);
+        g.drawFittedText (hint, foot, juce::Justification::centredRight, 1, 0.85f);
     }
 };
 }
