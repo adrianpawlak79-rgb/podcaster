@@ -213,7 +213,7 @@ namespace review
         Zmierzone 11 pazdziernika: nagranie 197 s — sluchanie 3,1 s + miks
         36,1 s, czyli 0,2 dlugosci nagrania (serwer testowy; komputer
         Adriana moze byc szybszy). Lepiej obiecac troche za duzo niz za malo. */
-    constexpr double mixSecondsPerSecond = 0.2;
+    constexpr double mixSecondsPerSecond = 0.1;   ///< 19.10: 0,067 po przyspieszeniu (TruePeak, Limiter), z zapasem
 
     inline int mixEstimateSec (double recordingSec)
     {
