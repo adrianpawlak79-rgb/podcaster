@@ -125,6 +125,9 @@ public:
             const auto st = static_cast<mix::Decide::Style> (i);
             styleButtons[i].setButtonText (PL (mix::Decide::styleName (st)));
             styleButtons[i].onClick = [this, st] { chooseStyle (st); };
+            styleButtons[i].setTooltip (st == mix::Decide::Style::Delikatny ? PL ("Naturalnie: głos prawie bez zmian, tylko równiejszy")
+                                      : st == mix::Decide::Style::Mocny    ? PL ("Radiowo: gęściej i bliżej")
+                                                                           : PL ("Wyrównany: jak w dobrym podcaście"));
             addAndMakeVisible (styleButtons[i]);
         }
         updateStyleButtons();
@@ -807,7 +810,7 @@ public:
         g.setColour (Ink::textNow()); g.setFont (juce::Font (zs::type::title, juce::Font::bold));
         g.drawText (PL("Wybierz brzmienie"), main.removeFromTop (36), juce::Justification::centredLeft);
         g.setColour (Ink::textNext()); g.setFont (juce::Font (zs::type::body));
-        g.drawFittedText (PL("Porównaj przed i po miksie. Wszystkie trzy brzmienia mają tę samą głośność."), main.removeFromTop (24), juce::Justification::centredLeft, 1);
+        g.drawFittedText (PL("Delikatny — naturalnie · Studyjny — wyrównany · Mocny — radiowy. Ta sama głośność, porównaj przed i po."), main.removeFromTop (24), juce::Justification::centredLeft, 1);
         drawWave (g, main.removeFromTop (waveHeight()));
         drawStrip (g, main.removeFromTop (zs::ui::review::strip));
         side = side.reduced (22, 24);
@@ -877,7 +880,7 @@ private:
         g.setColour (Ink::textNow()); g.setFont (juce::Font (zs::type::title, juce::Font::bold));
         g.drawText (PL("Nagranie gotowe"), main.removeFromTop (40), juce::Justification::centred);
         g.setColour (Ink::textNext()); g.setFont (juce::Font (zs::type::body));
-        g.drawFittedText (PL("Zapisano miks wybranego nagrania jako plik WAV na dysku."), main.removeFromTop (44).reduced (12, 0), juce::Justification::centred, 2);
+        g.drawFittedText (PL("Zapisano miks jako plik WAV na dysku. Posłuchaj całości przed publikacją."), main.removeFromTop (44).reduced (12, 0), juce::Justification::centred, 2);
         side = side.reduced (22, 24);
         g.setColour (Ink::textNow()); g.setFont (juce::Font (zs::type::heading, juce::Font::bold));
         g.drawText (PL("Plik końcowy"), side.removeFromTop (40), juce::Justification::centredLeft);
@@ -891,8 +894,12 @@ private:
         };
         row (PL("Format"), "WAV 24-bit", 62); // Miejsce na drugi wiersz formatu.
         row (PL("Długość"), plr::clock (review.seconds()) + " (" + juce::String (review.seconds(), 1) + " s)", 42);
-        row (PL("Głośność"), juce::String (review.whatIDid().lufsAfter, 1) + " LUFS", 42);
-        row (PL("Szczyt"), juce::String (review.whatIDid().peakAfter, 1) + " dBTP", 42);
+        // Audyt 14.10: "LUFS" i "dBTP" na glownym ekranie wymagaja wiedzy audio.
+        row (PL("Gotowa głośność"), PL("Jak w podcastach (mono)"), 42);
+        g.setColour (Ink::textDim());
+        g.drawText (juce::String (review.whatIDid().lufsAfter, 1) + PL(" LUFS · szczyt ")
+                        + juce::String (review.whatIDid().peakAfter, 1) + " dBTP",
+                    side.removeFromTop (20), juce::Justification::centredLeft);
     }
     class TrimSlider : public juce::Slider {
     public:
@@ -1092,6 +1099,7 @@ private:
             return;
         }
         editMode = false; detailsMode = false; doneMode = false;
+        note.clear();   // uwagi z montazu ("Miejsce 3 z 27…") nie dotycza miksu
         if (mixedVersion == takeVersion && mixedStyle == wish.style && review.stage() == zs::TakeReview::Stage::Ready)
             adoptResult();
         else
@@ -1338,20 +1346,23 @@ private:
         auto startOf = [] (const auto& t) { return juce::jmax (0.0, (t.mustRedo ? t.redoFrom : t.fromSec) - 0.3); };
         const auto& all = review.timeline();
         if (all.empty()) return;
-        for (const auto& t : all)
-            if (startOf (t) > now + 0.3)
-            {
-                player.seekSec (startOf (t));
-                follow (startOf (t));
-                if (! player.isPlaying()) player.play();
-                repaint();
-                return;
-            }
+        // Ktore to miejsce, kiedy i dlaczego (audyt 14.10: "Nastepne miejsce
+        // do sprawdzenia" z czasem i powodem).
+        auto go = [&] (size_t i) {
+            const auto& t = all[i];
+            player.seekSec (startOf (t));
+            follow (startOf (t));
+            if (! player.isPlaying()) player.play();
+            note = PL ("Miejsce ") + juce::String ((int) i + 1) + PL (" z ") + juce::String ((int) all.size()) + ": "
+                 + plr::clock (t.fromSec) + "  " + plr::kind (t.kind)
+                 + (t.mustRedo ? PL (" — tego miks nie naprawi, warto nagrać ten fragment jeszcze raz")
+                               : PL (" — posłuchaj, czy brzmi dobrze"));
+            repaint();
+        };
+        for (size_t i = 0; i < all.size(); ++i)
+            if (startOf (all[i]) > now + 0.3) { go (i); return; }
         // Nie ma nic dalej — wracamy do pierwszego, zeby klawisz zawsze cos robil.
-        player.seekSec (startOf (all.front()));
-        follow (startOf (all.front()));
-        if (! player.isPlaying()) player.play();
-        repaint();
+        go (0);
     }
 
     //==========================================================================
@@ -1739,7 +1750,9 @@ private:
             juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon,PL("Poprawki po R"),note);
             repaint(); return;
         }
-        juce::String message=PL("Wycięto ")+juce::String(result.cuts)+PL(" fragmentów (")
+        const int n=result.cuts, d=n%10, dd=n%100;
+        const char* frag = n==1 ? " fragment (" : (d>=2 && d<=4 && (dd<12 || dd>14)) ? " fragmenty (" : " fragmentów (";
+        juce::String message=PL("Wycięto ")+juce::String(n)+PL(frag)
             +juce::String(result.removedSec,2)+PL(" s). Pełne nagranie jest w folderze surowe.");
         if(result.audibleSeams>0) message+=PL(" Przy ")+juce::String(result.audibleSeams)
             +PL(" połączeniach po cięciu tło się zmieniło — posłuchaj tych miejsc.");
