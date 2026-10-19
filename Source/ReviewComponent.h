@@ -1721,7 +1721,9 @@ private:
             juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon,PL("Poprawki po R"),note);
             repaint(); return;
         }
-        juce::String message=PL("Wycięto ")+juce::String(result.cuts)+PL(" fragmentów (")
+        const int n=result.cuts, d=n%10, dd=n%100;
+        const char* frag = n==1 ? " fragment (" : (d>=2 && d<=4 && (dd<12 || dd>14)) ? " fragmenty (" : " fragmentów (";
+        juce::String message=PL("Wycięto ")+juce::String(n)+PL(frag)
             +juce::String(result.removedSec,2)+PL(" s). Pełne nagranie jest w folderze surowe.");
         if(result.audibleSeams>0) message+=PL(" Przy ")+juce::String(result.audibleSeams)
             +PL(" połączeniach po cięciu tło się zmieniło — posłuchaj tych miejsc.");
