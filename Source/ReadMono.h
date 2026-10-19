@@ -10,13 +10,15 @@
 #pragma once
 
 #include <juce_audio_formats/juce_audio_formats.h>
+#include <atomic>
 #include <vector>
 
 namespace zs
 {
 
 /** false, gdy odczyt sie nie udal. Wiele kanalow — srednia. */
-inline bool readMono (juce::AudioFormatReader& reader, int len, std::vector<float>& mono)
+inline bool readMono (juce::AudioFormatReader& reader, int len, std::vector<float>& mono,
+                      const std::atomic<bool>* stop = nullptr)
 {
     const int ch = juce::jmax (1, (int) reader.numChannels);
     mono.assign ((size_t) juce::jmax (0, len), 0.0f);
@@ -25,6 +27,7 @@ inline bool readMono (juce::AudioFormatReader& reader, int len, std::vector<floa
 
     for (int at = 0; at < len; at += chunk.getNumSamples())
     {
+        if (stop != nullptr && stop->load()) return false;      // przerwane (zamkniecie)
         const int n = juce::jmin (chunk.getNumSamples(), len - at);
         if (! reader.read (&chunk, 0, n, at, true, ch > 1)) return false;
         for (int c = 0; c < ch; ++c)

@@ -292,7 +292,10 @@ public:
         trakcie mowienia. Ten sam, a nie drugi podobny: dwa osobne wykrywacze
         tego samego predzej czy pozniej zaczynaja mowic rozne rzeczy o tym samym
         nagraniu, a wtedy nie wiadomo, ktoremu wierzyc. */
-    static std::vector<tw::Event> listenOffline (const std::vector<float>& x, double sr)
+    /** @param stop  gdy ustawione w trakcie — konczy od razu, z tym, co ma
+        (zamkniecie programu w trakcie godzinnego nagrania; przeglad 19.10). */
+    static std::vector<tw::Event> listenOffline (const std::vector<float>& x, double sr,
+                                                 const std::atomic<bool>* stop = nullptr)
     {
         tw::TakeWatch watch;
         watch.prepare (sr, 512);
@@ -302,6 +305,7 @@ public:
 
         for (size_t pos = 0; pos < x.size(); pos += 512)
         {
+            if (stop != nullptr && (pos & 65535) == 0 && stop->load()) break;
             const int n = (int) std::min ((size_t) 512, x.size() - pos);
             const float* ch[1] = { x.data() + pos };
 

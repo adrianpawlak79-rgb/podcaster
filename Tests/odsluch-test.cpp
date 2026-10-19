@@ -26,6 +26,7 @@
 #include "../Source/DSP/TakeReview.h"
 #include "../Source/Wav.h"
 
+#include <chrono>
 #include <cstdio>
 #include <random>
 
@@ -503,6 +504,19 @@ int main (int argc, char** argv)
         zs::Envelope z;
         z.build ({}, sr, 600);
         check (z.peakDb.size() == 600, "puste nagranie tez daje sie narysowac");
+
+        // przerwanie (zamkniecie programu w trakcie godzinnego nagrania)
+        {
+            std::vector<float> long10 (speech (src, sr, 10.0));
+            std::atomic<bool> stop { true };
+            const auto t0 = std::chrono::steady_clock::now();
+            const auto none = zs::TakeReview::listenOffline (long10, sr, &stop);
+            const double ms = std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now() - t0).count();
+            check (none.empty() && ms < 50.0, "przerwane przesluchiwanie konczy sie od razu", num (ms, " ms"));
+            std::atomic<bool> go { false };
+            check (zs::TakeReview::listenOffline (long10, sr, &go).size() == zs::TakeReview::listenOffline (long10, sr).size(),
+                   "bez przerwania: wynik jak bez flagi");
+        }
 
         // Powiekszona fala (montaz): tylko fragment, bez kopii probek.
         // Glosno tylko w 4-5 s; widok 3-6 s ma to w srodkowej tercji.
