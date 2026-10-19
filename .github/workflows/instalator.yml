@@ -1,0 +1,64 @@
+# Instalator Windows po kazdym wypchnieciu na main (i na zadanie).
+#
+# Program budowany jak lokalnie: MinGW na Linuksie (mingw-toolchain.cmake,
+# JUCE 7.0.12), potem Tools/instalator.sh dokleja biblioteke Vosk i polski
+# model i sklada instalator NSIS. Gotowy plik: zakladka Actions -> ten
+# przebieg -> Artifacts -> "instalator".
+
+name: Instalator
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "Installer/**"
+      - "Tools/instalator.sh"
+      - ".github/workflows/instalator.yml"
+      - "mingw-toolchain.cmake"
+      - "CMakeLists.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  instalator:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Narzedzia
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q cmake ninja-build g++ mingw-w64 g++-mingw-w64-x86-64-posix \
+            gcc-mingw-w64-x86-64-posix nsis curl unzip
+
+      - name: Pobrane wczesniej (Vosk, model)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/zs
+          key: vosk-0.3.45-model-pl-0.22
+
+      - name: JUCE 7.0.12
+        run: git clone -q --depth 1 --branch 7.0.12 https://github.com/juce-framework/JUCE.git "$RUNNER_TEMP/JUCE7"
+
+      - name: Program (Windows, MinGW)
+        run: |
+          cmake -S . -B build-win -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=mingw-toolchain.cmake -DZS_JUCE_PATH="$RUNNER_TEMP/JUCE7"
+          cmake --build build-win --target ZieloneSwiatlo
+
+      - name: Instalator
+        run: |
+          wersja=$(sed -n 's/^project(ZieloneSwiatlo VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          bash Tools/instalator.sh build-win/ZieloneSwiatlo_artefacts/Release \
+            "$RUNNER_TEMP/Zielone-swiatlo-$wersja-instalator.exe"
+          echo "Instalator: Zielone-swiatlo-$wersja-instalator.exe (commit ${GITHUB_SHA::7})" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: instalator
+          path: ${{ runner.temp }}/Zielone-swiatlo-*-instalator.exe
+          retention-days: 30
