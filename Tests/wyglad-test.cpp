@@ -198,9 +198,9 @@ int main()
     }
     std::snprintf (b, sizeof (b), "4:26 -> %d s, 0:20 -> %d s, 0:01 -> %d s",
                    review::mixEstimateSec (266.0), review::mixEstimateSec (20.0), review::mixEstimateSec (1.0));
-    check (review::mixEstimateSec (266.0) == 55 && review::mixEstimateSec (20.0) == 5
+    check (review::mixEstimateSec (266.0) == 30 && review::mixEstimateSec (20.0) == 5
                && review::mixEstimateSec (1.0) == 5,
-           "szacunek miksu: 0,2 dlugosci, w gore do 5 s", b);
+           "szacunek miksu: 0,1 dlugosci, w gore do 5 s", b);
 
     // ---- 6. klawisze ekranu nagrywania ------------------------------------------------
     std::printf ("\n  6. klawisze i pasek podpowiedzi\n");
