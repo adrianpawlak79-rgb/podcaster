@@ -45,6 +45,7 @@ public:
         look = std::max (2, (int) std::llround (sr * params.lookaheadMs * 0.001));
         delay.assign ((size_t) (look * chans), 0.0f);
         window.assign ((size_t) look, 1.0f);
+        below = 0;
 
         // Zapas na szczyt miedzyprobkowy. Sufit -1 dBTP osiagamy, celujac
         // nizej w PROBKACH: miedzy nimi przebieg idzie wyzej. Wielkosc zapasu
@@ -61,6 +62,7 @@ public:
     {
         std::fill (delay.begin(), delay.end(), 0.0f);
         std::fill (window.begin(), window.end(), 1.0f);
+        below = 0;
         pos = 0;
         gain = 1.0f;
         lastGr = maxGr = 0.0f;
@@ -81,15 +83,19 @@ public:
 
             // wzmocnienie, ktore sprowadzi te probke do sufitu
             const float need = a > ceilingLin ? ceilingLin / a : 1.0f;
+            below += (need < 1.0f) - (window[(size_t) pos] < 1.0f);
             window[(size_t) pos] = need;
 
             // ---- najmniejsze wzmocnienie w calym oknie wyprzedzenia ---------
             // To jest sedno: patrzymy na to, co DOPIERO nadejdzie, i schodzimy
             // z gainem zawczasu.
+            // Gdy nic w oknie nie wystaje (prawie zawsze), minimum to 1 —
+            // bez przegladania calego okna (callgrind 19.10: 14% miksu).
             float target = 1.0f;
 
-            for (int i = 0; i < look; ++i)
-                target = std::min (target, window[(size_t) i]);
+            if (below > 0)
+                for (int i = 0; i < look; ++i)
+                    target = std::min (target, window[(size_t) i]);
 
             if (target < gain)
             {
@@ -111,7 +117,7 @@ public:
                 gain = relCoeff * gain + (1.0f - relCoeff) * target;
             }
 
-            lastGr = 20.0f * std::log10 (std::max (1.0e-6f, gain));
+            lastGr = gain == 1.0f ? 0.0f : 20.0f * std::log10 (std::max (1.0e-6f, gain));
             maxGr = std::min (maxGr, lastGr);
 
             // ---- wyjscie: probka sprzed okna, przemnozona ------------------
@@ -137,6 +143,7 @@ private:
     int chans = 1, look = 144, pos = 0;
     float ceilingLin = 0.89f, gain = 1.0f, relCoeff = 0.0f, lastGr = 0.0f, maxGr = 0.0f;
     std::vector<float> delay, window;
+    int below = 0;                  ///< ile wartosci w oknie jest ponizej 1
 };
 
 } // namespace mix

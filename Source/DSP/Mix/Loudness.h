@@ -231,7 +231,7 @@ public:
     void prepare (double /*sr*/, int numChannels)
     {
         chans = std::max (1, numChannels);
-        hist.assign ((size_t) (chans * kTaps), 0.0f);
+        hist.assign ((size_t) (chans * 2 * kTapsPerPhase), 0.0f);
         pos = 0;
         peak = 0.0f;
         buildKernel();
@@ -244,37 +244,48 @@ public:
         peak = 0.0f;
     }
 
+    /* Historia: kTapsPerPhase ostatnich probek kazdego kanalu, zapisana
+       DWA razy (w i w + K), wiec odczyt wstecz jest ciagly — bez reszty z
+       dzielenia w najglebszej petli. Dawniej (pos + kTaps - 1 - t) % kTaps
+       przy kazdym z 256 mnozen na probke: pomiar szczytu zjadal polowe czasu
+       miksu (callgrind 19.10). Kolejnosc sumowania ta sama, wynik co do bitu. */
     void process (const float* const* in, int numChannels, int numSamples)
     {
         const int nc = std::min (numChannels, chans);
+        constexpr int K = kTapsPerPhase;
 
         for (int n = 0; n < numSamples; ++n)
         {
+            pos = pos + 1 == K ? 0 : pos + 1;
+
             for (int c = 0; c < nc; ++c)
             {
-                hist[(size_t) (pos * chans + c)] = in[c][n];
+                float* h = hist.data() + (size_t) c * 2 * K;
+                h[pos] = h[pos + K] = in[c][n];
 
                 const float a = std::fabs (in[c][n]);
                 if (a > peak) peak = a;
             }
 
-            pos = (pos + 1) % kTaps;
-
             // Fazy filtru polifazowego (historia w czestotliwosci WEJSCIA).
-            for (int ph = 0; ph < kPhases; ++ph)
+            // Wszystkie fazy naraz: acc[ph] sumuje po t w tej samej kolejnosci
+            // co dawniej, a petla po fazach idzie wektorowo.
+            for (int c = 0; c < nc; ++c)
             {
-                for (int c = 0; c < nc; ++c)
+                const float* newest = hist.data() + (size_t) c * 2 * K + pos + K;
+                float acc[kPhases] = {};
+
+                for (int t = 0; t < K; ++t)
                 {
-                    float acc = 0.0f;
+                    const float x = newest[-t];
+                    const float* k = kernel.data() + (size_t) t * kPhases;
+                    for (int ph = 0; ph < kPhases; ++ph)
+                        acc[ph] += k[ph] * x;
+                }
 
-                    for (int t = 0; t < kTapsPerPhase; ++t)
-                    {
-                        const int idx = (pos + kTaps - 1 - t) % kTaps;
-                        acc += kernel[(size_t) (ph * kTapsPerPhase + t)]
-                             * hist[(size_t) (idx * chans + c)];
-                    }
-
-                    const float a = std::fabs (acc);
+                for (int ph = 0; ph < kPhases; ++ph)
+                {
+                    const float a = std::fabs (acc[ph]);
                     if (a > peak) peak = a;
                 }
             }
@@ -333,14 +344,7 @@ private:
                     kernel[(size_t) (t * kPhases + ph)] /= (float) sum;
         }
 
-        // przelozenie na uklad [faza][odczep], zeby petla wyzej byla ciagla
-        std::vector<float> re ((size_t) kTaps);
-
-        for (int ph = 0; ph < kPhases; ++ph)
-            for (int t = 0; t < kTapsPerPhase; ++t)
-                re[(size_t) (ph * kTapsPerPhase + t)] = kernel[(size_t) (t * kPhases + ph)];
-
-        kernel.swap (re);
+        // uklad [odczep][faza] zostaje: process() liczy wszystkie fazy naraz
     }
 
     int chans = 1, pos = 0;
