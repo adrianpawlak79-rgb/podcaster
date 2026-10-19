@@ -345,7 +345,7 @@ public:
             expect = (double) reader->lengthInSamples / reader->sampleRate;
 
         runJob (PL ("Wczytuję i słucham nagrania…"), zs::ui::review::listenEstimateSec (expect),
-            [out, reader]
+            [out, reader, stop = &jobStop]
             {
                 if (reader == nullptr) { out->error = "read"; return; }
                 if (reader->lengthInSamples <= 0 || reader->lengthInSamples > std::numeric_limits<int>::max()
@@ -354,12 +354,13 @@ public:
                 // Nagrywamy mono (Recorder::writeMono), ale jesli kiedys bedzie inaczej,
                 // srednia kanalow jest lepsza niz wziecie pierwszego i zdziwienie.
                 // Kawalkami, bez drugiej kopii w buforze (ReadMono.h — godzina to 0,7 GB).
-                if (! zs::readMono (*reader, (int) reader->lengthInSamples, out->mono)) { out->error = "part"; return; }
+                if (! zs::readMono (*reader, (int) reader->lengthInSamples, out->mono, stop)) { out->error = "part"; return; }
                 out->rate = reader->sampleRate;
 
                 // Zdarzenia z nagrywania moga sie spoznic albo zgubic, wiec
                 // przesluchujemy plik tym samym wykrywaczem.
-                out->events = zs::TakeReview::listenOffline (out->mono, out->rate);
+                out->events = zs::TakeReview::listenOffline (out->mono, out->rate, stop);
+                if (stop->load()) return;
                 out->env.build (out->mono, out->rate, 1400);
             },
             [this, out, waitForIt, then, name = wavFile.getFileName()]
@@ -1189,9 +1190,10 @@ private:
         auto out=std::make_shared<Out>();
         const double rate=sr;
         runJob(PL("Stosuję zmianę…"), zs::ui::review::listenEstimateSec(review.seconds()),
-            [out,make,rate] {
+            [out,make,rate,stop=&jobStop] {
                 if(!make(out->audio)) return;
-                out->events=zs::TakeReview::listenOffline(out->audio,rate);
+                out->events=zs::TakeReview::listenOffline(out->audio,rate,stop);
+                if(stop->load()) return;
                 out->env.build(out->audio,rate,1400);
                 out->ok=true;
             },
@@ -1243,7 +1245,11 @@ private:
     }
     /** Nowe nagranie albo zamkniecie: poczekaj na prace, wyniku nie uzywaj. */
     void abandonJob() {
+        // przesluchiwanie i odczyt sprawdzaja to co ok. 1 s nagrania — zamkniecie
+        // programu nie czeka juz do minuty (przeglad 19.10)
+        jobStop.store(true);
         if(job) { job->join(); job.reset(); }
+        jobStop.store(false);
         jobFinish=nullptr; jobSinceMs=0;
         jobShield.setVisible(false);
     }
@@ -1824,6 +1830,7 @@ private:
     // program wygladal na zawieszony. Patrz runJob().
     std::unique_ptr<std::thread> job;
     std::atomic<bool> jobDone { false };
+    std::atomic<bool> jobStop { false };   ///< "przerwij" dla pracy w tle (abandonJob)
     std::function<void()> jobFinish;
     juce::String jobLabel;
     int jobExpectSec = 0;
