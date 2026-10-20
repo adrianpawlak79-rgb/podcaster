@@ -177,17 +177,21 @@ public:
             g.fillEllipse (c.withSizeKeepingCentre (D * 0.54f, D * 0.54f));
             return;
         }
+        // Wylaczony: jeden wyglad dla kazdego rodzaju — plaskie tlo, czytelny
+        // przygaszony napis. Przezroczysty akcent (40 %) dawal szare bloto,
+        // a napis 50 % ginal (przeglad wygladu 20.10).
+        if (! b.isEnabled()) g.setColour (Ink::panel());
         g.fillRoundedRectangle (r, radius);
 
         const bool focus = b.hasKeyboardFocus (true) && b.isEnabled();
-        g.setColour (focus ? Ink::accent() : juce::Colour (p.outline).withMultipliedAlpha (alpha));
+        g.setColour (focus ? Ink::accent() : b.isEnabled() ? juce::Colour (p.outline) : Ink::edge());
         g.drawRoundedRectangle (focus ? r.reduced (1.0f) : r, radius, focus ? 2.0f : 1.0f);
     }
 
     void drawButtonText (juce::Graphics& g, juce::TextButton& b, bool, bool) override
     {
         const auto p = ui::paintFor (kindOf (b));
-        const auto text = juce::Colour (p.text).withMultipliedAlpha (b.isEnabled() ? 1.0f : 0.5f);
+        const auto text = b.isEnabled() ? juce::Colour (p.text) : Ink::textDim();
 
         if (kindOf (b) == ui::ButtonKind::Record)
         {

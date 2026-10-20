@@ -136,7 +136,9 @@ struct ScreenFrame
         g.drawText (juce::String::fromUTF8 ("Zielone światło"), 54, 0, 230, header.getHeight(),
                     juce::Justification::centredLeft);
         g.setFont (juce::Font (type::body, juce::Font::bold));
-        g.drawText (name, 300, 0, juce::jmax (0, header.getWidth() - 520), header.getHeight(),
+        // nazwa nagrania nad trescia ekranu, nie w przypadkowym miejscu (bylo x = 300)
+        const int nameX = ui::frame::navWidth (header.getWidth()) + ui::frame::margin;
+        g.drawText (name, nameX, 0, juce::jmax (0, header.getWidth() - nameX - 380), header.getHeight(),
                     juce::Justification::centredLeft);
         g.setFont (juce::Font (type::small)); g.setColour (Ink::textDim());
         auto foot = footer.reduced (22, 0);
