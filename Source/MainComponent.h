@@ -250,6 +250,7 @@ public:
 
         selector = std::make_unique<juce::AudioDeviceSelectorComponent> (
                        deviceManager, 1, 2, 0, 2, false, false, true, false);
+        selector->setItemHeight (34);                  // jak pola i przyciski programu (JUCE: 24)
         addAndMakeVisible (*selector);
 
         addAndMakeVisible (lamp);
@@ -354,8 +355,11 @@ public:
         addAndMakeVisible (status);
 
         nameInput.setText (PL("Nowy odcinek"));
+        nameInput.setFont (juce::Font (zs::type::body));
+        nameInput.setIndents (10, 10);                 // tekst na srodku pola 40 px, nie przy gornej krawedzi
         nameInput.onTextChange = [this] { repaint(); };
         scriptInput.setMultiLine (true);
+        scriptInput.setFont (juce::Font (zs::type::body));
         scriptInput.setReturnKeyStartsNewLine (true);
         scriptInput.setTextToShowWhenEmpty (PL("Tu możesz wpisać tekst lub otworzyć plik TXT."), zs::Ink::textDim());
         if (settings.lastScript().existsAsFile()) scriptInput.setText (settings.lastScript().loadFileAsString());
@@ -750,7 +754,7 @@ private:
         // JUCE oddaje tylko 60% szerokosci listom i rezerwuje miejsce na Test.
         // W panelu 260 px nie zostawalo miejsca nawet na "Brak urzadzenia".
         auto main = zs::ScreenFrame::mainArea (getLocalBounds());
-        main.removeFromTop (78);
+        main.removeFromTop (zs::ScreenFrame::headHeight (getLocalBounds(), hardwareSubtitle()) + 8);
         selector->setBounds (main);
         auto side = settingsBox().reduced (22, 24);
         folderButton.setBounds (side.removeFromBottom (36)); side.removeFromBottom (8);
@@ -759,13 +763,7 @@ private:
 
     void paintHardwareSettings (juce::Graphics& g)
     {
-        auto main = zs::ScreenFrame::mainArea (getLocalBounds());
-        g.setColour (zs::Ink::textDim()); g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
-        g.drawText (PL("01 / PRZYGOTOWANIE"), main.removeFromTop (18), juce::Justification::centredLeft);
-        g.setColour (zs::Ink::textNow()); g.setFont (juce::Font (zs::type::title, juce::Font::bold));
-        g.drawText (PL("Mikrofon i sprzęt"), main.removeFromTop (36), juce::Justification::centredLeft);
-        g.setColour (zs::Ink::textNext()); g.setFont (juce::Font (zs::type::body));
-        g.drawText (PL("Wybierz mikrofon i słuchawki, potem sprawdź sprzęt."), main.removeFromTop (24), juce::Justification::centredLeft);
+        zs::ScreenFrame::paintHead (g, getLocalBounds(), PL("01 / PRZYGOTOWANIE"), PL("Mikrofon i sprzęt"), hardwareSubtitle());
         auto side = settingsBox().reduced (22, 24);
         juce::AudioDeviceManager::AudioDeviceSetup setup;
         deviceManager.getAudioDeviceSetup (setup);
@@ -780,6 +778,9 @@ private:
         device (PL("SŁUCHAWKI"), setup.outputDeviceName);
     }
 
+    static juce::String hardwareSubtitle() { return PL("Wybierz mikrofon i słuchawki, potem sprawdź sprzęt."); }
+    static juce::String preparationSubtitle() { return PL("Ustaw nazwę i mikrofon. Dodaj tekst, jeśli chcesz używać promptera."); }
+
     void paintPreparation (juce::Graphics& g)
     {
         auto main = zs::ScreenFrame::mainArea (getLocalBounds());
@@ -788,10 +789,9 @@ private:
             g.setFont (juce::Font (size, bold ? juce::Font::bold : juce::Font::plain));
             g.drawFittedText (value, r, juce::Justification::centredLeft, 2);
         };
-        text (PL("01 / PRZYGOTOWANIE"), main.removeFromTop(18), zs::type::tiny);
-        text (PL("Przygotowanie nagrania"), main.removeFromTop(38), zs::type::title, true);
-        text (PL("Ustaw nazwę i mikrofon. Dodaj tekst, jeśli chcesz używać promptera."), main.removeFromTop(36), zs::type::body);
-        main.removeFromTop(12);
+        // naglowek jak na pozostalych ekranach (etykieta kroku pogrubiona, podtytul 1-2 wiersze)
+        main = zs::ScreenFrame::paintHead (g, getLocalBounds(), PL("01 / PRZYGOTOWANIE"), PL("Przygotowanie nagrania"), preparationSubtitle());
+        main.removeFromTop(8);
         text (PL("Nazwa nagrania"), main.removeFromTop(22), zs::type::small);
         main.removeFromTop(56);
         text (PL("TEKST DO PROMPTERA"), main.removeFromTop(38), zs::type::small, true);
@@ -812,7 +812,7 @@ private:
     void layoutPreparation()
     {
         auto main = zs::ScreenFrame::mainArea(getLocalBounds());
-        main.removeFromTop(126);
+        main.removeFromTop(zs::ScreenFrame::headHeight (getLocalBounds(), preparationSubtitle()) + 8 + 22);
         nameInput.setBounds(main.removeFromTop(40)); main.removeFromTop(16);
         auto row = main.removeFromTop(38);
         prompterButton.setButtonText(PL("Otwórz tekst"));

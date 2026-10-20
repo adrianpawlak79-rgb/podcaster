@@ -230,6 +230,40 @@ public:
         g.drawFittedText (label, r, juce::Justification::centred, 1);
     }
 
+    //==========================================================================
+    // Wybor urzadzenia z JUCE (ekran "Mikrofon i sprzet") w stylu programu.
+    // Zostaje komponent JUCE, bo umie ASIO, panel karty i czestotliwosc —
+    // zmienia sie tylko wyglad: pismo, miernik i "<< brak >>" bez nawiasow.
+
+    juce::Font getComboBoxFont (juce::ComboBox&) override { return juce::Font (type::body); }
+    juce::Font getPopupMenuFont() override                { return juce::Font (type::body); }
+
+    void drawLabel (juce::Graphics& g, juce::Label& label) override
+    {
+        auto text = label.getText();
+        if (! (text.startsWith ("<< ") && text.endsWith (" >>"))) { LookAndFeel_V4::drawLabel (g, label); return; }
+
+        // pusty wybor JUCE ("<< brak urządzenia >>"): przygaszony, bez nawiasow
+        text = text.substring (3, text.length() - 3);
+        g.fillAll (label.findColour (juce::Label::backgroundColourId));
+        if (label.isBeingEdited()) return;
+        g.setColour (Ink::textDim());
+        g.setFont (getLabelFont (label));
+        g.drawFittedText (text, getLabelBorderSize (label).subtractedFrom (label.getLocalBounds()),
+                          label.getJustificationType(), 1);
+    }
+
+    void drawLevelMeter (juce::Graphics& g, int width, int height, float level) override
+    {
+        // jak miernik na ekranie przygotowania: plaski pasek, zielony sygnal
+        const auto r = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height).reduced (0.0f, height * 0.3f);
+        g.setColour (Ink::edge());
+        g.fillRoundedRectangle (r, 2.0f);
+        const float shown = juce::jlimit (0.0f, 1.0f, std::sqrt (level));
+        g.setColour (shown > 0.95f ? Ink::red() : Ink::green());
+        g.fillRoundedRectangle (r.withWidth (r.getWidth() * shown), 2.0f);
+    }
+
     static constexpr float radius = 8.0f;
 
 private:
