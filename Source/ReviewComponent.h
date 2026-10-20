@@ -382,6 +382,7 @@ public:
 
                 review.setTake (std::move (out->mono), sr, std::move (out->events));
                 ++takeVersion; viewLen = 0.0; viewFrom = 0.0;
+                loadedVersion = takeVersion;     // to, co na dysku — nic do stracenia
 
                 cutPanel.load(file, review.rawAudio(), sr);
                 beforeEnv = std::move (out->env);
@@ -424,6 +425,11 @@ public:
     void previewDone() { if (! editMode) { previewSave = true; save(); previewSave = false; } }
 
     bool hasTake() const { return review.stage() != zs::TakeReview::Stage::Empty; }
+
+    /** Montaz w pamieci (wyciecie, przyciecie), ktory nie trafil do zapisanego
+        miksu — zamkniecie programu by go zgubilo. Oryginal i decyzje po R sa
+        na dysku zawsze, wiec ich to nie dotyczy. */
+    bool hasUnsavedEdits() const { return takeVersion != loadedVersion && savedVersion != takeVersion; }
 
     void end()
     {
@@ -1433,6 +1439,7 @@ private:
                 }
 
                 saved = target;
+                savedVersion = mixedVersion;     // zapisany miks tej wersji montazu
                 note  = PL ("Zapisane: ") + target.getFileName();
                 player.pause();
                 savedPath.setText (saved.getFullPathName(), false);
@@ -1807,6 +1814,7 @@ private:
     juce::TextButton styleButtons[3];
     bool styleNote = false;                 ///< note to "Miks ... liczy się…" z chooseStyle
     int takeVersion = 0, mixedVersion = -1; ///< ktora wersja montazu jest zmiksowana...
+    int loadedVersion = 0, savedVersion = -1; ///< ...wczytana z dysku i zapisana jako miks (hasUnsavedEdits)
     mix::Decide::Style mixedStyle = mix::Decide::Style::Studyjny;   ///< ...i jakim brzmieniem
     juce::TextEditor words, assessment;
     zs::StepBar flow;

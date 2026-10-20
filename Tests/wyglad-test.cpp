@@ -227,6 +227,15 @@ int main()
     check (hintLine (true, false).find ("R \xe2\x80\x94") == std::string::npos,
            "bez tekstu nie podpowiada R", hintLine (true, false));
 
+    // Zamkniecie programu: nic nie ginie po cichu (20.10).
+    {
+        namespace C = zs::ui::closing;
+        check (C::ask (false, false) == C::Ask::None, "nic nie trwa, nic niezapisane: zamyka od razu", "");
+        check (C::ask (true, false) == C::Ask::Recording && C::ask (true, true) == C::Ask::Recording,
+               "w trakcie nagrywania: najpierw pytanie o nagranie", "");
+        check (C::ask (false, true) == C::Ask::Unsaved, "niezapisany montaz: pytanie", "");
+    }
+
     // Limit sesji (audyt 14.10): tyle, ile sprawdzil zs-dlugo.
     {
         namespace S = zs::ui::session;
