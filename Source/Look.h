@@ -62,6 +62,10 @@ public:
         for (const auto& name : { "Segoe UI Variable", "Segoe UI", "DejaVu Sans" })
             if (available.contains (name)) { family = name; break; }
         setDefaultSansSerifTypefaceName (family);
+        // Napis, ktory sie nie miesci, zawija sie albo dostaje wielokropek —
+        // nigdy nie jest sciskany w poziomie (domyslne JUCE: do 70 %).
+        // Sciesniony kroj czyta sie gorzej i wyglada jak inny krój.
+        juce::Font::setDefaultMinimumHorizontalScaleFactor (1.0f);
         applyPalette();
     }
 

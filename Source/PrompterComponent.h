@@ -1452,7 +1452,7 @@ private:
         if (running && recorder.isRecording() && listening)
             label << (words.hasLock (recorder.recordedSeconds()) ? PL ("  ·  SŁOWA") : PL ("  ·  SYLABY"));
 
-        g.setFont (juce::Font (11.0f, juce::Font::bold));
+        g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
 
         const int w = g.getCurrentFont().getStringWidth (label) + 18;
         auto box = juce::Rectangle<int> (guide.getRight() - w - 12, guide.getY() + 6, w, 18);
@@ -1478,12 +1478,12 @@ private:
         g.drawRect (box, 1);
 
         g.setColour (juce::Colour (0xffe8eaf6));
-        g.setFont (juce::Font (14.0f));
+        g.setFont (juce::Font (zs::type::small));
         g.drawText (PL ("Mów dalej — albo popraw miejsce strzałkami."),
                     box.reduced (12, 0).removeFromTop (30), juce::Justification::centredLeft);
 
         g.setColour (Ink::lostText());
-        g.setFont (juce::Font (12.0f, juce::Font::bold));
+        g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
         g.drawText (PL ("↑ ↓ wers     ← → słowo"),
                     box.reduced (12, 0).removeFromBottom (30), juce::Justification::centredLeft);
     }

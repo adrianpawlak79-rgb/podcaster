@@ -39,6 +39,53 @@ struct ScreenFrame
         return r.reduced (ui::frame::margin, 24);
     }
 
+    //==========================================================================
+    /** Tekst zawijany po slowach, w pelnym rozmiarze: bez sciskania liter i bez
+        zmniejszania pisma (tak robi drawFittedText, gdy brakuje miejsca).
+        Zwraca wysokosc, jakiej tekst potrzebuje; rysuje tylko w obrebie area. */
+    static int wrapped (juce::Graphics& g, const juce::String& text, juce::Rectangle<int> area,
+                        const juce::Font& font, juce::Colour colour,
+                        juce::Justification j = juce::Justification::topLeft)
+    {
+        const auto layout = makeLayout (text, area.getWidth(), font, colour, j);
+        juce::Graphics::ScopedSaveState keep (g);
+        g.reduceClipRegion (area);
+        auto box = area.toFloat();
+        if (j.testFlags (juce::Justification::verticallyCentred))
+            box = box.withSizeKeepingCentre (box.getWidth(), layout.getHeight());
+        layout.draw (g, box);
+        return (int) std::ceil (layout.getHeight());
+    }
+
+    static int wrappedHeight (const juce::String& text, int width, const juce::Font& font)
+    {
+        return (int) std::ceil (makeLayout (text, width, font, {}, juce::Justification::topLeft).getHeight());
+    }
+
+    /** Naglowek tresci: etykieta kroku (18), tytul (40) i podtytul — jeden
+        wiersz, a gdy sie nie miesci, dwa. Uklad (resized) i rysowanie (paint)
+        pytaja o te sama liczbe, wiec przebieg nie wjedzie na podtytul. */
+    static int headHeight (juce::Rectangle<int> bounds, const juce::String& subtitle)
+    {
+        const int lineH = (int) std::ceil (juce::Font (type::body).getHeight() * 1.25f);
+        const bool two = juce::Font (type::body).getStringWidthFloat (subtitle) > (float) mainArea (bounds).getWidth();
+        return 18 + 40 + (two ? 2 : 1) * lineH + 6;
+    }
+
+    /** Rysuje naglowek i zwraca tresc pod nim. */
+    static juce::Rectangle<int> paintHead (juce::Graphics& g, juce::Rectangle<int> bounds, const juce::String& step,
+                                           const juce::String& title, const juce::String& subtitle)
+    {
+        auto main = mainArea (bounds);
+        auto head = main.removeFromTop (headHeight (bounds, subtitle));
+        g.setColour (Ink::textDim()); g.setFont (juce::Font (type::tiny, juce::Font::bold));
+        g.drawText (step, head.removeFromTop (18), juce::Justification::centredLeft);
+        g.setColour (Ink::textNow()); g.setFont (juce::Font (type::title, juce::Font::bold));
+        g.drawText (title, head.removeFromTop (40), juce::Justification::centredLeft);
+        wrapped (g, subtitle, head, juce::Font (type::body), Ink::textNext());
+        return main;
+    }
+
     static void paint (juce::Graphics& g, juce::Rectangle<int> bounds,
                        const juce::String& name, const juce::String& hint)
     {
@@ -84,7 +131,20 @@ struct ScreenFrame
         const int nameW = juce::jmin (foot.getWidth() / 3, juce::Font (type::small).getStringWidth (name) + 24);
         g.drawText (name, foot.removeFromLeft (nameW), juce::Justification::centredLeft);
         g.setColour (Ink::textNext());
-        g.drawFittedText (hint, foot, juce::Justification::centredRight, 1, 0.85f);
+        g.drawFittedText (hint, foot, juce::Justification::centredRight, 1);
+    }
+
+private:
+    static juce::TextLayout makeLayout (const juce::String& text, int width, const juce::Font& font,
+                                        juce::Colour colour, juce::Justification j)
+    {
+        juce::AttributedString s;
+        s.setJustification (j.getOnlyHorizontalFlags() | juce::Justification::top);
+        s.setWordWrap (juce::AttributedString::byWord);
+        s.append (text, font, colour);
+        juce::TextLayout layout;
+        layout.createLayout (s, (float) juce::jmax (1, width));
+        return layout;
     }
 };
 }

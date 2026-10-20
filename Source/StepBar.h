@@ -52,8 +52,11 @@ public:
                                                         : Ink::panel());
             g.fillPath (shape);
             const juce::Font font (type::small, juce::Font::bold);
+            // Waskie okno: gdy nazwa sie nie miesci, w polu zostaje sam numer
+            // (nazwa biezacego kroku stoi i tak w karcie pod spodem).
             const int labelWidth = font.getStringWidth (steps[i]);
-            const int start = cell.getCentreX() - (22 + 9 + labelWidth) / 2;
+            const bool withLabel = 22 + 9 + labelWidth + 2 * (int) arrow + 8 <= cell.getWidth();
+            const int start = cell.getCentreX() - (withLabel ? 22 + 9 + labelWidth : 22) / 2 + (i > 0 && ! withLabel ? 4 : 0);
             const auto badge = juce::Rectangle<float> ((float) start, h / 2 - 11, 22, 22);
             g.setColour (done ? Ink::accent() : Ink::bg().withAlpha (0.7f));
             g.fillEllipse (badge);
@@ -71,6 +74,7 @@ public:
                 g.setFont (juce::Font (type::tiny, juce::Font::bold));
                 g.drawText (juce::String (i + 1), badge, juce::Justification::centred);
             }
+            if (! withLabel) continue;
             g.setColour (active ? Ink::onAccent() : done ? Ink::accent() : Ink::textDim());
             g.setFont (font);
             g.drawFittedText (steps[i], cell.withX (start + 31).withWidth (
@@ -114,8 +118,8 @@ private:
                 g.drawText (juce::String (i + 1), badge, juce::Justification::centred);
             }
             g.setColour (active ? Ink::onAccent() : done ? Ink::textNow() : Ink::textDim());
-            g.setFont (juce::Font (type::body, active ? juce::Font::bold : juce::Font::plain));
-            g.drawFittedText (steps[i], row.withTrimmedLeft (46.0f).withTrimmedRight (8.0f).toNearestInt(),
+            g.setFont (juce::Font (type::small, active ? juce::Font::bold : juce::Font::plain));
+            g.drawFittedText (steps[i], row.withTrimmedLeft (46.0f).withTrimmedRight (6.0f).toNearestInt(),
                               juce::Justification::centredLeft, 1);
         }
     }

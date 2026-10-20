@@ -85,7 +85,7 @@ public:
         flow.setSteps ({ PL("Przygotowanie"), PL("Nagranie"), PL("Odsłuch i montaż"), PL("Miks"), PL("Gotowe") });
         flow.setCurrent (0);
 
-        title.setFont (juce::Font (zs::type::title, juce::Font::bold));
+        title.setFont (juce::Font (zs::type::heading + 3.0f, juce::Font::bold));   // zdanie, nie nazwa: trzy wiersze w 76 px
         title.setColour (juce::Label::textColourId, zs::Ink::textNow());
         title.setJustificationType (juce::Justification::topLeft);
         addAndMakeVisible (title);
@@ -99,7 +99,7 @@ public:
         body.setJustificationType (juce::Justification::topLeft);
         addAndMakeVisible (body);
 
-        measured.setFont (juce::Font (juce::Font::getDefaultMonospacedFontName(), 12.5f, juce::Font::plain));
+        measured.setFont (juce::Font (juce::Font::getDefaultMonospacedFontName(), zs::type::small, juce::Font::plain));
         measured.setColour (juce::Label::textColourId, zs::Ink::textDim());
         addAndMakeVisible (measured);
         cumulative.setFont (juce::Font (zs::type::body));
@@ -181,7 +181,7 @@ public:
         g.setColour (zs::Ink::edge()); g.drawRoundedRectangle(card().toFloat(),6.0f,1.0f);
         auto side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24);
         g.setColour (zs::Ink::textNow()); g.setFont (juce::Font (zs::type::heading, juce::Font::bold));
-        g.drawText (PL("Dotychczasowe pomiary"), side.removeFromTop (32), juce::Justification::centredLeft);
+        g.drawText (PL("Wyniki pomiarów"), side.removeFromTop (32), juce::Justification::centredLeft);
 
         // ---- pasek postepu pomiaru albo kreska werdyktu ---------------------
         auto bar = progressBar();

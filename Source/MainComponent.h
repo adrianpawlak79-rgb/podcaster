@@ -204,7 +204,7 @@ public:
         g.fillRect (mark, r.getY(), 1.0f, r.getHeight());
 
         g.setColour (zs::Ink::textNext());
-        g.setFont (juce::Font (11.0f));
+        g.setFont (juce::Font (zs::type::tiny));
         g.drawText (db <= -59.0f ? juce::String ("cisza")
                                  : juce::String (db, 1) + " dBFS",
                     getLocalBounds().reduced (5, 0), juce::Justification::centredRight);
