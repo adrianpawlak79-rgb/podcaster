@@ -123,6 +123,14 @@ public:
         b.repaint();
     }
 
+    /** Waski przycisk: rysuje sam znak sprzed pierwszej spacji ("● Nagraj" -> "●"). */
+    static void setCompact (juce::Button& b, bool compact)
+    {
+        if ((bool) b.getProperties().getWithDefault ("zsCompact", false) == compact) return;
+        b.getProperties().set ("zsCompact", compact);
+        b.repaint();
+    }
+
     //==========================================================================
     juce::Font getTextButtonFont (juce::TextButton& b, int) override
     {
@@ -191,7 +199,10 @@ public:
             g.drawText (b.getButtonText(), r.toNearestInt(), juce::Justification::centredTop);
             return;
         }
-        auto r = b.getLocalBounds().reduced (12, 0);
+        // margines 12 px, ale krotki napis w waskim przycisku ("A+") dostaje
+        // tyle, ile zostaje — inaczej JUCE dawal w nim wielokropek
+        const int textW = getTextButtonFont (b, b.getHeight()).getStringWidth (b.getButtonText());
+        auto r = b.getLocalBounds().reduced (juce::jlimit (2, 12, (b.getWidth() - textW) / 2 - 1), 0);
         const juce::String key = b.getProperties().getWithDefault ("zsKey", {}).toString();
 
         if (key.isNotEmpty())
@@ -207,9 +218,12 @@ public:
             g.drawText (key, cap, juce::Justification::centred);
         }
 
+        auto label = b.getButtonText();
+        if ((bool) b.getProperties().getWithDefault ("zsCompact", false))
+            label = label.upToFirstOccurrenceOf (" ", false, false);
         g.setColour (text);
         g.setFont (getTextButtonFont (b, b.getHeight()));
-        g.drawFittedText (b.getButtonText(), r, juce::Justification::centred, 1);
+        g.drawFittedText (label, r, juce::Justification::centred, 1);
     }
 
     static constexpr float radius = 8.0f;

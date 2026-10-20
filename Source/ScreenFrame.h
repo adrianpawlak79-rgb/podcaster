@@ -62,6 +62,20 @@ struct ScreenFrame
         return (int) std::ceil (makeLayout (text, width, font, {}, juce::Justification::topLeft).getHeight());
     }
 
+    /** Podpowiedz klawiszy "a — x  ·  b — y  ·  c — z": gdy sie nie miesci,
+        odpadaja ostatnie pozycje (najwazniejsze stoja na poczatku) — zamiast
+        wielokropka w polowie slowa. */
+    static juce::String fitHints (const juce::String& text, const juce::Font& font, int width)
+    {
+        auto items = juce::StringArray::fromTokens (text, juce::String::fromUTF8 ("·"), {});
+        items.trim();
+        items.removeEmptyStrings();
+        const auto sep = juce::String::fromUTF8 ("   ·   ");
+        while (items.size() > 1 && font.getStringWidthFloat (items.joinIntoString (sep)) > (float) width)
+            items.remove (items.size() - 1);
+        return items.joinIntoString (sep);
+    }
+
     /** Naglowek tresci: etykieta kroku (18), tytul (40) i podtytul — jeden
         wiersz, a gdy sie nie miesci, dwa. Uklad (resized) i rysowanie (paint)
         pytaja o te sama liczbe, wiec przebieg nie wjedzie na podtytul. */
@@ -131,7 +145,7 @@ struct ScreenFrame
         const int nameW = juce::jmin (foot.getWidth() / 3, juce::Font (type::small).getStringWidth (name) + 24);
         g.drawText (name, foot.removeFromLeft (nameW), juce::Justification::centredLeft);
         g.setColour (Ink::textNext());
-        g.drawFittedText (hint, foot, juce::Justification::centredRight, 1);
+        g.drawText (fitHints (hint, juce::Font (type::small), foot.getWidth()), foot, juce::Justification::centredRight);
     }
 
 private:

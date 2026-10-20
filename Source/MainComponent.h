@@ -576,7 +576,7 @@ public:
         side.removeFromTop (inPrompter ? 20 : 28);
         meter.setBounds (side.removeFromTop (20)); side.removeFromTop (12);
         status.setBounds (side.removeFromTop (juce::jmin (78, side.getHeight())));
-        hints.setBounds (card.withY (card.getBottom() + 8).withHeight (28));
+        hints.setBounds (card.withY (card.getBottom() + 8).withHeight (28)); fitHintsLabel();
         if (detailsOpen)
         {
             auto area = card.reduced (18);
@@ -741,7 +741,7 @@ private:
         recButton.setVisible(!inWizard && !inReview && !preparation && !settingsOpen && !inPrompter);
         repeatButton.setVisible(false);
         hints.setVisible((inPrompter || rec) && !inWizard && !inReview);
-        hints.setText(PL(zs::ui::hintLine(rec, hasScript).c_str()), juce::dontSendNotification);
+        hintsFull = PL(zs::ui::hintLine(rec, hasScript).c_str()); fitHintsLabel();
         hints.setJustificationType(inPrompter ? juce::Justification::centred : juce::Justification::centredLeft);
     }
 
@@ -1324,6 +1324,8 @@ private:
     Meter meter;
     juce::TextButton recButton, repeatButton, folderButton, okButton, settingsButton, detailsButton, openButton;
     juce::Label hints;
+    juce::String hintsFull;               ///< pelna podpowiedz; w waskim oknie bez ostatnich pozycji
+    void fitHintsLabel() { hints.setText (zs::ScreenFrame::fitHints (hintsFull, hints.getFont(), hints.getWidth() - 8), juce::dontSendNotification); }
     juce::TextEditor nameInput, scriptInput;
     juce::ComboBox deviceBox, inputBox;   ///< karta i wejscie z mikrofonem
     bool noDevice = false;                ///< --preview-ui: karty nie otwieramy

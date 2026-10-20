@@ -767,7 +767,7 @@ public:
         playButton.setBounds (row.removeFromLeft (132)); row.removeFromLeft (10);
         // Style obok przed/po, gdy sie mieszcza (3 x 96 px); w malym oknie w osobnym
         // wierszu — inaczej przy 960 px byly to puste kafelki po 19 px (przeglad 14.10, nr 4).
-        const int styleW = 3 * 112 + 2 * 6, abMin = 200;
+        const int styleW = 3 * 104 + 2 * 6, abMin = 200;
         const bool styleInRow = row.getWidth() >= abMin + 16 + styleW;
         abButton.setBounds (row.removeFromLeft (juce::jmin (240, styleInRow ? row.getWidth() - 16 - styleW : row.getWidth())));
         if (styleInRow) row.removeFromLeft (16);
@@ -1013,8 +1013,9 @@ private:
             for (auto* b : { &markStart, &markEnd, &cutButton, &undoButton }) { b->setBounds (cuts.removeFromLeft (w)); cuts.removeFromLeft (8); b->setVisible (middleMode); }
             selection.setVisible (middleMode); selection.setBounds (main.removeFromTop (middleMode ? 24 : 0));
             feedbackArea = main.removeFromTop (24); main.removeFromTop (4);
-            summaryArea = main.removeFromTop (juce::jmin (zs::ScreenFrame::wrappedHeight (safeNote(), main.getWidth() - 24, juce::Font (zs::type::small)) + 12,
-                                                          main.getHeight()));
+            // cala notka albo zadna — ucieta w polowie wiersza byla nieczytelna (960x640)
+            const int noteH = zs::ScreenFrame::wrappedHeight (safeNote(), main.getWidth() - 24, juce::Font (zs::type::small)) + 12;
+            summaryArea = noteH <= main.getHeight() ? main.removeFromTop (noteH) : juce::Rectangle<int>();
         }
         auto side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24); side.removeFromTop (40);
         auto actions = side.removeFromBottom (124);

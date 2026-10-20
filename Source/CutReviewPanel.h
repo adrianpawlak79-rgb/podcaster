@@ -3,6 +3,7 @@
 #include "PunchFile.h"
 #include <algorithm>
 #include "Look.h"
+#include "ScreenFrame.h"
 #include "DSP/TakeReview.h"
 
 // Lista decyzji pracuje na czasach surowego pliku. Przebieg i szkic granic
@@ -56,7 +57,7 @@ public:
         auto r = getLocalBounds().reduced(8);
         r.removeFromTop(32);
         apply.setBounds(r.removeFromBottom(36));
-        r.removeFromBottom(25);
+        r.removeFromBottom(hintHeight(r.getWidth()) + 6);
         viewport.setBounds(r);
         const int w = juce::jmax(1, r.getWidth() - viewport.getScrollBarThickness());
         int y = 0;
@@ -69,22 +70,27 @@ public:
     void paint(juce::Graphics& g) override
     {
         g.setColour(Ink::panel()); g.fillRoundedRectangle(getLocalBounds().toFloat(), 6);
+        g.setColour(Ink::textNow()); g.setFont(juce::Font(zs::type::body, juce::Font::bold));
+        g.drawText(tr("Po R: ") + places((int)list.size()) + tr(" do sprawdzenia"),
+                   getLocalBounds().reduced(8).removeFromTop(28), juce::Justification::centredLeft);
+        const auto area = getLocalBounds().reduced(8).withTrimmedBottom(36 + 3);
+        zs::ScreenFrame::wrapped(g, hint(), area.withTop(area.getBottom() - hintHeight(area.getWidth())),
+                                 juce::Font(zs::type::small), Ink::textDim());
+    }
+    /** Zdanie nad "Wytnij zaznaczone"; zawija sie, gdy panel jest waski. */
+    juce::String hint() const
+    {
         int cut = 0, pending = 0;
         for (const auto& p : list) {
             if (p.state == tw::CutProposal::State::Accepted) ++cut;
             if (p.state == tw::CutProposal::State::Pending) ++pending;
         }
-        g.setColour(Ink::textNow()); g.setFont(juce::Font(zs::type::body, juce::Font::bold));
-        g.drawText(tr("Po R: ") + places((int)list.size()) + tr(" do sprawdzenia"),
-                   getLocalBounds().reduced(8).removeFromTop(28), juce::Justification::centredLeft);
-        g.setColour(Ink::textDim()); g.setFont(juce::Font(zs::type::small));
-        const juce::String hint = pending > 0
+        return pending > 0
             ? tr("Posłuchaj miejsc oznaczonych „sprawdź”. Czego nie zaznaczysz, zostanie w nagraniu.")
             : cut > 0 ? tr("Nagranie zmieni się dopiero po „Wytnij zaznaczone”. Pełne nagranie zostanie w folderze surowe.")
                       : tr("Nic nie jest zaznaczone — nagranie zostanie bez zmian.");
-        g.drawFittedText(hint, getLocalBounds().reduced(8).withTrimmedBottom(36).removeFromBottom(25),
-                         juce::Justification::centredLeft, 1);
     }
+    int hintHeight(int width) const { return zs::ScreenFrame::wrappedHeight(hint(), width, juce::Font(zs::type::small)); }
     /** 1 miejsce, 2-4 miejsca, 5 miejsc (12-14 miejsc). */
     static juce::String places(int n)
     {
@@ -154,9 +160,13 @@ private:
         void resized() override {
             auto r=getLocalBounds().reduced(8);
             auto buttons=r.removeFromBottom(32);
-            const int gap=6, w=(buttons.getWidth()-2*gap)/3;
-            listen.setBounds(buttons.removeFromLeft(w)); buttons.removeFromLeft(gap);
-            yes.setBounds(buttons.removeFromLeft(w)); buttons.removeFromLeft(gap); no.setBounds(buttons);
+            // Kazdy przycisk na swoj napis ("Posluchaj polaczenia" nie miescil sie w 1/3).
+            const int gap=6;
+            const auto need=[](juce::TextButton& b) { return juce::Font(zs::type::body).getStringWidth(b.getButtonText())+28; };
+            const int lw=juce::jmin(need(listen), buttons.getWidth()/2);
+            listen.setBounds(buttons.removeFromLeft(lw)); buttons.removeFromLeft(gap);
+            const int yw=no.isVisible() ? juce::jmax(need(yes), (buttons.getWidth()-gap)/2) : juce::jmin(buttons.getWidth(), juce::jmax(need(yes), 200));
+            yes.setBounds(buttons.removeFromLeft(juce::jmin(yw, buttons.getWidth()))); buttons.removeFromLeft(gap); no.setBounds(buttons);
             r.removeFromTop(58); wave=r.withTrimmedBottom(8);
         }
         float x(double t) const { return wave.getX() + float((t-left)/juce::jmax(0.001,right-left))*wave.getWidth(); }
@@ -229,8 +239,9 @@ private:
             const bool on = p.state==tw::CutProposal::State::Accepted;
             row->yes.setButtonText(p.sure ? (on ? tr("Odznacz") : tr("Zaznacz do wycięcia"))
                                           : (on ? tr("Zaznaczone") : tr("Zaznacz do wycięcia")));
-            row->yes.setEnabled(row->to>row->from); row->repaint();
+            row->yes.setEnabled(row->to>row->from); row->resized(); row->repaint();
         }
+        resized();   // zdanie nad przyciskiem moze miec teraz inna liczbe wierszy
         repaint();
     }
     juce::File file;
