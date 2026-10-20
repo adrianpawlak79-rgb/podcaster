@@ -112,7 +112,18 @@ countries: pl
     }
 
     void shutdown() override { mainWindow = nullptr; juce::LookAndFeel::setDefaultLookAndFeel(nullptr); }
-    void systemRequestedQuit() override { quit(); }
+    // Kazda prosba o zamkniecie (X, Alt+F4, wylogowanie) idzie przez
+    // MainComponent::requestClose — nagranie i niezapisany montaz nie gina po cichu.
+    void systemRequestedQuit() override
+    {
+        if (mainWindow != nullptr)
+            if (auto* main = dynamic_cast<MainComponent*> (mainWindow->getContentComponent()))
+            {
+                main->requestClose ([] { juce::MessageManager::callAsync ([] { if (auto* app = JUCEApplicationBase::getInstance()) app->quit(); }); });
+                return;
+            }
+        quit();
+    }
 
     class MainWindow : public juce::DocumentWindow
     {

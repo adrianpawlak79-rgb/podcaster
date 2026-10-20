@@ -447,6 +447,36 @@ public:
         deviceManager.removeAudioCallback (&recorder);
     }
 
+    /** Zamkniecie okna (X, Alt+F4, wylogowanie). Nic nie ginie po cichu:
+        w trakcie nagrywania — "Zakoncz i zamknij" konczy nagranie tak samo
+        jak Esc (plik zamkniety, R do montazu), niezapisany montaz — pytanie.
+        quitNow wolane dopiero, gdy wolno. */
+    void requestClose (std::function<void()> quitNow)
+    {
+        if (closeAsked) return;                       // okno z pytaniem juz jest
+        const auto ask = zs::ui::closing::ask (recorder.isRecording(),
+                                               review != nullptr && review->hasUnsavedEdits());
+        if (ask == zs::ui::closing::Ask::None) { quitNow(); return; }
+
+        closeAsked = true;
+        const bool rec = ask == zs::ui::closing::Ask::Recording;
+        juce::AlertWindow::showOkCancelBox (juce::AlertWindow::QuestionIcon,
+            rec ? PL ("Trwa nagrywanie") : PL ("Niezapisane zmiany"),
+            rec ? PL ("Zakończyć nagrywanie i zamknąć program?\n\nNagranie zostanie zapisane, a pomyłki po R zaczekają w montażu.")
+                : PL ("Montaż (cięcia, przycięcie) nie trafił do zapisanego miksu i zniknie po zamknięciu.\n\n")
+                  + PL ("Oryginalne nagranie zostaje na dysku bez zmian."),
+            rec ? PL ("Zakończ i zamknij") : PL ("Zamknij bez zapisu"),
+            rec ? PL ("Nagrywaj dalej") : PL ("Wróć"), this,
+            juce::ModalCallbackFunction::create ([safe = juce::Component::SafePointer<MainComponent> (this), rec, quitNow] (int result)
+            {
+                if (safe == nullptr) return;
+                safe->closeAsked = false;
+                if (result != 1) return;
+                if (rec && safe->recorder.isRecording()) safe->toggleRecord();   // jak Esc: zapis i R
+                quitNow();
+            }));
+    }
+
     /** Dla okna, ktore chce zapamietac swoje polozenie. */
     Settings& userSettings() noexcept { return settings; }
     void previewSettings() { settingsOpen=true;resized();repaint(); }
@@ -1615,6 +1645,7 @@ private:
 
     bool inWizard = true, wizardStarted = false;
     bool inReview = false, reviewCameFromPrompter = false;
+    bool closeAsked = false;              ///< okno "czy zamknac" juz pokazane
     std::unique_ptr<ReviewComponent> review;
     std::vector<tw::Event> takeEvents;
     zs::LampLogic logic;

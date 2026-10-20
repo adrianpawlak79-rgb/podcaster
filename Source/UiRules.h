@@ -270,6 +270,19 @@ inline std::string hintLine (bool recording, bool hasScript)
                      : "Spacja albo Nagraj — zacznij nagrywać";
 }
 
+/** Zamkniecie programu (zasady 20.10: ochrona przed przypadkowa utrata).
+    Nagrywanie: najpierw zakonczyc jak Esc (zapis, R do montazu), potem
+    zamknac. Niezapisany montaz w pamieci: zapytac. Reszta lezy na dysku. */
+namespace closing
+{
+    enum class Ask { None, Recording, Unsaved };
+
+    inline Ask ask (bool recording, bool unsavedEdits)
+    {
+        return recording ? Ask::Recording : unsavedEdits ? Ask::Unsaved : Ask::None;
+    }
+}
+
 /** Najdluzsza sesja (audyt 14.10: "ogranicz i przetestuj dlugosc sesji").
 
     60 min to tyle, ile sprawdzil zs-dlugo (13.10): nagranie, R, ocena i miks
