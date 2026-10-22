@@ -672,6 +672,12 @@ private:
             plain.push_back ("Mniej dudnienia i „pudełka” w głosie.");
         if (p.useDeEsser)
             plain.push_back ("Złagodzono ostre „s”, „sz” i „c”.");
+        if (report.profileUsed)
+            plain.push_back ("Barwa dociągnięta do Twojego wzorca brzmienia"
+                             + (p.profile.label.empty() ? std::string() : " (" + p.profile.label + ")")
+                             + " — żeby odcinki brzmiały jak jedna seria.");
+        else if (p.profile.valid())
+            plain.push_back ("Barwa zgadza się z Twoim wzorcem brzmienia — bez korekty.");
 
         if (report.clicksRepaired > 0)
         {
