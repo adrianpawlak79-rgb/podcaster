@@ -172,6 +172,7 @@ public:
         assessment.setColour (juce::TextEditor::textColourId, Ink::textNext());
         assessment.setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
         assessment.setColour (juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
+        assessment.setIndents (0, 4);                      // rowno z naglowkiem panelu (bylo 5 px w prawo)
         addAndMakeVisible (assessment);
         // Miks na koncu (ustalone 13.10, ZADANIA zad. 11): najpierw odsluch i montaz
         // SUROWEGO nagrania, potem raz liczony miks z wyborem brzmienia, potem zapis.
@@ -239,6 +240,7 @@ public:
             editor->setColour (juce::TextEditor::textColourId, Ink::textNext());
             editor->setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
             editor->setColour (juce::TextEditor::focusedOutlineColourId, Ink::edge());
+            editor->setIndents (0, 0);                      // rowno z etykietami nad nim
             addAndMakeVisible (*editor);
         }
         addAndMakeVisible(selection);
@@ -851,7 +853,7 @@ private:
         savedPath.setBounds (main.removeFromTop (72).reduced (12, 0)); savedPath.setVisible (true);
         auto side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24);
         side.removeFromTop (40 + 24);
-        savedName.setBounds (side.removeFromTop (60)); savedName.setVisible (true);
+        savedName.setBounds (side.removeFromTop (44)); savedName.setVisible (true);
         side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24);
         auto actions = side.removeFromBottom (80);
         newTakeButton.setBounds (actions.removeFromBottom (36)); actions.removeFromBottom (8);
@@ -882,15 +884,16 @@ private:
         g.setColour (Ink::textNow()); g.setFont (juce::Font (zs::type::heading, juce::Font::bold));
         g.drawText (PL("Plik końcowy"), side.removeFromTop (40), juce::Justification::centredLeft);
         g.setFont (juce::Font (zs::type::small)); g.setColour (Ink::textDim());
+        // rowny rytm: etykieta, wartosc, odstep (nazwa pliku w polu do zaznaczenia, 2 wiersze)
         g.drawText (PL("Nazwa"), side.removeFromTop (24), juce::Justification::centredLeft);
-        side.removeFromTop (60);
+        side.removeFromTop (44 + 14);
         const auto row = [&] (const juce::String& label, const juce::String& value, int height) {
             auto r = side.removeFromTop (height);
             g.setColour (Ink::textDim()); g.drawText (label, r.removeFromTop (18), juce::Justification::centredLeft);
             g.setColour (Ink::textNow()); g.drawText (value, r.removeFromTop (22), juce::Justification::centredLeft);
         };
-        row (PL("Format"), "WAV 24-bit", 62); // Miejsce na drugi wiersz formatu.
-        row (PL("Długość"), plr::clock (review.seconds()) + " (" + juce::String (review.seconds(), 1) + " s)", 42);
+        row (PL("Format"), "WAV 24-bit", 54);
+        row (PL("Długość"), plr::clock (review.seconds()) + " (" + juce::String (review.seconds(), 1) + " s)", 54);
         // Audyt 14.10: "LUFS" i "dBTP" na glownym ekranie wymagaja wiedzy audio.
         row (PL("Gotowa głośność"), PL("Jak w podcastach (mono)"), 42);
         g.setColour (Ink::textDim());
@@ -1065,7 +1068,8 @@ private:
         main.removeFromTop(44);
         if(cutPanel.empty()) {
             auto row=main.removeFromTop(54);auto left=row.removeFromLeft((row.getWidth()-16)/2);row.removeFromLeft(16);
-            g.setFont(juce::Font(zs::type::small));g.drawText(PL("Początek: ")+juce::String(trimStart.getValue(),1)+" s",left,juce::Justification::topLeft);g.drawText(PL("Koniec: ")+juce::String(trimEnd.getValue(),1)+" s",row,juce::Justification::topLeft);
+            // zwykly kolor: czerwony w programie znaczy "blad", a to tylko czasy
+            g.setColour(Ink::textNext());g.setFont(juce::Font(zs::type::small));g.drawText(PL("Początek: ")+juce::String(trimStart.getValue(),1)+" s",left,juce::Justification::topLeft);g.drawText(PL("Koniec: ")+juce::String(trimEnd.getValue(),1)+" s",row,juce::Justification::topLeft);
         }
         g.setColour(Ink::textNow());g.setFont(juce::Font(zs::type::heading,juce::Font::bold));g.drawText(PL("Do sprawdzenia"),side.reduced(22,24).removeFromTop(32),juce::Justification::centredLeft);
         g.setFont(juce::Font(zs::type::small));g.setColour(Ink::textNext());g.drawFittedText(note,feedbackArea,juce::Justification::topLeft,2);
