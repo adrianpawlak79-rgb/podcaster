@@ -19,6 +19,8 @@
 */
 
 #include "../Source/UiRules.h"
+#include "../Source/Fonts.h"
+#include <regex>
 
 #include <cmath>
 #include <cstdio>
@@ -244,6 +246,26 @@ int main()
         check (S::phase (3600.0) == S::Phase::Stop, "w 60. minucie stop", "");
         check (S::minutesLeft (55 * 60.0) == 5 && S::minutesLeft (3599.5) == 1, "zostalo: pelne minuty, co najmniej 1",
                std::to_string (S::minutesLeft (55 * 60.0)));
+    }
+
+    // Czytelnosc (20.10): w JUCE rozmiar to wysokosc wiersza, nie litery —
+    // 13 dawalo pismo jak 10 pkt. Najmniejszy stopien 12,5, tresc 17; zadna
+    // liczba wpisana na sztywno w zrodlach nie schodzi ponizej najmniejszego.
+    {
+        check (zs::type::tiny >= 12.5f && zs::type::small >= 15.0f && zs::type::body >= 17.0f,
+               "stopnie pisma co najmniej 12,5 / 15 / 17", std::to_string (zs::type::body));
+        const std::regex literal (R"(Font\s*\(\s*([0-9]+(\.[0-9]+)?)f?\s*[,)])");
+        for (const char* name : { "Look.h", "ScreenFrame.h", "StepBar.h", "MainComponent.h", "PrompterComponent.h",
+                                  "ReviewComponent.h", "WizardComponent.h", "CutReviewPanel.h" })
+        {
+            std::ifstream in (std::string ("../Source/") + name);
+            std::stringstream ss; ss << in.rdbuf();
+            const std::string src = ss.str();
+            check (! src.empty(), "zrodlo do sprawdzenia pisma", name);
+            for (std::sregex_iterator it (src.begin(), src.end(), literal), end; it != end; ++it)
+                check (std::stof ((*it)[1].str()) >= zs::type::tiny, "pismo nie mniejsze niz type::tiny",
+                       std::string (name) + ": " + it->str());
+        }
     }
 
     std::printf ("\n%s\n\n", fails == 0 ? "wszystko przeszlo" : "SA BLEDY");

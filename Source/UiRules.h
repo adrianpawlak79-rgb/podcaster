@@ -148,7 +148,7 @@ namespace frame
     // tekst promptera ma więcej wysokości.
     constexpr int header = 64, steps = 0, footer = 42;
     constexpr int margin = 28, sidePadding = 22;
-    inline int navWidth (int width) { return std::clamp (width / 7, 176, 224); }
+    inline int navWidth (int width) { return std::clamp (width / 6, 204, 232); }
     inline int sideWidth (int width) { return std::clamp (width / 4, 260, 316); }
 }
 

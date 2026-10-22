@@ -156,7 +156,7 @@ public:
         words.setReadOnly (true);
         words.setScrollbarsShown (true);
         words.setCaretVisible (false);
-        words.setFont (juce::Font (13.5f));
+        words.setFont (juce::Font (zs::type::small));
         words.setColour (juce::TextEditor::backgroundColourId, Ink::bg());
         words.setColour (juce::TextEditor::textColourId,       Ink::textNext());
         words.setColour (juce::TextEditor::outlineColourId,    juce::Colours::transparentBlack);
@@ -182,7 +182,7 @@ public:
         editToggle.onClick=[this] { setEditMode (true); };
         detailsToggle.setButtonText(PL("Szczegóły miksu"));
         detailsToggle.onClick=[this] { detailsMode=!detailsMode;resized();repaint(); };
-        nextButton.setButtonText(PL("Następne miejsce do sprawdzenia"));
+        nextButton.setButtonText(PL("Następne miejsce")); zs::Look::setKey(nextButton,"N");
         nextButton.onClick=[this] { nextTrouble(); };
         // Powiekszenie fali: wokol igly (kolko myszy — wokol kursora).
         zoomIn.setButtonText ("+"); zoomOut.setButtonText (PL ("−")); zoomAllButton.setButtonText (PL ("Całość"));
@@ -762,18 +762,18 @@ public:
         saveButton.setButtonText(PL("Zapisz miks"));
         assessment.setText(reviewSummary, false);
         auto main = zs::ScreenFrame::mainArea (getLocalBounds());
-        main.removeFromTop (78 + waveHeight() + L::strip + 8);
+        main.removeFromTop (headH() + waveHeight() + L::strip + 8);
         auto row = main.removeFromTop (L::buttons);
         playButton.setBounds (row.removeFromLeft (132)); row.removeFromLeft (10);
         // Style obok przed/po, gdy sie mieszcza (3 x 96 px); w malym oknie w osobnym
         // wierszu — inaczej przy 960 px byly to puste kafelki po 19 px (przeglad 14.10, nr 4).
-        const int styleW = 3 * 96 + 2 * 6, abMin = 200;
+        const int styleW = 3 * 104 + 2 * 6, abMin = 200;
         const bool styleInRow = row.getWidth() >= abMin + 16 + styleW;
         abButton.setBounds (row.removeFromLeft (juce::jmin (240, styleInRow ? row.getWidth() - 16 - styleW : row.getWidth())));
         if (styleInRow) row.removeFromLeft (16);
         else { main.removeFromTop (8); row = main.removeFromTop (L::buttons); }
         {
-            const int w = juce::jlimit (0, 120, (row.getWidth() - 2 * 6) / 3);
+            const int w = juce::jlimit (0, 124, (row.getWidth() - 2 * 6) / 3);
             for (auto& b : styleButtons) { b.setVisible (true); b.setBounds (row.removeFromLeft (w)); row.removeFromLeft (6); }
         }
         main.removeFromTop (8);
@@ -811,13 +811,7 @@ public:
         auto side = zs::ScreenFrame::sidebar (getLocalBounds());
         g.setColour (Ink::bar()); g.fillRect (side);
         g.setColour (Ink::edge()); g.drawVerticalLine (side.getX(), (float) side.getY(), (float) side.getBottom());
-        auto main = zs::ScreenFrame::mainArea (getLocalBounds());
-        g.setColour (Ink::textDim()); g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
-        g.drawText (PL("04 / MIKS"), main.removeFromTop (18), juce::Justification::centredLeft);
-        g.setColour (Ink::textNow()); g.setFont (juce::Font (zs::type::title, juce::Font::bold));
-        g.drawText (PL("Wybierz brzmienie"), main.removeFromTop (36), juce::Justification::centredLeft);
-        g.setColour (Ink::textNext()); g.setFont (juce::Font (zs::type::body));
-        g.drawFittedText (PL("Delikatny — naturalnie · Studyjny — wyrównany · Mocny — radiowy. Ta sama głośność, porównaj przed i po."), main.removeFromTop (24), juce::Justification::centredLeft, 1);
+        auto main = zs::ScreenFrame::paintHead (g, getLocalBounds(), PL("04 / MIKS"), PL("Wybierz brzmienie"), subtitle());
         drawWave (g, main.removeFromTop (waveHeight()));
         drawStrip (g, main.removeFromTop (zs::ui::review::strip));
         side = side.reduced (22, 24);
@@ -826,19 +820,15 @@ public:
         drawVerdict (g, side.removeFromTop (84));
         g.setColour (Ink::textNext()); g.setFont (juce::Font (zs::type::small));
         if (note.isNotEmpty()) g.drawFittedText (note, feedbackArea, juce::Justification::centredLeft, 2);
+        auto summary = summaryArea;
         if (!detailsMode && review.stage() == zs::TakeReview::Stage::Ready)
-        {
-            g.setColour (Ink::textNext()); g.setFont (juce::Font (zs::type::small));
-            g.drawFittedText (PL("Miks został dobrany automatycznie. Posłuchaj, zanim zapiszesz — po prawej, co zrobił i dlaczego."),
-                              summaryArea, juce::Justification::topLeft, 3);
-        }
+            summary.removeFromTop (zs::ScreenFrame::wrapped (g, PL("Miks został dobrany automatycznie. Posłuchaj, zanim zapiszesz — po prawej, co zrobił i dlaczego."),
+                                                             summary, juce::Font (zs::type::small), Ink::textNext()) + 6);
+        // sama nazwa pliku — pelna sciezka zajmowala dwa wiersze; folder otwiera "Pokaz w folderze"
         if (!detailsMode && file != juce::File())
-        {
-            g.setColour (Ink::textDim()); g.setFont (juce::Font (zs::type::small));
-            g.drawFittedText (PL("Nagranie: ") + file.getFullPathName()
-                                + (saved.existsAsFile() ? PL("\nMiks: ") + saved.getFullPathName() : juce::String()),
-                              summaryArea.withTrimmedTop (28), juce::Justification::topLeft, 3);
-        }
+            zs::ScreenFrame::wrapped (g, PL("Nagranie: ") + file.getFileName()
+                                        + (saved.existsAsFile() ? PL("   ·   Miks: ") + saved.getFileName() : juce::String()),
+                                      summary, juce::Font (zs::type::small), Ink::textDim());
     }
 
 private:
@@ -979,7 +969,7 @@ private:
         flow.setBounds (zs::ScreenFrame::stepsArea (getLocalBounds())); flow.setCurrent (2);
         namespace L = zs::ui::review;
         abButton.setVisible (false); detailsToggle.setVisible (false); words.setVisible (false);
-        auto main = zs::ScreenFrame::mainArea (getLocalBounds()); main.removeFromTop (78 + waveHeight() + L::strip + 8);
+        auto main = zs::ScreenFrame::mainArea (getLocalBounds()); main.removeFromTop (headH() + waveHeight() + L::strip + 8);
         const bool decide = ! cutPanel.empty();
         for (auto* c : { static_cast<juce::Component*>(&trimStart), static_cast<juce::Component*>(&trimEnd),
                          static_cast<juce::Component*>(&startHandle), static_cast<juce::Component*>(&endHandle),
@@ -1022,7 +1012,10 @@ private:
             auto cuts = main.removeFromTop (middleMode ? 32 : 0); const int w = (cuts.getWidth() - 24) / 4;
             for (auto* b : { &markStart, &markEnd, &cutButton, &undoButton }) { b->setBounds (cuts.removeFromLeft (w)); cuts.removeFromLeft (8); b->setVisible (middleMode); }
             selection.setVisible (middleMode); selection.setBounds (main.removeFromTop (middleMode ? 24 : 0));
-            feedbackArea = main.removeFromTop (24); summaryArea = main.removeFromTop (juce::jmin (46, main.getHeight()));
+            feedbackArea = main.removeFromTop (24); main.removeFromTop (4);
+            // cala notka albo zadna — ucieta w polowie wiersza byla nieczytelna (960x640)
+            const int noteH = zs::ScreenFrame::wrappedHeight (safeNote(), main.getWidth() - 24, juce::Font (zs::type::small)) + 12;
+            summaryArea = noteH <= main.getHeight() ? main.removeFromTop (noteH) : juce::Rectangle<int>();
         }
         auto side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24); side.removeFromTop (40);
         auto actions = side.removeFromBottom (124);
@@ -1065,13 +1058,8 @@ private:
                              : PL("Spacja — połączenie · Enter — zaznacz do wycięcia · Backspace — zostaw · ↑↓ — miejsca · Esc — wróć"));
         auto side=zs::ScreenFrame::sidebar(getLocalBounds());g.setColour(Ink::bar());g.fillRect(side);
         g.setColour(Ink::edge());g.drawVerticalLine(side.getX(),side.getY(),side.getBottom());
-        auto main=zs::ScreenFrame::mainArea(getLocalBounds());
-        g.setColour(Ink::textDim());g.setFont(juce::Font(zs::type::tiny,juce::Font::bold));g.drawText(PL("03 / ODSŁUCH I MONTAŻ"),main.removeFromTop(18),juce::Justification::centredLeft);
-        g.setColour(Ink::textNow());g.setFont(juce::Font(zs::type::title,juce::Font::bold));g.drawText(PL("Posłuchaj i popraw"),main.removeFromTop(36),juce::Justification::centredLeft);
-        g.setColour(Ink::textNext());g.setFont(juce::Font(zs::type::body));
-        g.drawFittedText(cutPanel.empty() ? PL("Surowe nagranie, jeszcze bez miksu. Kliknij falę, aby posłuchać; przeciągnij, aby zaznaczyć fragment.")
-                                          : PL("Surowe nagranie, jeszcze bez miksu. Najpierw zdecyduj o poprawkach po R."),
-                         main.removeFromTop(24),juce::Justification::centredLeft,1);
+        auto main=zs::ScreenFrame::paintHead(g,getLocalBounds(),PL("03 / ODSŁUCH I MONTAŻ"),PL("Posłuchaj i popraw"),subtitle());
+        g.setColour(Ink::textNext());
         drawWave(g,main.removeFromTop(waveHeight()));
         drawStrip(g,main.removeFromTop(zs::ui::review::strip));main.removeFromTop(8);
         main.removeFromTop(44);
@@ -1083,7 +1071,7 @@ private:
         g.setFont(juce::Font(zs::type::small));g.setColour(Ink::textNext());g.drawFittedText(note,feedbackArea,juce::Justification::topLeft,2);
         if(!summaryArea.isEmpty()) {
             g.setColour(Ink::green().withAlpha(.15f));g.fillRoundedRectangle(summaryArea.toFloat(),4.f);g.setColour(Ink::green());
-            g.drawFittedText(PL("Oryginalne nagranie zostaje bez zmian na dysku. Zmiany dotyczą kopii, z której powstanie miks."),summaryArea.reduced(10,4),juce::Justification::centredLeft,3);
+            zs::ScreenFrame::wrapped(g,safeNote(),summaryArea.reduced(12,6),juce::Font(zs::type::small),Ink::green(),juce::Justification::centredLeft);
         }
     }
     // cutRange usuwa zakres: najpierw koniec, potem poczatek, aby czasy
@@ -1261,13 +1249,23 @@ private:
     }
     //==========================================================================
     /** Rosnie z oknem — liczby i uzasadnienie w zs::ui::review (UiRules.h). */
-    int waveHeight() const { if(!cutPanel.empty() && editMode) return getHeight()<720 ? 0 : 80; const int h=zs::ui::review::waveHeight(getHeight()); return editMode ? juce::jmax(120,h-(middleMode?72:16)) : h; }
+    int waveHeight() const { if(!cutPanel.empty() && editMode) return getHeight()<720 ? 0 : 80; const int h=juce::jmax(zs::ui::review::waveMin,zs::ui::review::waveHeight(getHeight())-juce::jmax(0,headH()-78)); return editMode ? juce::jmax(120,h-(middleMode?72:16)) : h; }
+
+    /** Podtytul ekranu: montaz (z decyzjami po R albo bez) albo miks. */
+    juce::String subtitle() const
+    {
+        if (! editMode) return PL("Delikatny — naturalnie · Studyjny — wyrównany · Mocny — radiowy. Ta sama głośność, porównaj przed i po.");
+        return cutPanel.empty() ? PL("Surowe nagranie, jeszcze bez miksu. Kliknij falę, aby posłuchać; przeciągnij, aby zaznaczyć fragment.")
+                                : PL("Surowe nagranie, jeszcze bez miksu. Najpierw zdecyduj o poprawkach po R.");
+    }
+    static juce::String safeNote() { return PL("Oryginalne nagranie zostaje bez zmian na dysku. Zmiany dotyczą kopii, z której powstanie miks."); }
+    int headH() const { return zs::ScreenFrame::headHeight (getLocalBounds(), subtitle()); }
 
     juce::Rectangle<int> waveArea() const
     {
         namespace L = zs::ui::review;
         auto r = zs::ScreenFrame::mainArea (getLocalBounds());
-        r.removeFromTop (78);
+        r.removeFromTop (headH());
         return r.removeFromTop (waveHeight() + L::strip);
     }
 
@@ -1582,7 +1580,7 @@ private:
         }
 
         g.setColour (Ink::textDim());
-        g.setFont (juce::Font (11.0f));
+        g.setFont (juce::Font (zs::type::tiny));
         juce::String clock = plr::clock (player.positionSec()) + " / " + plr::clock (review.seconds());
         if (zoomed())
         {
@@ -1629,7 +1627,7 @@ private:
 
         // Fragmenty do powtorzenia dostaja podpis z czasem — to jedyna rzecz z
         // tego ekranu, ktora czlowiek bedzie przepisywal na kartke.
-        g.setFont (juce::Font (12.0f, juce::Font::bold));
+        g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
         g.setColour (Ink::clip());
 
         // Najwyzej trzy czasy wypisane wprost.

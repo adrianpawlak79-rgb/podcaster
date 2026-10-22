@@ -88,7 +88,7 @@ public:
         smallerButton.setButtonText(PL("A−"));smallerButton.onClick=[this]{zoom(-.1f);};
         largerButton.setButtonText("A+");largerButton.onClick=[this]{zoom(.1f);};
         previousButton.setButtonText(PL("← Cofnij tekst"));previousButton.onClick=[this]{nudge(-4);};
-        nextButton.setButtonText(PL("Dalej →"));nextButton.onClick=[this]{nudge(4);};
+        nextButton.setButtonText(PL("→ Dalej"));nextButton.onClick=[this]{nudge(4);};
         mirrorButton.setButtonText(PL("Lustro"));mirrorButton.onClick=[this]{mirror=!mirror;settings.setMirrored(mirror);repaint();};
         for(auto* b:{&backButton,&smallerButton,&largerButton,&previousButton,&nextButton,&mirrorButton})addAndMakeVisible(b);
         setupTransport();
@@ -462,8 +462,21 @@ public:
     {
         auto row = stripLayout (stripCard()).transport.toNearestInt();
         row.removeFromRight (64);                      // czas nagrania
-        const int w = juce::jlimit (70, 118, (row.getWidth() - 3 * 8) / 4);
-        for (auto* b : { &tRecord, &tPause, &tPlay, &tEnd }) { b->setBounds (row.removeFromLeft (w)); row.removeFromLeft (8); }
+        // Kazdy przycisk tak szeroki jak jego napis. Gdy cztery sie nie mieszcza
+        // (male okno), zostaja same znaki ● ❚❚ ▶ ■ — jak w odtwarzaczu; nazwy
+        // i klawisze stoja w podpowiedzi pod spodem.
+        const juce::Font f (zs::type::body, juce::Font::bold);
+        const auto widthOf = [&] (juce::Button* b) { return f.getStringWidth (b->getButtonText()) + 32; };
+        int need = 3 * 8;
+        for (auto* b : { &tRecord, &tPause, &tPlay, &tEnd }) need += juce::jmax (widthOf (b), widthOf (&tPlay));
+        const bool compact = need > row.getWidth();
+        const int w = compact ? juce::jlimit (40, 64, (row.getWidth() - 3 * 8) / 4)
+                              : juce::jmax (widthOf (&tRecord), widthOf (&tPause), widthOf (&tPlay), widthOf (&tEnd));
+        for (auto* b : { &tRecord, &tPause, &tPlay, &tEnd })
+        {
+            zs::Look::setCompact (*b, compact);
+            b->setBounds (row.removeFromLeft (w)); row.removeFromLeft (8);
+        }
     }
 
     //==========================================================================
@@ -613,8 +626,14 @@ public:
                 const float x = xOf (pz.cutSec);
                 g.setColour (Ink::red());
                 g.fillRect (juce::Rectangle<float> (x - 1.5f, wave.getY() - 2.0f, 3.0f, wave.getHeight() + 4.0f));
-                g.setFont (juce::Font (zs::type::small, juce::Font::bold));
-                g.drawText (PL ("stąd nagrasz od nowa"), juce::Rectangle<float> (x + 6.0f, wave.getY(), 200.0f, 16.0f), juce::Justification::centredLeft);
+                const juce::Font f (zs::type::small, juce::Font::bold);
+                const auto label = PL ("stąd nagrasz od nowa");
+                const float lw = (float) f.getStringWidth (label);
+                // przy prawym brzegu podpis po lewej stronie linii — inaczej wychodzil poza karte
+                const bool left = x + 6.0f + lw > wave.getRight();
+                g.setFont (f);
+                g.drawText (label, juce::Rectangle<float> (left ? x - 6.0f - lw : x + 6.0f, wave.getY(), lw, 16.0f),
+                            left ? juce::Justification::centredRight : juce::Justification::centredLeft);
             }
             if (pz.playStartMs >= 0.0)
             {
@@ -675,11 +694,18 @@ public:
             g.setColour (Ink::yellow());
             g.fillRect (hint.getX(), hint.getCentreY() - 5.0f, 3.0f, 10.0f);
             g.fillRect (hint.getX() + 5.0f, hint.getCentreY() - 5.0f, 3.0f, 10.0f);
-            text = pz.tooOld   ? PL ("PAUZA  ·  ten wers jest dalej niż 5 minut wstecz — tak daleko nie nagrasz od nowa; popraw go w Montażu")
+            // pelne zdanie, a gdy sie nie miesci (male okno) — krotsze, bez wielokropka
+            const auto area = hint.withTrimmedLeft (14.0f).toNearestInt();
+            const auto pick = [&] (const juce::String& full, const juce::String& brief)
+            { return juce::Font (zs::type::small).getStringWidth (full) <= area.getWidth() ? full : brief; };
+            text = pz.tooOld   ? pick (PL ("PAUZA  ·  ten wers jest dalej niż 5 minut wstecz — tak daleko nie nagrasz od nowa; popraw go w Montażu"),
+                                       PL ("PAUZA  ·  za daleko wstecz — popraw w Montażu"))
                  : pz.resuming ? PL ("PAUZA  ·  za chwilę nagrywanie od czerwonej linii")
-                 : pz.selected ? PL ("PAUZA  ·  Nagraj: czytasz od czerwonej linii, stara wersja zostaje w folderze „surowe”  ·  kliknij, by zmienić")
-                               : PL ("PAUZA  ·  kliknij wers albo miejsce na fali, od którego chcesz nagrać  ·  kółko — przewiń");
-            g.drawText (text, hint.withTrimmedLeft (14.0f).toNearestInt(), juce::Justification::centredLeft);
+                 : pz.selected ? pick (PL ("PAUZA  ·  Nagraj: czytasz od czerwonej linii, stara wersja zostaje w folderze „surowe”  ·  kliknij, by zmienić"),
+                                       PL ("PAUZA  ·  Nagraj: czytasz od czerwonej linii"))
+                               : pick (PL ("PAUZA  ·  kliknij wers albo miejsce na fali, od którego chcesz nagrać  ·  kółko — przewiń"),
+                                       PL ("PAUZA  ·  kliknij wers albo miejsce na fali"));
+            g.drawText (text, area, juce::Justification::centredLeft);
         }
         else
         {
@@ -909,11 +935,17 @@ public:
         layoutDirty = true;
         layoutTransport();
         auto bar = textCard().removeFromBottom (barHeight).reduced (12, 8);
-        backButton.setBounds (bar.removeFromLeft (64)); bar.removeFromLeft (6);
-        smallerButton.setBounds (bar.removeFromLeft (40)); bar.removeFromLeft (6);
-        largerButton.setBounds (bar.removeFromLeft (40)); bar.removeFromLeft (6);
-        mirrorButton.setBounds (bar.removeFromRight (70)); bar.removeFromRight (6);
+        const juce::Font f (zs::type::body);
+        const auto fit = [&] (juce::Button& b) { return f.getStringWidth (b.getButtonText()) + 24; };
+        backButton.setBounds (bar.removeFromLeft (fit (backButton))); bar.removeFromLeft (6);
+        smallerButton.setBounds (bar.removeFromLeft (juce::jmax (40, fit (smallerButton)))); bar.removeFromLeft (6);
+        largerButton.setBounds (bar.removeFromLeft (juce::jmax (40, fit (largerButton)))); bar.removeFromLeft (6);
+        mirrorButton.setBounds (bar.removeFromRight (fit (mirrorButton))); bar.removeFromRight (6);
         const int w = (bar.getWidth() - 6) / 2;
+        // "← Cofnij tekst" w waskim oknie: sama strzalka (tak jak przyciski nagrywania)
+        const bool compact = w < juce::jmax (fit (previousButton), fit (nextButton));
+        zs::Look::setCompact (previousButton, compact);
+        zs::Look::setCompact (nextButton, compact);
         previousButton.setBounds (bar.removeFromLeft (w)); bar.removeFromLeft (6);
         nextButton.setBounds (bar);
     }
@@ -1452,7 +1484,7 @@ private:
         if (running && recorder.isRecording() && listening)
             label << (words.hasLock (recorder.recordedSeconds()) ? PL ("  ·  SŁOWA") : PL ("  ·  SYLABY"));
 
-        g.setFont (juce::Font (11.0f, juce::Font::bold));
+        g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
 
         const int w = g.getCurrentFont().getStringWidth (label) + 18;
         auto box = juce::Rectangle<int> (guide.getRight() - w - 12, guide.getY() + 6, w, 18);
@@ -1478,12 +1510,12 @@ private:
         g.drawRect (box, 1);
 
         g.setColour (juce::Colour (0xffe8eaf6));
-        g.setFont (juce::Font (14.0f));
+        g.setFont (juce::Font (zs::type::small));
         g.drawText (PL ("Mów dalej — albo popraw miejsce strzałkami."),
                     box.reduced (12, 0).removeFromTop (30), juce::Justification::centredLeft);
 
         g.setColour (Ink::lostText());
-        g.setFont (juce::Font (12.0f, juce::Font::bold));
+        g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
         g.drawText (PL ("↑ ↓ wers     ← → słowo"),
                     box.reduced (12, 0).removeFromBottom (30), juce::Justification::centredLeft);
     }
