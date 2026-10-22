@@ -24,7 +24,13 @@ juce_add_gui_app(ZieloneSwiatlo
     COMPANY_NAME "Adrian Pawlak"
     BUNDLE_ID "pl.zieloneswiatlo.recorder")
 
-target_sources(ZieloneSwiatlo PRIVATE Source/Main.cpp)
+target_sources(ZieloneSwiatlo PRIVATE Source/Main.cpp Source/Mp3.cpp)
+
+# Zapis MP3 koderem Windows (Media Foundation, Source/Mp3.cpp) — bez
+# dodatkowych bibliotek w paczce; na Linuksie Mp3.cpp to zaslepka.
+if (WIN32)
+    target_link_libraries(ZieloneSwiatlo PRIVATE mfuuid ole32)   # same GUID-y; DLL laduje Mp3.cpp
+endif()
 
 target_include_directories(ZieloneSwiatlo PRIVATE Source)
 

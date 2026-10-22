@@ -49,6 +49,7 @@
 #include "StepBar.h"
 #include "Recorder.h"
 #include "Wav.h"
+#include "Mp3.h"
 #include "ReadMono.h"
 #include "CutReviewPanel.h"
 #include <limits>
@@ -326,7 +327,7 @@ public:
                          &markStart, &markEnd, &cutButton, &undoButton }) b->setEnabled (false);
         cutPanel.load(wavFile, {}, 48000);
         file  = wavFile;
-        saved = juce::File();
+        saved = juce::File(); savedMp3 = juce::File();
         note.clear();
         // stara kopia nie jest juz potrzebna (godzina = 0,7 GB), a fala nie
         // moze pokazywac poprzedniego nagrania pod napisem "wczytuje"
@@ -879,7 +880,9 @@ private:
         g.setColour (Ink::textNow()); g.setFont (juce::Font (zs::type::title, juce::Font::bold));
         g.drawText (PL("Nagranie gotowe"), main.removeFromTop (40), juce::Justification::centred);
         g.setColour (Ink::textNext()); g.setFont (juce::Font (zs::type::body));
-        g.drawFittedText (PL("Zapisano miks jako plik WAV na dysku. Posłuchaj całości przed publikacją."), main.removeFromTop (44).reduced (12, 0), juce::Justification::centred, 2);
+        g.drawFittedText (savedMp3 != juce::File() ? PL("Zapisano WAV do archiwum i MP3 do publikacji. Posłuchaj całości przed wysłaniem.")
+                                                   : PL("Zapisano miks jako plik WAV na dysku. Posłuchaj całości przed publikacją."),
+                          main.removeFromTop (44).reduced (12, 0), juce::Justification::centred, 2);
         side = side.reduced (22, 24);
         g.setColour (Ink::textNow()); g.setFont (juce::Font (zs::type::heading, juce::Font::bold));
         g.drawText (PL("Plik końcowy"), side.removeFromTop (40), juce::Justification::centredLeft);
@@ -893,6 +896,9 @@ private:
             g.setColour (Ink::textNow()); g.drawText (value, r.removeFromTop (22), juce::Justification::centredLeft);
         };
         row (PL("Format"), "WAV 24-bit", 54);
+        // MP3: nazwa i jakosc albo krotko, czemu go nie ma (pelny powod w notce)
+        row (PL("MP3"), savedMp3 != juce::File() ? juce::String (mp3Kbps) + PL(" kbit/s, do publikacji")
+                                                 : PL("nie powstał"), 54);
         row (PL("Długość"), plr::clock (review.seconds()) + " (" + juce::String (review.seconds(), 1) + " s)", 54);
         // Audyt 14.10: "LUFS" i "dBTP" na glownym ekranie wymagaja wiedzy audio.
         row (PL("Gotowa głośność"), PL("Jak w podcastach (mono)"), 42);
@@ -1204,7 +1210,7 @@ private:
                 beforeEnv=std::move(out->env);afterEnv={};resetTrim();
                 cutFrom=cutTo=-1;
                 selection.setText(PL("Zmiana zastosowana. Posłuchaj miejsca cięcia."),juce::dontSendNotification);
-                words.clear();saved=juce::File();note=PL("Montaż zmienia kopię w pamięci; oryginał zostaje na dysku.");
+                words.clear();saved=juce::File();savedMp3=juce::File();note=PL("Montaż zmienia kopię w pamięci; oryginał zostaje na dysku.");
                 setRawMaterial();
                 assessment.setText (montageSummary(), false);
                 resized();repaint();
@@ -1421,16 +1427,23 @@ private:
         // podmiana pliku dopiero po poprawnym zamknieciu (Wav.h, audyt 14.10).
         // W tle: godzina miksu to kilka sekund zapisu. W tym czasie miks sie
         // nie zmienia (mixReady() = false, styl ani montaz nie ruszy).
-        auto err = std::make_shared<std::string>();
+        // Obok WAV-a (archiwum, 24 bity) MP3 do publikacji — ta sama nazwa.
+        // MP3 nie blokuje niczego: gdy sie nie uda (np. Windows N bez kodera),
+        // WAV jest zapisany, a ekran Gotowe mowi, czemu MP3 nie ma.
+        auto err = std::make_shared<std::string>(), mp3Err = std::make_shared<std::string>();
         const auto path = target.getFullPathName().toStdString();
+        const auto mp3Target = target.withFileExtension ("mp3");
+        const auto mp3Path = mp3Target.getFullPathName().toStdString();
         const int rate = (int) sr;
         runJob (PL ("Zapisuję miks…"), 0,
-            [this, err, path, rate]
+            [this, err, mp3Err, path, mp3Path, rate]
             {
                 const auto& mixed = review.mixedAudio();
                 *err = wavio::writePcm (path, { mixed.data() }, mixed.size(), rate, 24);
+                if (err->empty())
+                    *mp3Err = zs::mp3::write (mp3Path, { mixed.data() }, mixed.size(), rate, mp3Kbps);
             },
-            [this, err, target]
+            [this, err, mp3Err, target, mp3Target]
             {
                 if (! err->empty())
                 {
@@ -1441,10 +1454,15 @@ private:
                 }
 
                 saved = target;
+                savedMp3 = mp3Err->empty() ? mp3Target : juce::File();
+                mp3Problem = juce::String::fromUTF8 (mp3Err->c_str());
                 savedVersion = mixedVersion;     // zapisany miks tej wersji montazu
-                note  = PL ("Zapisane: ") + target.getFileName();
+                note  = PL ("Zapisane: ") + target.getFileName()
+                      + (savedMp3 != juce::File() ? PL (" i ") + savedMp3.getFileName() : juce::String());
                 player.pause();
-                savedPath.setText (saved.getFullPathName(), false);
+                savedPath.setText (saved.getFullPathName() + "\n"
+                                   + (savedMp3 != juce::File() ? savedMp3.getFullPathName()
+                                                               : PL ("MP3 nie powstał: ") + mp3Problem), false);
                 savedName.setText (saved.getFileName(), false);
                 doneMode = true;
                 resized();
@@ -1806,6 +1824,9 @@ private:
     zs::Envelope   beforeEnv, afterEnv;
 
     juce::File file, saved;
+    juce::File savedMp3;                  ///< MP3 obok zapisanego WAV-a (puste, gdy sie nie udalo)
+    juce::String mp3Problem;              ///< dlaczego MP3 nie powstal
+    static constexpr int mp3Kbps = 128;   ///< glos mono: nie do odroznienia od WAV-a
     juce::String note;
     double sr = 48000.0;
 
