@@ -425,8 +425,9 @@ public:
         auto inner = card.toFloat().reduced (14.0f, 10.0f);
         L.transport = inner.removeFromBottom (34.0f);
         inner.removeFromBottom (6.0f);
-        L.hint = inner.removeFromBottom (16.0f);
-        L.labels = inner.removeFromBottom (44.0f);
+        L.hint = inner.removeFromBottom (18.0f);
+        // niskie okno (960x640): slowa w jednym rzedzie — wiecej miejsca na tekst
+        L.labels = inner.removeFromBottom (card.getHeight() >= 176 ? 44.0f : 24.0f);
         L.wave = inner;
         return L;
     }
@@ -543,12 +544,29 @@ public:
         {
             static const std::vector<float> none;
             drawStrip (g, area, none, 0.0, 48000.0, -liveStripSec, 0.0, false);
+            // Bez rozpoznawania mowy: jedno zdanie tam, gdzie po starcie bedzie
+            // fala — wczesniej lezalo na tekscie promptera.
+            if (speech != nullptr && speech->whyNot().isNotEmpty())
+            {
+                const auto wave = stripLayout (area).wave.toNearestInt();
+                g.setColour (Ink::panel());
+                g.fillRect (wave);
+                g.setColour (Ink::textDim());
+                g.setFont (juce::Font (zs::type::small));
+                g.drawFittedText (speech->whyNot(), wave.reduced (4, 0), juce::Justification::centred, 3, 1.0f);
+            }
             return;
         }
         double start = 0.0;
         const double rate = recorder.currentSampleRate();
         const auto live = recorder.recentAudio (liveStripSec, start);
-        if (live.empty() || rate <= 0.0) return;
+        if (live.empty() || rate <= 0.0)
+        {
+            // pierwsze chwile nagrania: karta z pusta osia, nie dziura
+            static const std::vector<float> none;
+            drawStrip (g, area, none, 0.0, 48000.0, -liveStripSec, 0.0, false);
+            return;
+        }
         const double now = start + (double) live.size() / rate;
         auto spans2 = removedSpans;
         const auto view = tw::EditedView::render (live, start, rate, now, spans2, liveStripSec);
@@ -651,8 +669,9 @@ public:
         {
         juce::Graphics::ScopedSaveState clipWords (g);
         g.reduceClipRegion (labels.withX (wave.getX()).withWidth (wave.getWidth()).toNearestInt());
-        const float wordRow = labels.getHeight() * 0.5f;
-        const juce::Font wordFont (zs::type::body + 2.0f, juce::Font::bold);
+        const int rows = labels.getHeight() >= 40.0f ? 2 : 1;      // niskie okno: jeden rzad
+        const float wordRow = labels.getHeight() / (float) rows;
+        const juce::Font wordFont (zs::type::body, juce::Font::bold);
         g.setFont (wordFont);
         float rowRight[2] = { -1.0e9f, -1.0e9f };
         int lastWord = -1;
@@ -671,7 +690,7 @@ public:
             const auto& w = script.all()[(size_t) h.word];
             const auto text = juce::String::fromUTF8 (src.substr (w.from, w.to - w.from).c_str());
             const float x = xOf (t), wdt = (float) wordFont.getStringWidth (text) + 8.0f;
-            const int row = x >= rowRight[0] ? 0 : x >= rowRight[1] ? 1 : -1;
+            const int row = x >= rowRight[0] ? 0 : rows > 1 && x >= rowRight[1] ? 1 : -1;
             if (row < 0) continue;
             g.setColour (Ink::textNow().withAlpha (0.85f));
             g.drawText (text, juce::Rectangle<float> (x, labels.getY() + row * wordRow, wdt, wordRow), juce::Justification::centredLeft);
@@ -926,7 +945,7 @@ public:
     /* Dwie karty: tekst u gory, fala na dole — osobne okienko, widoczne od
        wejscia na ekran (Adrian 13.10, uklad z projektu ChatGPT). */
     static constexpr int stripGap = 12;
-    int stripCardHeight() const { return juce::jlimit (176, 300, (int) (getHeight() * 0.38)); }
+    int stripCardHeight() const { return juce::jlimit (getHeight() < 440 ? 150 : 176, 300, (int) (getHeight() * 0.38)); }
     juce::Rectangle<int> textCard() const  { auto r = getLocalBounds(); r.removeFromBottom (stripCardHeight() + stripGap); return r; }
     juce::Rectangle<int> stripCard() const { return getLocalBounds().removeFromBottom (stripCardHeight()); }
 
@@ -1451,16 +1470,22 @@ private:
                 drawGrade (g, gr->second, juce::Rectangle<float> (2.0f, y, (float) sideMargin() - 6.0f, lineH));
         }
 
+        // Wersy przy gornej i dolnej krawedzi wygaszone — zamiast polowy
+        // liter ucietej ramka (tak robia promptery i listy z przewijaniem).
+        {
+            const float fade = juce::jmin (step * 0.6f, r.getHeight() * 0.2f);
+            const auto top = r.toFloat().removeFromTop (fade);
+            const auto bottom = r.toFloat().removeFromBottom (fade);
+            g.setGradientFill (juce::ColourGradient (Ink::panel(), 0.0f, top.getY(),
+                                                     Ink::panel().withAlpha (0.0f), 0.0f, top.getBottom(), false));
+            g.fillRect (top);
+            g.setGradientFill (juce::ColourGradient (Ink::panel().withAlpha (0.0f), 0.0f, bottom.getY(),
+                                                     Ink::panel(), 0.0f, bottom.getBottom(), false));
+            g.fillRect (bottom);
+        }
+
         drawStateBadge (g, guide);
 
-        // Przed nagraniem: jedno zdanie, gdy rozpoznawania mowy nie ma.
-        if (! recorder.isRecording() && speech != nullptr && speech->whyNot().isNotEmpty())
-        {
-            g.setColour (Ink::textDim());
-            g.setFont (juce::Font (zs::type::small));
-            g.drawFittedText (speech->whyNot(), guide.withY (guide.getBottom() + 4).withHeight (34).reduced (12, 0),
-                              juce::Justification::topRight, 2);
-        }
     }
 
     //==========================================================================
@@ -1486,10 +1511,12 @@ private:
 
         g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
 
+        // Na gornej krawedzi celownika, jak etykieta na ramce — w srodku
+        // zaslaniala koniec dlugiego wersu (przeglad wygladu 20.10).
         const int w = g.getCurrentFont().getStringWidth (label) + 18;
-        auto box = juce::Rectangle<int> (guide.getRight() - w - 12, guide.getY() + 6, w, 18);
+        auto box = juce::Rectangle<int> (guide.getRight() - w - 12, guide.getY() - 9, w, 18);
 
-        g.setColour (juce::Colours::black.withAlpha (0.4f));
+        g.setColour (Ink::panel());
         g.fillRect (box);
 
         g.setColour (col.withAlpha (0.55f));
