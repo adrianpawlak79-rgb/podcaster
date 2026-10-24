@@ -63,6 +63,7 @@ TESTY=(
   "odzysk-test"
   "dziennik-test"
   "tekst-test"
+  "tor-test"
   "profil-test /tmp/mowa.wav"
 )
 

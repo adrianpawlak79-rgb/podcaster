@@ -664,6 +664,10 @@ public:
         list[2].from=5; list[2].to=6; list[2].why="Nie rozpoznano początku powtórzonego wersu.";
         zs::writeCutList(copy,list); previewReview(copy);
     }
+    void previewChain (const juce::File& wav)
+    {
+        if (wav.existsAsFile()) { openReview (wav, true, true); if (review) { review->setEditMode (false); review->previewChain(); } }
+    }
     void previewReview (const juce::File& wav, bool edit = false, bool done = false)
     {
         if (wav.existsAsFile()) { openReview (wav, true, true); if (review) { review->setEditMode(edit); if (done) review->previewDone(); } }

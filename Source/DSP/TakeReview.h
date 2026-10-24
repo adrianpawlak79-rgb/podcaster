@@ -57,6 +57,7 @@
 #include "TakeWatchCore.h"
 #include "Mix/Decide.h"
 #include "Mix/SpeechChain.h"
+#include "Mix/Tweaks.h"
 
 #include <algorithm>
 #include <atomic>
@@ -357,7 +358,8 @@ public:
         return w;
     }
 
-    void run (mix::Decide::Wish wish = podcastWish())
+    /** tweaks: reczne poprawki z toru miksu (Tweaks.h); puste = sam automat. */
+    void run (mix::Decide::Wish wish = podcastWish(), const mix::Tweaks& tweaks = {})
     {
         if (before.empty()) { st.store (Stage::Empty); return; }
 
@@ -371,6 +373,12 @@ public:
 
         mix::SpeechChain chain;
         chain.params = decision.params;
+        mix::applyTweaks (chain.params, tweaks);
+        mixedParams = chain.params;
+        {
+            const auto changes = mix::describeTweaks (decision.params, tweaks);
+            if (! changes.empty()) decision.because.insert (decision.because.begin(), changes);
+        }
         chain.setSampleRate (sr);
         chain.prepare (sr);
 
@@ -397,6 +405,8 @@ public:
 
     const mix::Decision&   whatIDecided() const noexcept { return decision; }
     const mix::ChainReport& whatIDid()    const noexcept { return report; }
+    /** Ustawienia, z ktorymi miks naprawde poszedl (automat + poprawki z toru). */
+    const mix::SpeechChain::Params& whatIMixedWith() const noexcept { return mixedParams; }
 
     /** Zdania dla czlowieka, w kolejnosci waznosci. */
     const std::vector<std::string>& says() const noexcept { return lines; }
@@ -652,7 +662,7 @@ private:
     void buildPlain (const mix::Decide::Wish& wish)
     {
         plain.clear();
-        const auto& p = decision.params;
+        const auto& p = mixedParams;           // z poprawkami z toru miksu
         char b[300];
 
         if (report.lufsBefore < silentLufs)
@@ -673,7 +683,10 @@ private:
                                                          : "Brzmienie studyjne: równy, wyraźny głos, jak w dobrym podcaście.");
         }
 
-        plain.push_back ("Wyrównano ciche i głośne fragmenty. Sprawdź, czy głos nadal brzmi naturalnie.");
+        if (! decision.because.empty() && decision.because.front().rfind ("Twoje zmiany", 0) == 0)
+            plain.push_back (decision.because.front());
+        if (mix::stageUsed (p, mix::Stage::Kompresja))
+            plain.push_back ("Wyrównano ciche i głośne fragmenty. Sprawdź, czy głos nadal brzmi naturalnie.");
 
         if (report.denoiseDb < 0.0)
             plain.push_back ("Ściszono szum tła. Posłuchaj pauz: tło nie powinno „pływać”, a końcówki słów mają zostać.");
@@ -795,6 +808,7 @@ private:
 
     mix::Decision    decision;
     mix::ChainReport report;
+    mix::SpeechChain::Params mixedParams;
 
     std::vector<std::string> lines, plain;
 
