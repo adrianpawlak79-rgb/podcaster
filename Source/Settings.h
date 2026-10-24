@@ -181,6 +181,21 @@ public:
         gdy ciecia beda sprawdzane dokladnymi czasami slow i proba da 0
         niebezpiecznych. Do tego czasu R zaznacza miejsca, a czlowiek tnie na
         ekranie Montaz. */
+    /** Wzorzec brzmienia (DSP/Mix/VoiceProfile.h, tekst z toText()). Pusty =
+        bez wzorca. To nawyk, nie konkretne nagranie: barwa, ktora czlowiek
+        sam zatwierdzil, i ktora maja miec kolejne odcinki. */
+    juce::String voiceProfile() const
+    {
+        return props.getUserSettings()->getValue ("voiceProfile");
+    }
+
+    void setVoiceProfile (const juce::String& text)
+    {
+        if (text.isEmpty()) props.getUserSettings()->removeValue ("voiceProfile");
+        else                props.getUserSettings()->setValue ("voiceProfile", text);
+        props.saveIfNeeded();
+    }
+
     bool punchAutoCut() const
     {
         return props.getUserSettings()->getBoolValue ("punchAutoCut", false);
