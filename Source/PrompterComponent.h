@@ -235,9 +235,11 @@ public:
         bool   tooOld = false;              ///< klikniety wers jest dalej niz pamiec nagrania
         bool   resuming = false;            ///< pre-roll i odliczanie, zapis jeszcze stoi
         double playFrom = 0.0, playLen = 0.0, playStartMs = -1.0;
+        double endSec = 0.0;                ///< z podkladem: czas nagrania w chwili wznowienia
     };
     PauseState pz;
     static constexpr double pauseViewSec = 20.0;
+    static constexpr double backingCueSec = 3.0;   ///< rozbieg muzyki przed wznowieniem
 
     bool isPausedView() const noexcept { return pz.on; }
 
@@ -340,6 +342,7 @@ public:
         if (! pz.on || pz.resuming) return;
         recorder.playPreRoll ({});
         pz.playStartMs = -1.0;
+        if (recorder.hasBacking()) { resumeWithBacking(); return; }
         if (! pz.selected)
         {
             recorder.resume();
@@ -357,22 +360,55 @@ public:
         repaint();
     }
 
+    /** Wznowienie z podkladem (Recorder::cueBacking): muzyka gra rozbieg
+        konczacy sie dokladnie tam, gdzie glos wypadnie w czystym pliku — przy
+        linii: w miejscu ciecia, bez linii: tam, gdzie stanelismy. W tej probce
+        nagranie rusza samo (watek audio), wiec glos trafia w bit. Odliczanie
+        trwa tyle co rozbieg. Glosu sprzed ciecia nie puszczamy — rozbiegiem
+        jest muzyka. */
+    void resumeWithBacking()
+    {
+        const double rate = juce::jmax (1.0, recorder.currentSampleRate());
+        pz.endSec = std::max (pz.atSec, recorder.recordedSeconds());   // na pauzie nic juz nie przybywa
+        auto spans = removedSpans;
+        if (pz.selected && pz.cutSec < pz.endSec) spans.push_back ({ pz.cutSec, pz.endSec });
+        const double toSec = tw::EditedView::editedTime (pz.endSec, spans);
+        const auto to = (juce::int64) std::llround (toSec * rate);
+        const auto from = juce::jmax ((juce::int64) 0, to - (juce::int64) std::llround (backingCueSec * rate));
+        pz.resuming = true;
+        preRoll = {};
+        countdownStart = juce::Time::getMillisecondCounterHiRes();
+        countdownTotal = juce::jmax (0.3, (double) (to - from) / rate);
+        recorder.cueBacking (from, to);
+        updateTransport();
+        repaint();
+    }
+
     /** Koniec odliczania: zapis rusza, od linii do pauzy wypada. */
     void finishResume()
     {
         if (! pz.on || ! pz.resuming) return;
+        if (! pz.selected)                          // z podkladem, bez linii: dalej, bez ciecia
+        {
+            recorder.resume();
+            pz = {};
+            updateTransport();
+            repaint();
+            return;
+        }
         // wers po slowie, nie po indeksie: okno albo +/- na pauzie lamia wersy od nowa
         if (pz.lineWord >= 0 && ! spans.empty()) pz.line = tw::lineOfWord (spans, pz.lineWord);
         // Koniec wyciecia = tyle, ile naprawde zapisano. Blok audio, ktory juz
         // trwal w chwili pauzy, dopisal sie po odczycie atSec (przeglad 14.10,
         // nr 8) — na pauzie nic wiecej nie przybywa, wiec teraz to dokladny koniec.
-        const double end = std::max (pz.atSec, recorder.recordedSeconds());
+        // z podkladem nagranie juz ruszylo samo — koniec zapamietany przy wznowieniu
+        const double end = pz.endSec > 0.0 ? pz.endSec : std::max (pz.atSec, recorder.recordedSeconds());
         auto m = markFor (pz.line, end, tw::LineSource::Retake);
         lineLog.restart (m, tw::LineSource::Retake);
         lineLog.setLastCut (pz.cutSec, true);
         lineLog.setLastCutTo (end);
         punchMovedByHand = true;
-        if (pz.cutSec < end) removedSpans.push_back ({ pz.cutSec, end });
+        if (pz.selected && pz.cutSec < end) removedSpans.push_back ({ pz.cutSec, end });
         recorder.resume();
         if (onRetake) onRetake();
         pz = {};
@@ -1091,14 +1127,21 @@ private:
                 while (speech->nextHypothesis (h)) {}
                 words.endUtterance();
             }
-            if (pz.resuming && countdownStart >= 0.0
+            if (pz.resuming && recorder.hasBacking())
+            {
+                if (recorder.takeCueFinished()) finishResume();
+            }
+            else if (pz.resuming && countdownStart >= 0.0
                 && (juce::Time::getMillisecondCounterHiRes() - countdownStart) / 1000.0 >= countdownTotal)
                 finishResume();
             repaint();
             return;
         }
 
-        follower.advance (now, clock.takeNewSyllables(), clock.pauseLength());
+        // Z rozpoznawaniem mowy sylaby jada tylko zaraz po trafionych slowach —
+        // muzyka albo rozmowa w pokoju nie przesuwa wersow (WordTracker::syllablesTrusted).
+        const int newSyllables = clock.takeNewSyllables();
+        follower.advance (now, ! listening || words.syllablesTrusted (now) ? newSyllables : 0, clock.pauseLength());
 
         // Rozpoznane slowa maja pierwszenstwo. Licznik sylab jest rezerwa:
         // dostaje pewna pozycje przy kazdym kroku, wiec gdy rozpoznawanie

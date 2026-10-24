@@ -48,6 +48,24 @@ struct EditedView
     /** Czas w nagraniu -> czas w widoku (widok konczy sie na "teraz"). */
     static double toView (double t, double now, const Spans& spans) { return t + removedAfter (t, now, spans); }
 
+    /** Czas w nagraniu -> czas w czystym pliku (po wszystkich wycieciach przed t).
+        Odcinki moga na siebie zachodzic (R dwa razy w tym samym wersie) — liczy
+        sie ich suma zbiorow, tak jak w Punch::plan. Podklad muzyczny gra od tej
+        pozycji: muzyka jest nieruszalna, wiec glos ma lezec tam, gdzie po
+        cieciach wypadnie (Adrian 24.10). */
+    static double editedTime (double t, Spans spans)
+    {
+        std::sort (spans.begin(), spans.end());
+        double removed = 0.0, coveredTo = -1.0e300;
+        for (const auto& s : spans)
+        {
+            const double a = std::max (s.first, coveredTo), b = std::min (s.second, t);
+            if (b > a) removed += b - a;
+            coveredTo = std::max (coveredTo, s.second);
+        }
+        return t - removed;
+    }
+
     /** Ostatnie viewSec sekund bez wycietych odcinkow; brakujace na poczatku = cisza. */
     static std::vector<float> render (const std::vector<float>& hist, double histStart, double rate,
                                       double now, const Spans& spans, double viewSec)

@@ -30,6 +30,7 @@
 #include "PunchFile.h"
 #include "LampLogic.h"
 #include "DSP/Follower.h"
+#include "DSP/WordTracker.h"
 #include "DSP/LineGrade.h"
 #include "DSP/LineLog.h"
 #include "DSP/PreRoll.h"
@@ -181,6 +182,8 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
     script.set (text);
     const auto spans = tw::lineSpans (script);   // jak w szerokim oknie
     const double lagSec = 0.78;
+    const double trustSec = tw::WordTracker::Params{}.syllableTrustSec;
+    double lastSync = -1.0e9;
     auto firstWordOf = [&] (int line) { for (int i = 0; i < script.wordCount(); ++i) if (script.all()[(size_t) i].line == line) return i; return -1; };
     auto lastWordOf  = [&] (int line) { int r = -1; for (int i = 0; i < script.wordCount(); ++i) if (script.all()[(size_t) i].line == line) r = i; return r; };
     auto sourceLineOf = [&] (int shown)
@@ -249,7 +252,9 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
         // ---- klatka interfejsu: to samo co PrompterComponent::timerCallback
         // ---- i MainComponent::timerCallback
         const double now = rec.recordedSeconds();
-        follower.advance (now, clock.takeNewSyllables(), clock.pauseLength());
+        // jak w PrompterComponent: z rozpoznawaniem mowy sylaby tylko zaraz po trafionych slowach
+        const int newSyl = clock.takeNewSyllables();
+        follower.advance (now, ! ideal || now - lastSync <= trustSec ? newSyl : 0, clock.pauseLength());
 
         // Przebieg "jak z rozpoznawaniem mowy": pozycja z prawdy, spozniona
         // o 0,78 s (mediana spoznienia Vosk, pomiar w CutPoint.h) — dokladnie
@@ -265,6 +270,7 @@ static void pass (const std::vector<Truth>& truth, const std::string& text,
                     const double span = (t.what == "pomylka" ? 0.6 : 1.0) * (b - a + 1);
                     const double word = a + span * (now - lagSec - t.from) / (t.to - t.from);
                     follower.syncTo (tw::syllableAtWord (script, word));
+                    lastSync = now;
                     // co "uslyszalo rozpoznawanie": slowo, ktore wlasnie sie skonczylo
                     const int w = (int) word - 1;
                     if (w >= a && (heard.empty() || heard.back().word != w)) heard.push_back ({ now, w });
@@ -574,6 +580,8 @@ static void passTransport (const std::vector<Truth>& truth, const std::string& t
     script.set (text);
     const auto spans = tw::lineSpans (script);
     const double lagSec = 0.78;
+    const double trustSec = tw::WordTracker::Params{}.syllableTrustSec;
+    double lastSync = -1.0e9;
     auto firstWordOf = [&] (int line) { for (int i = 0; i < script.wordCount(); ++i) if (script.all()[(size_t) i].line == line) return i; return -1; };
     auto lastWordOf  = [&] (int line) { int r = -1; for (int i = 0; i < script.wordCount(); ++i) if (script.all()[(size_t) i].line == line) r = i; return r; };
     auto sourceLineOf = [&] (int shown)
@@ -672,7 +680,8 @@ static void passTransport (const std::vector<Truth>& truth, const std::string& t
         sinceFrame -= frameLen;
 
         const double now = rec.recordedSeconds();
-        follower.advance (now, clock.takeNewSyllables(), clock.pauseLength());
+        const int newSyl = clock.takeNewSyllables();
+        follower.advance (now, ! ideal || now - lastSync <= trustSec ? newSyl : 0, clock.pauseLength());
         if (ideal)
             for (const auto& t : truth)
                 if (t.kind == "mowa" && tIn - lagSec >= t.from && tIn - lagSec < t.to)
@@ -682,6 +691,7 @@ static void passTransport (const std::vector<Truth>& truth, const std::string& t
                     const double span = (t.what == "pomylka" ? 0.6 : 1.0) * (b - a + 1);
                     const double word = a + span * (tIn - lagSec - t.from) / (t.to - t.from);
                     follower.syncTo (tw::syllableAtWord (script, word));
+                    lastSync = now;
                     const int w = (int) word - 1;
                     if (w >= a && (heard.empty() || heard.back().word != w)) heard.push_back ({ now, w });
                     break;
