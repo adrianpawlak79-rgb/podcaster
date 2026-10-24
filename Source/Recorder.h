@@ -73,6 +73,7 @@ public:
         stoppedByDevice.store(false);
         samplesWritten.store(0); lostSamples.store(0); firstLost.store(-1);
         writeFailed.store(false); recordingRate.store(rate); paused.store(false);
+        cueTo.store(-1); cueDone.store(false);
         currentSessionId.store(session->id);
         activeSession = std::move(session);
         recording.store(true);
@@ -84,6 +85,7 @@ public:
     {
         std::lock_guard<std::mutex> lock(sessionControl);
         sessionSlot.set(nullptr); // drains the last reader before closing its file
+        cueTo.store(-1);
         recording.store(false);
         paused.store(false);
         if(activeSession) {
@@ -108,6 +110,54 @@ public:
         rozpoznawania mowy, dopoki nie ma wznowienia. Czas w nagraniu stoi. */
     void pause()  noexcept { paused.store (true); }
     void resume() noexcept { paused.store (false); }
+
+    //==========================================================================
+    /* Podklad muzyczny (Adrian 24.10: wiersze do bitu).
+
+       Muzyka jest nieruszalna: gra w sluchawkach od pozycji, ktora glos bedzie
+       mial w czystym pliku po cieciach (EditedView::editedTime). W trakcie
+       nagrania pozycja muzyki = probki nagrania - przesuniecie; przesuniecie
+       zmienia sie tylko przy wznowieniu po pauzie (cueBacking). Do pliku idzie
+       sam glos — muzyka jest tylko w sluchawkach, w miksie dochodzi pozniej.
+
+       Wznowienie z podkladem robi watek audio, nie okno: muzyka gra rozbieg
+       [from, to), a w probce "to" nagranie rusza samo. Okno (30 Hz) spozniloby
+       glos wzgledem bitu o kilkadziesiat milisekund. */
+
+    /** Muzyka w czestotliwosci urzadzenia, kanaly L i P (P puste = mono).
+        Puste L = bez podkladu. Watek interfejsu. */
+    void setBacking (std::vector<float> left, std::vector<float> right)
+    {
+        backingSlot.set (nullptr);
+        backing.l = std::move (left);
+        backing.r = std::move (right);
+        backingShift.store (0); cueTo.store (-1); cueDone.store (false);
+        backingSlot.set (backing.l.empty() ? nullptr : &backing);
+        backingOn.store (! backing.l.empty());
+    }
+    bool hasBacking() const noexcept { return backingOn.load(); }
+    double backingSeconds() const noexcept
+    {
+        const double r = sampleRate.load();
+        return backingOn.load() && r > 0.0 ? (double) backing.l.size() / r : 0.0;
+    }
+    void setBackingGain (float g) noexcept { backingGain.store (g); }
+
+    /** Na pauzie: muzyka od probki fromIndex do toIndex, potem nagranie rusza
+        samo, a muzyka gra dalej od toIndex. Watek interfejsu. */
+    void cueBacking (juce::int64 fromIndex, juce::int64 toIndex) noexcept
+    {
+        cueDone.store (false);
+        cuePos.store (juce::jmax ((juce::int64) 0, juce::jmin (fromIndex, toIndex)));
+        cueAligned.store (false);
+        cueTo.store (juce::jmax ((juce::int64) 0, toIndex));
+    }
+    void cancelCue() noexcept { cueTo.store (-1); }
+    bool cueRunning() const noexcept { return cueTo.load() >= 0; }
+    /** Raz po kazdym wznowieniu przez rozbieg (watek interfejsu). */
+    bool takeCueFinished() noexcept { return cueDone.exchange (false); }
+    /** Gdzie w muzyce jest teraz nagranie (probki). */
+    juce::int64 backingIndexNow() const noexcept { return publishedElapsed.load() - backingShift.load(); }
     bool isPaused() const noexcept { return recording.load() && paused.load(); }
     juce::File currentFile() const           { return sessionFile; }
     double recordedSeconds() const noexcept
@@ -266,6 +316,7 @@ public:
         if(session && audioSessionId != session->id) {
             audioSessionId = session->id;
             elapsedSamples = 0;
+            backingShift.store (0);
             watch.reset();
             history.reset();
             analysisChannel = session->channel;
@@ -394,6 +445,7 @@ public:
             if(session->writer->hasFailed()) writeFailed.store(true);
         }
         if (live) elapsedSamples += numSamples;   // czas lampki = czas w nagraniu, stoi na pauzie
+        publishedElapsed.store (session ? elapsedSamples : 0);
         if(wizard && numInputChannels > ac && inputChannelData[ac])
             wizard->feed(inputChannelData[ac],numSamples);
 
@@ -424,6 +476,59 @@ public:
                     tonePhase += numSamples;
                     return;
                 }
+            }
+        }
+
+        // ---- podklad muzyczny w trakcie nagrania -------------------------------
+        {
+            zs::RealtimeSlot<Backing>::Read backingRead (backingSlot);
+            // na pauzie bez rozbiegu nic tu nie gra — odsluch fragmentu (pre-roll) nizej
+            if (auto* b = backingRead.get(); b != nullptr && session != nullptr && (! paused.load() || cueTo.load() >= 0))
+            {
+                const float g = backingGain.load();
+                const auto out = [&] (juce::int64 from, int at, int n)
+                {
+                    for (int c = 0; c < numOutputChannels; ++c)
+                    {
+                        float* o = outputChannelData[c];
+                        if (o == nullptr) continue;
+                        const auto& src = (c == 1 && ! b->r.empty()) ? b->r : b->l;
+                        for (int k = 0; k < n; ++k)
+                        {
+                            const juce::int64 i = from + k;
+                            o[at + k] = i >= 0 && i < (juce::int64) src.size() ? src[(size_t) i] * g : 0.0f;
+                        }
+                    }
+                };
+                for (int c = 0; c < numOutputChannels; ++c)
+                    if (outputChannelData[c] != nullptr) juce::FloatVectorOperations::clear (outputChannelData[c], numSamples);
+
+                const juce::int64 to = cueTo.load();
+                if (paused.load() && to >= 0)
+                {
+                    juce::int64 pos = cuePos.load();
+                    // Rozbieg wydluzony tak, zeby konczyl sie na granicy bloku:
+                    // wtedy nastepny blok to juz nagranie i muzyka od "to", bez dziury.
+                    if (! cueAligned.exchange (true))
+                        pos -= (numSamples - (to - pos) % numSamples) % numSamples;
+                    const int n = (int) juce::jlimit ((juce::int64) 0, (juce::int64) numSamples, to - pos);
+                    out (pos, 0, n);
+                    pos += n;
+                    cuePos.store (pos);
+                    if (pos >= to)
+                    {
+                        backingShift.store (elapsedSamples - to);
+                        cueTo.store (-1);
+                        paused.store (false);
+                        cueDone.store (true);
+                    }
+                }
+                else if (live)
+                {
+                    out (elapsedSamples - numSamples - backingShift.load(), 0, numSamples);
+                }
+                tonePhase += numSamples;
+                return;
             }
         }
 
@@ -535,6 +640,11 @@ private:
     };
     struct Calibration { std::vector<float> audio; size_t pos=0; } calibration;
     struct PreRollPlay { std::vector<float> audio; std::atomic<size_t> pos{0}; } preRoll;
+    struct Backing { std::vector<float> l, r; } backing;
+    zs::RealtimeSlot<Backing> backingSlot;
+    std::atomic<bool> backingOn { false }, cueDone { false }, cueAligned { false };
+    std::atomic<float> backingGain { 0.7f };
+    std::atomic<juce::int64> backingShift { 0 }, cueTo { -1 }, cuePos { 0 }, publishedElapsed { 0 };
     tw::HistoryRing history;
     // 5 minut: na pauzie mozna cofnac sie i odsluchac kilka wersow wstecz
     static constexpr double historySec = 300.0, historySafetySec = 4.0;

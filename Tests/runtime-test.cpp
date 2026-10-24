@@ -41,6 +41,35 @@ int main(int argc,char** argv) {
           && r.currentFile().getParentDirectory()==folder,"project name becomes a legal file name in the folder");
     r.stop();
     check(r.start(folder,"   ").isEmpty() && r.currentFile().getFileName().startsWith("sesja_"),"empty name falls back to sesja_");
+    r.stop();
+
+    // Podklad: muzyka w sluchawkach rowno z nagraniem, rozbieg po pauzie
+    // konczy sie w probce "to" i wtedy nagranie rusza samo.
+    {
+        std::vector<float> music(48000*4);
+        for(size_t i=0;i<music.size();++i) music[i]=float(i%100000);
+        r.setBacking(music,{}); r.setBackingGain(1.f);
+        check(r.hasBacking() && std::abs(r.backingSeconds()-4.0)<1e-9,"backing loaded");
+        std::fill(input,input+512,0.f);
+        check(r.start(folder,"podklad").isEmpty(),"backing session starts");
+        bool sync=true;
+        for(int k=0;k<10;++k) { block(); if(output[0]!=float(k*512) || output[511]!=float(k*512+511)) sync=false; }
+        check(sync,"music follows recording sample for sample");
+        r.pause(); block();
+        check(output[0]==0.f && std::abs(r.recordedSeconds()-10*512/48000.)<1e-9,"pause: music and recording stop together");
+        r.cueBacking(1000,3000);   // punch: od 3000 probki w czystym pliku, rozbieg 2000
+        block();
+        check(output[0]==952.f,"cue start moved so the cue ends on a block boundary");
+        int blocks=1; while(r.cueRunning() && blocks<10) { block(); ++blocks; }
+        check(blocks==4 && output[511]==2999.f && r.takeCueFinished(),"cue plays up to the punch point, then resumes");
+        check(std::abs(r.recordedSeconds()-10*512/48000.)<1e-9,"cue itself is not recorded");
+        block();
+        check(output[0]==3000.f && std::abs(r.recordedSeconds()-11*512/48000.)<1e-9 && r.backingIndexNow()==3512,
+              "after the cue: recording and music continue from the punch point");
+        r.stop(); r.setBacking({},{});
+        check(!r.hasBacking(),"backing removed");
+        r.start(folder);   // dalej test bez podkladu na otwartej sesji
+    }
     const float* invalid[]={nullptr};
     r.audioDeviceIOCallbackWithContext(invalid,1,out,1,512,{});r.stop();
     check(r.recordingDamaged() && r.recordedSeconds()==0,"invalid input is reported, not counted as written");
