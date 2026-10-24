@@ -53,6 +53,7 @@
 #include "Level.h"
 #include "Limiter.h"
 #include "TiltMatch.h"
+#include "VoiceProfile.h"
 #include "Tame.h"
 #include "Loudness.h"
 #include "Restore.h"
@@ -94,6 +95,10 @@ struct ChainReport
     /** Ile barwy trzeba bylo cofnac: polka 300, dzwony 500 i 1400, polka 5 kHz. */
     float  tiltDb[4]      = { 0, 0, 0, 0 };
     bool   tiltUsed       = false;
+
+    /** Ile barwy dociagnieto do wzorca brzmienia (te same cztery pasma). */
+    float  profileDb[4]   = { 0, 0, 0, 0 };
+    bool   profileUsed    = false;
 };
 
 //==============================================================================
@@ -169,6 +174,11 @@ public:
             to nie jest efekt, tylko naprawa skutku ubocznego. */
         bool   useTiltMatch  = true;
         float  tiltMaxDb     = 6.0f;
+
+        /** Wzorzec brzmienia (VoiceProfile.h): barwa dociagana do miksu, ktory
+            czlowiek zatwierdzil. Pusty = bez wzorca. */
+        VoiceProfile profile;
+        float  profileMaxDb  = 3.0f;
 
         bool   useSaturation = true;
         float  saturation    = 0.35f;
@@ -495,6 +505,58 @@ public:
 
                 rep.tiltUsed = true;
             }
+        }
+
+        // ---- wzorzec brzmienia -------------------------------------------------
+        // Po wszystkim, co lancuch robi sam: porownujemy gotowy ksztalt z
+        // wzorcem i dociagamy tym samym filtrem (tilt jest ostatni w stopniu).
+        // Ponizej 0,75 dB nic nie ruszamy — taka roznica to rozrzut pomiaru
+        // (wzorzec jest z gotowego pliku, po limiterze; tu porownujemy przed
+        // nim: na tym samym nagraniu wychodzi do 0,5 dB), nie inny dzien przy
+        // mikrofonie.
+        if (params.profile.valid())
+        {
+            TiltMatch::Curve acc;
+            if (rep.tiltUsed) for (int b = 0; b < TiltMatch::kBands; ++b) acc.gainDb[b] = rep.tiltDb[b];
+            float applied[TiltMatch::kBands] {};
+
+            for (int round = 0; round < 2; ++round)
+            {
+                const auto gotSp = TiltMatch::analyse (stage, sr);
+                if (! gotSp.valid) break;
+
+                // Cale pasmo: polka 5 kHz dopasowana tylko do punktow pod 4 kHz
+                // "zgadywala" gore (kontrola na tym samym nagraniu dostawala
+                // +0,8 dB). Podbicia gory i tak ogranicza warunek nizej.
+                const auto grid = params.profile.against (gotSp, 16000.0);
+                TiltMatch solver;
+                // Bez "ochrony gory" z TiltMatch: ta odrzuca kazdy ruch, ktory
+                // choc o 0,05 dB rusza pasmo nad 4 kHz — a dzwon 1,4 kHz zawsze
+                // troche tam siega, wiec glos z bliska (ciemniejszy) nie dostawal
+                // zadnej korekty. Gore pilnujemy prosciej: przy de-esserze polka
+                // 5 kHz najwyzej +1,5 dB, zeby nie oddawac sybilantow.
+                auto delta = solver.fit (grid, sr, params.profileMaxDb, false);
+                if (params.useDeEsser || params.useTame)
+                    delta.gainDb[3] = std::min (delta.gainDb[3], 1.5f - applied[3]);
+                if (! delta.active || delta.maxAbsDb() < (round == 0 ? 0.75f : 0.3f)) break;
+
+                for (int b = 0; b < TiltMatch::kBands; ++b)
+                {
+                    const float next = std::clamp (applied[b] + delta.gainDb[b], -params.profileMaxDb, params.profileMaxDb);
+                    acc.gainDb[b] += next - applied[b];
+                    applied[b] = next;
+                }
+                acc.active = true;
+
+                const auto saved = rep;
+                reset();
+                rep = saved;
+                tilt.prepare (acc, sr);
+                renderStage();
+            }
+
+            for (int b = 0; b < TiltMatch::kBands; ++b) rep.profileDb[b] = applied[b];
+            rep.profileUsed = std::any_of (applied, applied + TiltMatch::kBands, [] (float v) { return std::fabs (v) >= 0.25f; });
         }
 
         const double afterStage = measureLufs (stage);
