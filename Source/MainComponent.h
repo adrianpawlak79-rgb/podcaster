@@ -514,8 +514,7 @@ public:
         zs::ScreenFrame::paint (g, getLocalBounds(), name,
             rec ? (inPrompter ? PL ("Spacja — pauza  ·  Esc — zakończ") : PL ("Spacja albo Esc — zakończ i oceń")) : preparation ? PL("Wybierz mikrofon i przygotuj tekst") : PL ("Nagraj, a potem odsłuchaj podejście"));
         auto side = zs::ScreenFrame::sidebar (getLocalBounds());
-        g.setColour (I::bar()); g.fillRect (side);
-        g.setColour (I::edge()); g.drawVerticalLine (side.getX(), (float) side.getY(), (float) side.getBottom());
+        zs::ScreenFrame::paintPanel (g, side);
         if (settingsOpen) { paintHardwareSettings (g); return; }
         if (preparation) { paintPreparation (g); return; }
         auto main = zs::ScreenFrame::mainArea (getLocalBounds());
@@ -548,7 +547,8 @@ public:
         const bool rec = recorder.isRecording();
         refreshHomeVisibility();
         settingsButton.setBounds (getWidth() - 196, 14, 174, 36);
-        flow.setBounds (zs::ScreenFrame::stepsArea (getLocalBounds()));
+        // zakladki krokow w naglowku: miejsce do przyciskow po prawej (1 albo 2)
+        flow.setBounds (zs::ScreenFrame::stepsArea (getLocalBounds(), preparationButton.isVisible() ? 394 : 210));
         if (settingsOpen) { layoutHardwareSettings(); return; }
         if (preparation) { layoutPreparation(); return; }
         preparationButton.setBounds (getWidth() - 380, 14, 174, 36);

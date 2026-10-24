@@ -6,25 +6,26 @@ namespace zs
 {
 struct ScreenFrame
 {
+    // Uklad kierunku D (24.10): naglowek z zakladkami krokow, pod nim tresc
+    // i prawy panel jako osobna, zaokraglona plyta (jak panele wtyczek).
+
     static juce::Rectangle<int> content (juce::Rectangle<int> bounds)
     {
         bounds.removeFromTop (ui::frame::header + ui::frame::steps);
         bounds.removeFromBottom (ui::frame::footer);
-        bounds.removeFromLeft (ui::frame::navWidth (bounds.getWidth()));
-        return bounds;
+        return bounds.reduced (ui::frame::pad, ui::frame::pad - 2);
     }
-    /** Lewa kolumna z krokami. */
-    static juce::Rectangle<int> nav (juce::Rectangle<int> bounds)
+    /** Dawna lewa kolumna z krokami — kroki sa teraz w naglowku. */
+    static juce::Rectangle<int> nav (juce::Rectangle<int>) { return {}; }
+
+    /** Zakladki krokow w naglowku: miedzy nazwa programu a przyciskami po
+        prawej (rightReserve: ile px zajmuja przyciski ekranu). */
+    static juce::Rectangle<int> stepsArea (juce::Rectangle<int> bounds, int rightReserve = 210)
     {
-        const int w = ui::frame::navWidth (bounds.getWidth());
-        bounds.removeFromTop (ui::frame::header);
-        bounds.removeFromBottom (ui::frame::footer);
-        return bounds.removeFromLeft (w);
-    }
-    /** Gdzie stoi pasek krokow (StepBar rysuje sie pionowo, gdy jest wyzszy niz szerszy). */
-    static juce::Rectangle<int> stepsArea (juce::Rectangle<int> bounds)
-    {
-        return nav (bounds).reduced (12, 20).withTrimmedRight (2);
+        auto header = bounds.removeFromTop (ui::frame::header);
+        header.removeFromLeft (leftBlock);
+        header.removeFromRight (rightReserve);
+        return header.withSizeKeepingCentre (header.getWidth(), 40);
     }
 
     static juce::Rectangle<int> sidebar (juce::Rectangle<int> bounds)
@@ -35,9 +36,20 @@ struct ScreenFrame
     static juce::Rectangle<int> mainArea (juce::Rectangle<int> bounds)
     {
         auto r = content (bounds);
-        r.removeFromRight (ui::frame::sideWidth (bounds.getWidth()));
-        return r.reduced (ui::frame::margin, 24);
+        r.removeFromRight (ui::frame::sideWidth (bounds.getWidth()) + ui::frame::gap);
+        return r.reduced (ui::frame::margin - ui::frame::pad + 4, 14);
     }
+
+    /** Plyta panelu: zaokraglona, z cienka ramka (prawy panel, karty). */
+    static void paintPanel (juce::Graphics& g, juce::Rectangle<int> r)
+    {
+        g.setColour (Ink::panel());
+        g.fillRoundedRectangle (r.toFloat(), 8.0f);
+        g.setColour (Ink::edge().withAlpha (0.8f));
+        g.drawRoundedRectangle (r.toFloat().reduced (0.5f), 8.0f, 1.0f);
+    }
+
+    static constexpr int leftBlock = 270;   ///< znak + nazwa programu + nazwa nagrania
 
     //==========================================================================
     /** Tekst zawijany po slowach, w pelnym rozmiarze: bez sciskania liter i bez
@@ -103,43 +115,38 @@ struct ScreenFrame
     static void paint (juce::Graphics& g, juce::Rectangle<int> bounds,
                        const juce::String& name, const juce::String& hint)
     {
-        const auto navCol = nav (bounds);
         auto header = bounds.removeFromTop (ui::frame::header);
         g.setColour (Ink::bar());
         g.fillRect (header);
-        g.fillRect (bounds.removeFromTop (ui::frame::steps));
-        {
-            g.setColour (Ink::bar());
-            g.fillRect (navCol);
-            g.setColour (Ink::edge());
-            g.drawVerticalLine (navCol.getRight() - 1, (float) navCol.getY(), (float) navCol.getBottom());
-        }
         auto footer = bounds.removeFromBottom (ui::frame::footer);
-        g.setColour (Ink::bar());
         g.fillRect (footer);
         g.setColour (Ink::edge());
         g.drawHorizontalLine (header.getBottom() - 1, 0.0f, (float) header.getWidth());
-        g.drawHorizontalLine (bounds.getY(), 0.0f, (float) bounds.getWidth());
         g.drawHorizontalLine (footer.getY(), 0.0f, (float) footer.getWidth());
 
-        // Mikrofon jest rysowany, wiec nie zalezy od znakow w kroju systemowym. Zielony: to znak programu.
-        g.setColour (Ink::green());
-        g.drawRoundedRectangle (28.0f, 21.0f, 8.0f, 16.0f, 4.0f, 2.0f);
-        juce::Path mic;
-        mic.startNewSubPath (24.0f, 30.0f); mic.lineTo (24.0f, 34.0f);
-        mic.quadraticTo (24.0f, 42.0f, 32.0f, 42.0f);
-        mic.quadraticTo (40.0f, 42.0f, 40.0f, 34.0f); mic.lineTo (40.0f, 30.0f);
-        g.strokePath (mic, juce::PathStrokeType (2.0f));
-        g.drawLine (32.0f, 42.0f, 32.0f, 47.0f, 2.0f);
-        g.drawLine (27.0f, 47.0f, 37.0f, 47.0f, 2.0f);
+        // Znak: mikrofon w zielonym pierscieniu (zielen = program, "dobrze").
+        // Rysowany, wiec nie zalezy od znakow w kroju systemowym.
+        {
+            const juce::Rectangle<float> ring (16.0f, 14.0f, 36.0f, 36.0f);
+            g.setColour (Ink::green().withAlpha (0.18f));
+            g.fillEllipse (ring.expanded (3.0f));
+            g.setColour (Ink::green());
+            g.drawEllipse (ring, 2.0f);
+            const float cx = ring.getCentreX(), cy = ring.getCentreY();
+            g.drawRoundedRectangle (cx - 3.5f, cy - 10.0f, 7.0f, 12.0f, 3.5f, 1.8f);
+            juce::Path mic;
+            mic.startNewSubPath (cx - 7.0f, cy - 3.0f); mic.lineTo (cx - 7.0f, cy - 1.0f);
+            mic.quadraticTo (cx - 7.0f, cy + 6.0f, cx, cy + 6.0f);
+            mic.quadraticTo (cx + 7.0f, cy + 6.0f, cx + 7.0f, cy - 1.0f); mic.lineTo (cx + 7.0f, cy - 3.0f);
+            g.strokePath (mic, juce::PathStrokeType (1.8f));
+            g.drawLine (cx, cy + 6.0f, cx, cy + 10.0f, 1.8f);
+        }
+        // Nazwa programu, pod nia nazwa nagrania (bylo: osobno, na srodku naglowka)
         g.setColour (Ink::textNow()); g.setFont (juce::Font (18.0f, juce::Font::bold));
-        g.drawText (juce::String::fromUTF8 ("Zielone światło"), 54, 0, 230, header.getHeight(),
-                    juce::Justification::centredLeft);
-        g.setFont (juce::Font (type::body, juce::Font::bold));
-        // nazwa nagrania nad trescia ekranu, nie w przypadkowym miejscu (bylo x = 300)
-        const int nameX = ui::frame::navWidth (header.getWidth()) + ui::frame::margin;
-        g.drawText (name, nameX, 0, juce::jmax (0, header.getWidth() - nameX - 380), header.getHeight(),
-                    juce::Justification::centredLeft);
+        g.drawText (juce::String::fromUTF8 ("Zielone światło"), 62, 10, leftBlock - 70, 24, juce::Justification::centredLeft);
+        g.setColour (Ink::textDim()); g.setFont (juce::Font (type::small));
+        g.drawText (name, 62, 33, leftBlock - 70, 20, juce::Justification::centredLeft);
+
         g.setFont (juce::Font (type::small)); g.setColour (Ink::textDim());
         auto foot = footer.reduced (22, 0);
         // Nazwa tyle, ile potrzebuje (najwyzej 1/3), reszta dla podpowiedzi —
