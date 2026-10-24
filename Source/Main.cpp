@@ -75,6 +75,7 @@ countries: pl
                 if(!args[2].endsWith("-small")) preview.setSize(1280,1100);
                 preview.previewCuts(fixture);
             }
+            if(mode=="witaj") preview.previewStart(fixture.getParentDirectory());
             if(mode=="review") preview.previewReview(fixture);
             if(mode=="edit") preview.previewReview(fixture,true);
             if(mode=="done") preview.previewReview(fixture,false,true);

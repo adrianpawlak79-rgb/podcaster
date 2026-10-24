@@ -39,7 +39,8 @@ public:
     ~Recorder() override { stop(); }
 
     // Control thread only. The callback sees an immutable session descriptor.
-    juce::String start (const juce::File& folder)
+    // baseName: nazwa projektu z ekranu startowego; plik to "<nazwa>_<data>.wav".
+    juce::String start (const juce::File& folder, const juce::String& baseName = "sesja")
     {
         stop();
         std::lock_guard<std::mutex> lock(sessionControl);
@@ -47,7 +48,9 @@ public:
         if (rate <= 0) return PL("Brak urządzenia dźwiękowego.");
         if (!folder.createDirectory()) return PL("Nie mogę utworzyć folderu nagrania.");
         const auto stamp = juce::Time::getCurrentTime().formatted("%Y-%m-%d_%H-%M-%S");
-        auto file = folder.getNonexistentChildFile("sesja_" + stamp, ".wav", false);
+        auto base = juce::File::createLegalFileName (baseName.trim()).substring (0, 60).trim();
+        if (base.isEmpty()) base = "sesja";
+        auto file = folder.getNonexistentChildFile(base + "_" + stamp, ".wav", false);
         std::unique_ptr<juce::FileOutputStream> stream(file.createOutputStream());
         if (!stream || stream->failedToOpen()) return PL("Nie mogę utworzyć pliku ") + file.getFullPathName();
         auto session = std::make_unique<Session>();

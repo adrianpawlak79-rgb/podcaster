@@ -15,6 +15,7 @@
 #include "PrompterComponent.h"
 #include "WizardComponent.h"
 #include "ReviewComponent.h"
+#include "StartComponent.h"
 #include "Settings.h"
 #include "InputChoice.h"
 #include "StepBar.h"
@@ -280,14 +281,9 @@ public:
             detailsOpen = !detailsOpen; refreshHomeVisibility(); resized(); repaint();
         };
         addAndMakeVisible(detailsButton);
-        openButton.setButtonText (PL("Otwórz nagranie"));
-        openButton.onClick = [this] {
-            chooser = std::make_unique<juce::FileChooser>(PL("Wybierz nagranie"),sessionFolder,"*.wav;*.flac;*.aiff");
-            chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-                [safe=juce::Component::SafePointer<MainComponent>(this)](const juce::FileChooser& fc) {
-                    if(safe && fc.getResult().existsAsFile()) safe->openReview(fc.getResult(),false,true);
-                });
-        };
+        // Otwieranie nagran mieszka teraz na ekranie startowym (lista ostatnich).
+        openButton.setButtonText (PL("Ekran startowy"));
+        openButton.onClick = [this] { showStart (true); };
         addAndMakeVisible(openButton);
         zs::Look::setKind (recButton, zs::ui::ButtonKind::Record);
         updatePrompterButton();
@@ -358,8 +354,8 @@ public:
         status.setColour (juce::Label::textColourId, zs::Ink::textNext());
         addAndMakeVisible (status);
 
+        nameInput.setFont (juce::Font (zs::type::body));   // przed setText: font dotyczy tylko nowego tekstu
         nameInput.setText (PL("Nowy odcinek"));
-        nameInput.setFont (juce::Font (zs::type::body));
         nameInput.setIndents (10, 10);                 // tekst na srodku pola 40 px, nie przy gornej krawedzi
         nameInput.onTextChange = [this] { repaint(); };
         scriptInput.setMultiLine (true);
@@ -407,6 +403,7 @@ public:
         {
             showRecordingUi (true);
             lamp.setState (0, PL ("Naciśnij Nagraj, kiedy będziesz gotowy."), true);
+            if (! previewMode) showStart (true);
 
             const int d = settings.daysSinceCheck();
 
@@ -425,6 +422,7 @@ public:
         }
         else
         {
+            startAfterWizard = ! previewMode;   // pierwsze uruchomienie: kreator, potem ekran startowy
             enterWizard();
         }
 
@@ -440,7 +438,8 @@ public:
                 inWizard = false;
                 showRecordingUi (true);
             }
-
+            startAfterWizard = false;
+            showStart (false);
             openReview (openForReview, reviewNow, true);
         }
 
@@ -488,6 +487,12 @@ public:
     /** Dla okna, ktore chce zapamietac swoje polozenie. */
     Settings& userSettings() noexcept { return settings; }
     void previewSettings() { settingsOpen=true;resized();repaint(); }
+    /** --preview-ui witaj: ekran startowy z nagraniami z folderu przykladu. */
+    void previewStart (const juce::File& folder)
+    {
+        showStart (true);
+        if (startScreen != nullptr) startScreen->setFolder (folder);
+    }
     void previewPrompter() {
         preparation = false;
         recorder.prepareDevice(48000,512,1);
@@ -508,7 +513,7 @@ public:
     {
         using I = zs::Ink;
         g.fillAll (I::bg());
-        if (inWizard || inReview) return;
+        if (inWizard || inReview || inStart) return;
         const bool rec = recorder.isRecording();
         const auto name = recordingName();
         zs::ScreenFrame::paint (g, getLocalBounds(), name,
@@ -544,6 +549,8 @@ public:
         if (wizard) wizard->setBounds (getLocalBounds());
         if (inWizard) return;
         if (inReview && review) { review->setBounds (getLocalBounds()); return; }
+        if (startScreen != nullptr) startScreen->setBounds (getLocalBounds());
+        if (inStart) return;
         const bool rec = recorder.isRecording();
         refreshHomeVisibility();
         settingsButton.setBounds (getWidth() - 196, 14, 174, 36);
@@ -600,6 +607,7 @@ public:
         i wola te same funkcje. */
     bool keyPressed (const juce::KeyPress& k) override
     {
+        if (inStart) return false;          // ekran startowy: spacja i Esc nic tu nie nagrywaja
         const auto a = zs::ui::keyAction (k.getKeyCode() == juce::KeyPress::escapeKey,
                                           (char32_t) k.getTextCharacter(),
                                           recorder.isRecording(), inPrompter && prompter != nullptr && prompter->hasText());
@@ -1067,7 +1075,7 @@ private:
                 return;
             }
         }
-        const auto err = recorder.start (previewFolder != juce::File() ? previewFolder : sessionFolder);
+        const auto err = recorder.start (previewFolder != juce::File() ? previewFolder : sessionFolder, recordingName());
 
         if (err.isNotEmpty())
         {
@@ -1392,6 +1400,59 @@ private:
         repaint();
     }
 
+    /** Ekran startowy (StartComponent.h): nowy projekt albo ostatnie nagranie.
+        Przykrywa cale okno; pod spodem czeka Przygotowanie. */
+    void showStart (bool on)
+    {
+        if (on && (recorder.isRecording() || inWizard)) return;
+        if (on && startScreen == nullptr)
+        {
+            startScreen = std::make_unique<StartComponent>();
+            startScreen->onStart = [this] (const juce::String& name)
+            {
+                nameInput.setText (name.isEmpty() ? PL ("Nowy odcinek") : name, juce::dontSendNotification);
+                preparation = true; settingsOpen = false; detailsOpen = false;
+                showStart (false);
+            };
+            startScreen->onOpen = [this] (const juce::File& f) { showStart (false); openReview (f, false, true); };
+            startScreen->onOpenOther = [this]
+            {
+                chooser = std::make_unique<juce::FileChooser> (PL ("Wybierz nagranie"), sessionFolder, "*.wav;*.flac;*.aiff");
+                chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                    [safe = juce::Component::SafePointer<MainComponent> (this)] (const juce::FileChooser& fc)
+                    {
+                        if (safe && fc.getResult().existsAsFile()) { safe->showStart (false); safe->openReview (fc.getResult(), false, true); }
+                    });
+            };
+            addChildComponent (*startScreen);
+        }
+        if (on && inPrompter) showPrompter (false);
+        if (on && inReview) showReview (false);
+        inStart = on;
+        if (startScreen != nullptr)
+        {
+            if (on)
+            {
+                startScreen->setFolder (sessionFolder);
+                startScreen->setName (juce::String());
+                auto* dev = deviceManager.getCurrentAudioDevice();
+                const int d = settings.daysSinceCheck();
+                const bool checked = settings.hardwareChecked();
+                startScreen->setEquipment (PL ("Mikrofon: ") + (dev != nullptr ? dev->getName() : PL ("nie wybrany"))
+                    + (checked ? PL ("  ·  sprzęt sprawdzony ") + (d <= 0 ? juce::String (PL ("dzisiaj"))
+                                                                      : juce::String (d) + PL (d == 1 ? " dzień temu" : " dni temu"))
+                               : PL ("  ·  sprzęt niesprawdzony")),
+                    checked && dev != nullptr);
+                startScreen->setBounds (getLocalBounds());
+            }
+            startScreen->setVisible (on);
+            if (on) { startScreen->toFront (true); startScreen->focusName(); }
+        }
+        refreshHomeVisibility();
+        resized();
+        repaint();
+    }
+
     void enterWizard()
     {
         if (inPrompter)
@@ -1423,6 +1484,7 @@ private:
 
         showRecordingUi (true);
         lamp.setState (0, PL ("Naciśnij Nagraj, kiedy będziesz gotowy."), true);
+        if (std::exchange (startAfterWizard, false)) showStart (true);
 
         // Kreator sluchal mikrofonu przez caly swoj czas. Zostawiony przy zyciu
         // slucha go dalej — takze w trakcie nagrywania, ktorego juz nie dotyczy.
@@ -1672,6 +1734,8 @@ private:
     }
 
     bool inWizard = true, wizardStarted = false;
+    std::unique_ptr<StartComponent> startScreen;
+    bool inStart = false, startAfterWizard = false;
     bool inReview = false, reviewCameFromPrompter = false;
     bool closeAsked = false;              ///< okno "czy zamknac" juz pokazane
     std::unique_ptr<ReviewComponent> review;
