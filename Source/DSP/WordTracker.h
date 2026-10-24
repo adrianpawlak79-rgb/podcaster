@@ -62,6 +62,13 @@ public:
         size_t fuzzyMinChars  = 4;     ///< krotszych slow nie zgadujemy
 
         double resyncAfterSec = 4.0;
+
+        /** Licznik sylab przesuwa prompter tylko tyle sekund po ostatnim
+            trafionym slowie (24.10: muzyka w pokoju, Adrian nic nie mowil, a
+            wersy jechaly — sylaby lapia kazdy rytmiczny dzwiek, Vosk muzyki
+            do tekstu nie dopasuje). Dluzej niz resyncAfterSec, zeby pomost
+            miedzy wynikami Vosk zostal. */
+        double syllableTrustSec = 6.0;
         int    tempoHits      = 6;
         double minRate        = 0.8;   ///< slow na sekunde
         double maxRate        = 5.0;
@@ -204,6 +211,13 @@ public:
     bool hasLock (double nowSec) const
     {
         return totalHits > 0 && nowSec - lastHitSec <= params.resyncAfterSec;
+    }
+
+    /** Czy sylaby moga teraz przesuwac prompter (patrz syllableTrustSec). Przed
+        pierwszym trafionym slowem — nie: prompter czeka na pierwsze slowo. */
+    bool syllablesTrusted (double nowSec) const
+    {
+        return totalHits > 0 && nowSec - lastHitSec <= params.syllableTrustSec;
     }
 
     bool   started()     const noexcept { return totalHits > 0; }

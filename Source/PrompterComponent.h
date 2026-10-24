@@ -1093,7 +1093,10 @@ private:
             return;
         }
 
-        follower.advance (now, clock.takeNewSyllables(), clock.pauseLength());
+        // Z rozpoznawaniem mowy sylaby jada tylko zaraz po trafionych slowach —
+        // muzyka albo rozmowa w pokoju nie przesuwa wersow (WordTracker::syllablesTrusted).
+        const int newSyllables = clock.takeNewSyllables();
+        follower.advance (now, ! listening || words.syllablesTrusted (now) ? newSyllables : 0, clock.pauseLength());
 
         // Rozpoznane slowa maja pierwszenstwo. Licznik sylab jest rezerwa:
         // dostaje pewna pozycje przy kazdym kroku, wiec gdy rozpoznawanie
