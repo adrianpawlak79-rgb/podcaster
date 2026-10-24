@@ -105,6 +105,11 @@ public:
         w nagraniu przydzwieku, ktory slyszal kreator, i porownuje tlo. */
     void setRoom (const mix::RoomCheck& r) { wish.room = r; }
 
+    /** Wzorzec brzmienia z ustawien (pusty = brak). */
+    void setVoiceProfile (const mix::VoiceProfile& p) { wish.profile = p; }
+    /** "Zapamietaj to brzmienie": tekst wzorca do zapisania w ustawieniach. */
+    std::function<void (const juce::String&)> onRememberProfile;
+
     //==========================================================================
     explicit ReviewComponent (Recorder& r)
         : juce::Thread ("miks po nagraniu"), recorder (r)
@@ -247,6 +252,8 @@ public:
         newTakeButton.setButtonText (PL("Nagraj nowe podejście"));
         newTakeButton.onClick = [this] { if (job == nullptr && onClose) onClose(); };
         addAndMakeVisible (doneEditButton); addAndMakeVisible (newTakeButton);
+        profileButton.onClick = [this] { rememberProfile(); };
+        addAndMakeVisible (profileButton);
         for (auto* editor : { &savedPath, &savedName }) {
             editor->setMultiLine (true); editor->setReadOnly (true);
             editor->setCaretVisible (false); editor->setScrollbarsShown (true);
@@ -780,7 +787,7 @@ public:
         for (auto& b : styleButtons) b.setVisible (false);      // tylko w zwyklym widoku oceny
         for (auto* b : { &zoomIn, &zoomOut, &zoomAllButton }) b->setVisible (false);   // tylko w montazu
         if (doneMode) { layoutDone(); return; }
-        doneEditButton.setVisible (false); newTakeButton.setVisible (false);
+        doneEditButton.setVisible (false); newTakeButton.setVisible (false); profileButton.setVisible (false);
         savedPath.setVisible (false); savedName.setVisible (false);
         playButton.setVisible (true); abButton.setVisible (true);
         saveButton.setVisible (true); editToggle.setVisible (true);
@@ -899,6 +906,16 @@ private:
         newTakeButton.setBounds (actions.removeFromBottom (36)); actions.removeFromBottom (8);
         doneEditButton.setBounds (actions.removeFromBottom (36));
         newTakeButton.setVisible (true); doneEditButton.setVisible (true);
+        // nad nimi: wzorzec brzmienia dla kolejnych odcinkow
+        side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24);
+        side.removeFromBottom (80 + 8);
+        profileButton.setBounds (side.removeFromBottom (36));
+        profileButton.setVisible (true);
+        profileButton.setButtonText (profileRemembered ? PL("Brzmienie zapamiętane ✓")
+                                   : wish.profile.valid() ? PL("Ustaw to brzmienie jako wzorzec")
+                                                          : PL("Zapamiętaj to brzmienie"));
+        profileButton.setEnabled (! profileRemembered && saved.existsAsFile());
+        profileButton.setTooltip (PL("Następne odcinki dostaną tę barwę — seria brzmi jak z jednego studia. Usunąć wzorzec można w „Mikrofon i sprzęt”."));
     }
     void paintDone (juce::Graphics& g) {
         g.fillAll (Ink::bg());
@@ -933,10 +950,9 @@ private:
             g.setColour (Ink::textDim()); g.drawText (label, r.removeFromTop (18), juce::Justification::centredLeft);
             g.setColour (Ink::textNow()); g.drawText (value, r.removeFromTop (22), juce::Justification::centredLeft);
         };
-        row (PL("Format"), "WAV 24-bit", 54);
-        // MP3: nazwa i jakosc albo krotko, czemu go nie ma (pelny powod w notce)
-        row (PL("MP3"), savedMp3 != juce::File() ? juce::String (mp3Kbps) + PL(" kbit/s, do publikacji")
-                                                 : PL("nie powstał"), 54);
+        // jeden wiersz na oba pliki — miejsce na przycisk wzorca brzmienia w 960x640
+        row (PL("Pliki"), savedMp3 != juce::File() ? PL("WAV 24-bit i MP3 ") + juce::String (mp3Kbps) + " kbit/s"
+                                                   : PL("WAV 24-bit (MP3 nie powstał)"), 54);
         row (PL("Długość"), plr::clock (review.seconds()) + " (" + juce::String (review.seconds(), 1) + " s)", 54);
         // Audyt 14.10: "LUFS" i "dBTP" na glownym ekranie wymagaja wiedzy audio.
         row (PL("Gotowa głośność"), PL("Jak w podcastach (mono)"), 42);
@@ -944,6 +960,11 @@ private:
         g.drawText (juce::String (review.whatIDid().lufsAfter, 1) + PL(" LUFS · szczyt ")
                         + juce::String (review.whatIDid().peakAfter, 1) + " dBTP",
                     side.removeFromTop (20), juce::Justification::centredLeft);
+        if (wish.profile.valid())
+        {
+            side.removeFromTop (14);
+            row (PL("Wzorzec brzmienia"), juce::String::fromUTF8 (wish.profile.label.c_str()), 42);
+        }
     }
     class TrimSlider : public juce::Slider {
     public:
@@ -1512,6 +1533,7 @@ private:
                                    + (savedMp3 != juce::File() ? savedMp3.getFullPathName()
                                                                : PL ("MP3 nie powstał: ") + mp3Problem), false);
                 savedName.setText (saved.getFileName(), false);
+                profileRemembered = false;       // nowy plik: wzorca z niego jeszcze nie ma
                 doneMode = true;
                 resized();
                 repaint();
@@ -1557,6 +1579,11 @@ private:
         juce::String line = PL ("Miks gotowy. Posłuchaj przed i po, wybierz brzmienie i zapisz.");
         if (damagedRecording) { v = 2; line = PL ("Podczas zapisu utracono dane. Nagraj materiał ponownie."); }
         else if (! review.mixValid()) { v = 2; line = PL (review.verdictLine().c_str()); }
+        else if (review.nearlySilent())
+        {
+            v = 1;
+            line = PL ("Nagranie jest prawie ciche — mikrofon chyba nie dochodził. Sprawdź „Mikrofon i sprzęt” i nagraj jeszcze raz.");
+        }
         else if (! review.toRedo().empty())
         {
             v = 2;
@@ -1909,6 +1936,29 @@ private:
     juce::TextButton markStart,markEnd,cutButton,undoButton,editToggle,detailsToggle,nextButton;
     bool editMode=false,detailsMode=false,middleMode=false,doneMode=false;
     juce::TextButton doneEditButton,newTakeButton;
+    juce::TextButton profileButton;           ///< "Zapamietaj to brzmienie" (ekran Gotowe)
+    bool profileRemembered = false;           ///< wzorzec wziety z tego miksu
+
+    /** Wzorzec z zapisanego miksu: srednie widmo glosnych fragmentow (pierwsze
+        10 minut). W tle, bo przy dlugim nagraniu to kilka sekund FFT. */
+    void rememberProfile()
+    {
+        if (job != nullptr || ! saved.existsAsFile()) return;
+        auto out = std::make_shared<mix::VoiceProfile>();
+        const auto label = (saved.getFileNameWithoutExtension().upToFirstOccurrenceOf ("__", false, false)
+                            + ", " + juce::Time::getCurrentTime().formatted ("%d.%m.%Y")).toStdString();
+        runJob (PL ("Zapamiętuję brzmienie…"), 0,
+            [this, out, label] { *out = mix::VoiceProfile::measure (review.mixedAudio(), review.sampleRate()); out->label = label; },
+            [this, out]
+            {
+                if (! out->valid()) { note = PL ("Nie udało się zmierzyć brzmienia — za mało mowy w nagraniu."); repaint(); return; }
+                wish.profile = *out;
+                profileRemembered = true;
+                if (onRememberProfile) onRememberProfile (juce::String::fromUTF8 (out->toText().c_str()));
+                note = PL ("Zapamiętane. Następne odcinki dostaną tę barwę (Studyjny i Mocny).");
+                resized(); repaint();
+            });
+    }
     juce::TextEditor savedPath,savedName;
     TrimSlider trimStart,trimEnd;
     TrimHandle startHandle,endHandle;

@@ -420,6 +420,12 @@ public:
 
         0 = nadaje sie, 1 = nadaje sie, ale cos warto powtorzyc,
         2 = sa fragmenty, ktorych nie da sie naprawic. */
+    /** Prawie cisza na wejsciu (24.10: nagranie z Windows, 1 s, -70 LUFS,
+        a ekran pisal "Miks gotowy"). Mowa nawet daleko od mikrofonu ma
+        -45..-30 LUFS; ponizej -55 to zle wejscie albo wyciszony mikrofon. */
+    static constexpr double silentLufs = -55.0;
+    bool nearlySilent() const noexcept { return st.load() == Stage::Ready && report.lufsBefore < silentLufs; }
+
     bool mixValid() const noexcept {
         return std::isfinite(report.peakAfter) && std::isfinite(report.lufsAfter)
             && report.peakAfter <= decision.params.ceilingDbTp + 0.1;
@@ -659,6 +665,13 @@ private:
         const auto& p = mixedParams;           // z poprawkami z toru miksu
         char b[300];
 
+        if (report.lufsBefore < silentLufs)
+        {
+            std::snprintf (b, sizeof (b), "Nagranie jest prawie ciche (%.0f LUFS): mikrofon chyba nie dochodził do programu. "
+                           "Sprawdź wejście w „Mikrofon i sprzęt” i nagraj jeszcze raz.", report.lufsBefore);
+            plain.push_back (b);
+        }
+
         if (report.peakAfter > p.ceilingDbTp + 0.1)
             plain.push_back ("Uwaga: miks wyszedł za głośny na szczytach. To błąd programu, nie nagrania — zgłoś go.");
 
@@ -685,6 +698,12 @@ private:
             plain.push_back ("Mniej dudnienia i „pudełka” w głosie.");
         if (p.useDeEsser)
             plain.push_back ("Złagodzono ostre „s”, „sz” i „c”.");
+        if (report.profileUsed)
+            plain.push_back ("Barwa dociągnięta do Twojego wzorca brzmienia"
+                             + (p.profile.label.empty() ? std::string() : " (" + p.profile.label + ")")
+                             + " — żeby odcinki brzmiały jak jedna seria.");
+        else if (p.profile.valid())
+            plain.push_back ("Barwa zgadza się z Twoim wzorcem brzmienia — bez korekty.");
 
         if (report.clicksRepaired > 0)
         {

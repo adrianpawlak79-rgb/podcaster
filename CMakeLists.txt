@@ -22,7 +22,8 @@ juce_add_gui_app(ZieloneSwiatlo
     VERSION ${PROJECT_VERSION}
     PRODUCT_NAME "Zielone swiatlo"
     COMPANY_NAME "Adrian Pawlak"
-    BUNDLE_ID "pl.zieloneswiatlo.recorder")
+    BUNDLE_ID "pl.zieloneswiatlo.recorder"
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Resources/ikona.png")   # z Resources/ikona.svg
 
 target_sources(ZieloneSwiatlo PRIVATE Source/Main.cpp Source/Mp3.cpp)
 

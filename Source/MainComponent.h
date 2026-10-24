@@ -263,6 +263,10 @@ public:
         otherTextButton.onClick = [this] { openScript(); };
         addAndMakeVisible (otherTextButton);
 
+        forgetProfileButton.setButtonText (PL ("Usuń wzorzec"));
+        forgetProfileButton.setTooltip (PL ("Kolejne miksy bez dociągania barwy do wzorca"));
+        forgetProfileButton.onClick = [this] { settings.setVoiceProfile ({}); forgetProfileButton.setVisible (false); repaint(); };
+        addChildComponent (forgetProfileButton);
         checkButton.setButtonText (PL ("Sprawdź sprzęt"));
         checkButton.onClick = [this] { enterWizard(); };
         addAndMakeVisible (checkButton);
@@ -771,6 +775,10 @@ private:
         auto side = settingsBox().reduced (22, 24);
         folderButton.setBounds (side.removeFromBottom (36)); side.removeFromBottom (8);
         checkButton.setBounds (side.removeFromBottom (38));
+        // pod mikrofonem i sluchawkami (2 x 108 px): wzorzec brzmienia (24 + 48)
+        side = settingsBox().reduced (22, 24);
+        side.removeFromTop (2 * 108 + 24 + 48 + 4);
+        forgetProfileButton.setBounds (side.removeFromTop (34).removeFromLeft (180));
     }
 
     void paintHardwareSettings (juce::Graphics& g)
@@ -788,6 +796,15 @@ private:
         };
         device (PL("MIKROFON"), setup.inputDeviceName);
         device (PL("SŁUCHAWKI"), setup.outputDeviceName);
+
+        // wzorzec brzmienia (ReviewComponent: "Zapamietaj to brzmienie")
+        const auto profile = mix::VoiceProfile::fromText (settings.voiceProfile().toStdString());
+        g.setColour (zs::Ink::textDim()); g.setFont (juce::Font (zs::type::small));
+        g.drawText (PL("WZORZEC BRZMIENIA"), side.removeFromTop (24), juce::Justification::centredLeft);
+        zs::ScreenFrame::wrapped (g, profile.valid() ? juce::String::fromUTF8 (profile.label.c_str())
+                                                     : PL("Brak. Ustawisz go po zapisaniu miksu, na ekranie Gotowe."),
+                                  side.removeFromTop (48), juce::Font (profile.valid() ? zs::type::body : zs::type::small),
+                                  profile.valid() ? zs::Ink::textNow() : zs::Ink::textNext());
     }
 
     static juce::String hardwareSubtitle() { return PL("Wybierz mikrofon i słuchawki, potem sprawdź sprzęt."); }
@@ -1130,6 +1147,12 @@ private:
 
     void timerCallback() override
     {
+        // "Usun wzorzec" chodzi razem z ekranem Mikrofon i sprzet (jak "Folder
+        // sesji"), ale tylko gdy wzorzec jest
+        {
+            const bool want = folderButton.isVisible() && settingsOpen && settings.voiceProfile().isNotEmpty();
+            if (forgetProfileButton.isVisible() != want) forgetProfileButton.setVisible (want);
+        }
         // Mikrofon albo karta przestaly dzialac w trakcie nagrania (audyt 14.10):
         // to, co nagrane, jest zamkniete i zapisane — mowimy wprost i idziemy dalej.
         if (recorder.takeStoppedByDevice())
@@ -1487,6 +1510,7 @@ private:
     std::unique_ptr<WizardComponent> wizard;
     std::unique_ptr<PrompterComponent> prompter;
     juce::TextButton prompterButton, otherTextButton, checkButton;
+    juce::TextButton forgetProfileButton;     ///< "Usun wzorzec" w Mikrofon i sprzet
     bool inPrompter = false;
 
     /** Wczytuje tekst i przelacza ekran na prompter.
@@ -1657,6 +1681,8 @@ private:
 
         review->setRecordingDamaged((!fromDisk && recorder.recordingDamaged()) || wavFile.getSiblingFile(wavFile.getFileName()+".problem.txt").existsAsFile());
         review->setRoom (settings.roomCheck());
+        review->setVoiceProfile (mix::VoiceProfile::fromText (settings.voiceProfile().toStdString()));
+        review->onRememberProfile = [this] (const juce::String& t) { settings.setVoiceProfile (t); repaint(); };
         review->load (wavFile, takeEvents, ! fromDisk, waitForIt);
         showReview (true);
     }
