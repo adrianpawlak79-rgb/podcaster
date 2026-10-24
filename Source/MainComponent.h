@@ -16,6 +16,7 @@
 #include "WizardComponent.h"
 #include "ReviewComponent.h"
 #include "StartComponent.h"
+#include "Backing.h"
 #include "Settings.h"
 #include "InputChoice.h"
 #include "StepBar.h"
@@ -574,6 +575,9 @@ public:
     {
         showStart (true);
         if (startScreen != nullptr) startScreen->setFolder (folder);
+        // podglad karty z podkladem, gdy w folderze lezy "podklad.wav"
+        const auto music = folder.getChildFile ("podklad.wav");
+        if (startScreen != nullptr && music.existsAsFile()) startScreen->setMusic (music, 222.0);
     }
     void previewPrompter() {
         preparation = false;
@@ -986,7 +990,12 @@ private:
     }
 
     static juce::String hardwareSubtitle() { return PL("Wybierz mikrofon i słuchawki, potem sprawdź sprzęt."); }
-    static juce::String preparationSubtitle() { return PL("Ustaw nazwę i mikrofon. Dodaj tekst, jeśli chcesz używać promptera."); }
+    juce::String preparationSubtitle() const
+    {
+        return backingFile != juce::File()
+            ? PL("Ustaw mikrofon i tekst. Podkład „") + backingFile.getFileName() + PL("” zagra w słuchawkach po Nagraj.")
+            : PL("Ustaw nazwę i mikrofon. Dodaj tekst, jeśli chcesz używać promptera.");
+    }
 
     void paintPreparation (juce::Graphics& g)
     {
@@ -1145,16 +1154,29 @@ private:
     void updateHeard (float level)
     {
         juce::String s;
+        auto colour = zs::Ink::accent();
+        const auto now = juce::Time::getMillisecondCounter();
 
         if (auto* d = deviceManager.getCurrentAudioDevice())
+        {
             if (level > 0.003f)
             {
+                quietSinceMs = 0;
                 const auto mask = (uint64_t) d->getActiveInputChannels().toInt64();
                 const int n = zs::input::physicalInput (mask, recorder.analysisCh());
                 if (n > 0) s = PL ("słyszę wejście ") + juce::String (n);
             }
+            // 24.10: SSL2 z pokretlem GAIN na zerze dawal same szumy (-84 dBFS),
+            // a nagrania wychodzily ciche. Po kilku sekundach ciszy podpowiedz.
+            else
+            {
+                if (quietSinceMs == 0) quietSinceMs = now;
+                if (now - quietSinceMs > quietHintMs) { s = PL ("cisza — podkręć GAIN?"); colour = zs::Ink::yellow(); }
+            }
+        }
 
         if (heardLabel.getText() != s) heardLabel.setText (s, juce::dontSendNotification);
+        heardLabel.setColour (juce::Label::textColourId, colour);
     }
 
     void repeatLine()
@@ -1243,6 +1265,32 @@ private:
         }
     }
 
+    /** Podklad do Recordera, w czestotliwosci karty (Backing.h). Wczytuje raz
+        na plik i czestotliwosc; bez podkladu — zdejmuje stary. false: blad, nie
+        nagrywamy (lepiej powiedziec niz nagrac wiersz bez muzyki). */
+    bool prepareBacking()
+    {
+        if (backingFile == juce::File())
+        {
+            if (recorder.hasBacking()) recorder.setBacking ({}, {});
+            loadedBackingKey.clear();
+            return true;
+        }
+        const double rate = recorder.currentSampleRate();
+        const auto key = backingFile.getFullPathName() + "@" + juce::String (rate);
+        if (key == loadedBackingKey && recorder.hasBacking()) return true;
+        zs::BackingTrack t;
+        const auto err = t.load (backingFile, rate);
+        if (err.isNotEmpty())
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, PL ("Podkład"), err);
+            return false;
+        }
+        recorder.setBacking (std::move (t.left), std::move (t.right));
+        loadedBackingKey = key;
+        return true;
+    }
+
     void startRecording()
     {
         // Bez wejscia nie zaczynamy: zamiast "Brak urzadzenia" na lampce mowimy,
@@ -1257,6 +1305,7 @@ private:
                 return;
             }
         }
+        if (! prepareBacking()) return;
         const auto err = recorder.start (previewFolder != juce::File() ? previewFolder : sessionFolder, recordingName());
 
         if (err.isNotEmpty())
@@ -1264,6 +1313,11 @@ private:
             append ("BLAD: " + err);
             lamp.setState (3, err);
             return;
+        }
+        if (recorder.hasBacking())
+        {
+            zs::BackingTrack::writeNote (recorder.currentFile(), backingFile);
+            append (PL ("--- podkład: ") + backingFile.getFileName());
         }
 
         // Po starcie okragly Nagraj ustepuje przyciskowi Zatrzymaj i ocen.
@@ -1545,7 +1599,9 @@ private:
     juce::ComboBox deviceBox, inputBox;   ///< karta i wejscie z mikrofonem
     bool noDevice = false;                ///< --preview-ui: karty nie otwieramy
     juce::TooltipWindow tooltips { this, 700 };   ///< podpowiedzi po najechaniu (bez tego setTooltip nic nie pokazuje)
-    juce::Label heardLabel;               ///< "slysze wejscie 2"
+    juce::Label heardLabel;               ///< "slysze wejscie 2" albo podpowiedz o ciszy
+    juce::uint32 quietSinceMs = 0;        ///< od kiedy wejscie milczy (0 = slychac)
+    static constexpr juce::uint32 quietHintMs = 6000;
     juce::TextButton prepareButton, preparationButton;
     bool preparation = true;
     zs::StepBar flow;
@@ -1592,8 +1648,30 @@ private:
         if (on && startScreen == nullptr)
         {
             startScreen = std::make_unique<StartComponent>();
+            startScreen->onChooseMusic = [this]
+            {
+                chooser = std::make_unique<juce::FileChooser> (PL ("Wybierz podkład muzyczny"), backingFile.existsAsFile() ? backingFile : sessionFolder,
+                                                               "*.mp3;*.wav;*.flac;*.aif;*.aiff;*.ogg");
+                chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                    [safe = juce::Component::SafePointer<MainComponent> (this)] (const juce::FileChooser& fc)
+                    {
+                        const auto f = fc.getResult();
+                        if (safe == nullptr || ! f.existsAsFile() || safe->startScreen == nullptr) return;
+                        juce::AudioFormatManager formats;
+                        formats.registerBasicFormats();
+                        std::unique_ptr<juce::AudioFormatReader> r (formats.createReaderFor (f));
+                        if (r == nullptr || r->sampleRate <= 0.0)
+                        {
+                            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, PL ("Podkład"),
+                                PL ("Nie umiem otworzyć „") + f.getFileName() + PL ("”. Wybierz WAV, MP3, FLAC albo AIFF."));
+                            return;
+                        }
+                        safe->startScreen->setMusic (f, (double) r->lengthInSamples / r->sampleRate);
+                    });
+            };
             startScreen->onStart = [this] (const juce::String& name)
             {
+                backingFile = startScreen->chosenMusic();
                 nameInput.setText (name.isEmpty() ? PL ("Nowy odcinek") : name, juce::dontSendNotification);
                 preparation = true; settingsOpen = false; detailsOpen = false;
                 showStart (false);
@@ -1919,6 +1997,8 @@ private:
 
     bool inWizard = true, wizardStarted = false;
     std::unique_ptr<StartComponent> startScreen;
+    juce::File backingFile;               ///< podklad muzyczny projektu (pusty = sam glos)
+    juce::String loadedBackingKey;        ///< sciezka@czestotliwosc tego, co siedzi w Recorderze
     bool inStart = false, startAfterWizard = false;
     bool inReview = false, reviewCameFromPrompter = false;
     bool closeAsked = false;              ///< okno "czy zamknac" juz pokazane

@@ -241,6 +241,13 @@ int main()
                num (v[299], "") + " | " + num (v[300], ""));
         check (std::fabs (tw::EditedView::toView (5.0, 10.0, spans) - 7.0) < 1e-9, "czas sprzed szwu przesuniety o wycinek");
         check (tw::EditedView::hidden (7.0, spans) && ! tw::EditedView::hidden (8.0, spans), "wycinek ukryty, koniec nie");
+        // czas w czystym pliku (podklad gra od tej pozycji)
+        check (std::fabs (tw::EditedView::editedTime (5.0, spans) - 5.0) < 1e-9
+               && std::fabs (tw::EditedView::editedTime (7.0, spans) - 6.0) < 1e-9
+               && std::fabs (tw::EditedView::editedTime (10.0, spans) - 8.0) < 1e-9,
+               "czas po cieciach: przed, w srodku i za wycinkiem");
+        check (std::fabs (tw::EditedView::editedTime (20.0, { { 12.0, 15.0 }, { 6.0, 8.0 }, { 12.0, 17.0 } }) - 13.0) < 1e-9,
+               "R dwa razy w tym samym wersie: wycinki sie skladaja, nie dodaja");
         const auto pending = tw::EditedView::render (h, 0.0, rate, 10.0, { { 6.0, 1.0e9 } }, 5.0);
         check (pending.back() == 599.0f, "w czasie odliczania fala konczy sie na miejscu ciecia");
     }

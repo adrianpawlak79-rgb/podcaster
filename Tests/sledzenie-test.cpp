@@ -249,6 +249,21 @@ int main()
         check (before == 1 && tr.lastHitWord() == 2, "uslyszany zamiennik trafia w oryginal", b);
     }
 
+    // ---- 1b. muzyka w pokoju (24.10): sylaby tylko zaraz po trafionych slowach ----
+    {
+        tw::PrompterText t;
+        t.set ("Nie bedziemy repetowac zadnej zimy ani lata");
+        tw::WordTracker tr;
+        tr.begin (&t);
+        check (! tr.syllablesTrusted (5.0), "przed pierwszym slowem sylaby nie przesuwaja (muzyka na starcie)", "");
+        tr.hypothesis (10.0, { "nie", "bedziemy" });
+        check (tr.syllablesTrusted (12.0) && tr.syllablesTrusted (16.0), "do 6 s po trafionym slowie sylaby jada dalej", "");
+        check (! tr.syllablesTrusted (16.5), "potem stoja, az Vosk znow cos trafi", "");
+        tr.endUtterance();
+        tr.hypothesis (20.0, { "repetowac", "zadnej", "zimy" });
+        check (tr.syllablesTrusted (21.0), "nowe trafienie znow pozwala", "");
+    }
+
     // ---- 2. zasady dopasowania ----------------------------------------------------
     std::printf ("\n  2. zasady\n");
     {
