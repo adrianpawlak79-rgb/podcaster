@@ -44,6 +44,7 @@ target_compile_definitions(ZieloneSwiatlo PUBLIC
     JUCE_DIRECTSOUND=1
     JUCE_ASIO=0
     JUCE_USE_WINRT_MIDI=0
+    JUCE_USE_MP3AUDIOFORMAT=1   # podklad muzyczny z MP3 (Backing.h)
     JUCE_STRICT_REFCOUNTEDPOINTER=1)
 
 # Ekran startowy: zdjecie od ChatGPT (Adrian: zostaje oryginal)
