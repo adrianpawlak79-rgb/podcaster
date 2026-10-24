@@ -1509,6 +1509,11 @@ private:
         juce::String line = PL ("Miks gotowy. Posłuchaj przed i po, wybierz brzmienie i zapisz.");
         if (damagedRecording) { v = 2; line = PL ("Podczas zapisu utracono dane. Nagraj materiał ponownie."); }
         else if (! review.mixValid()) { v = 2; line = PL (review.verdictLine().c_str()); }
+        else if (review.nearlySilent())
+        {
+            v = 1;
+            line = PL ("Nagranie jest prawie ciche — mikrofon chyba nie dochodził. Sprawdź „Mikrofon i sprzęt” i nagraj jeszcze raz.");
+        }
         else if (! review.toRedo().empty())
         {
             v = 2;
