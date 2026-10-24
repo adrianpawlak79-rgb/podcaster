@@ -967,16 +967,29 @@ private:
     void updateHeard (float level)
     {
         juce::String s;
+        auto colour = zs::Ink::accent();
+        const auto now = juce::Time::getMillisecondCounter();
 
         if (auto* d = deviceManager.getCurrentAudioDevice())
+        {
             if (level > 0.003f)
             {
+                quietSinceMs = 0;
                 const auto mask = (uint64_t) d->getActiveInputChannels().toInt64();
                 const int n = zs::input::physicalInput (mask, recorder.analysisCh());
                 if (n > 0) s = PL ("słyszę wejście ") + juce::String (n);
             }
+            // 24.10: SSL2 z pokretlem GAIN na zerze dawal same szumy (-84 dBFS),
+            // a nagrania wychodzily ciche. Po kilku sekundach ciszy podpowiedz.
+            else
+            {
+                if (quietSinceMs == 0) quietSinceMs = now;
+                if (now - quietSinceMs > quietHintMs) { s = PL ("cisza — podkręć GAIN?"); colour = zs::Ink::yellow(); }
+            }
+        }
 
         if (heardLabel.getText() != s) heardLabel.setText (s, juce::dontSendNotification);
+        heardLabel.setColour (juce::Label::textColourId, colour);
     }
 
     void repeatLine()
@@ -1365,7 +1378,9 @@ private:
     juce::ComboBox deviceBox, inputBox;   ///< karta i wejscie z mikrofonem
     bool noDevice = false;                ///< --preview-ui: karty nie otwieramy
     juce::TooltipWindow tooltips { this, 700 };   ///< podpowiedzi po najechaniu (bez tego setTooltip nic nie pokazuje)
-    juce::Label heardLabel;               ///< "slysze wejscie 2"
+    juce::Label heardLabel;               ///< "slysze wejscie 2" albo podpowiedz o ciszy
+    juce::uint32 quietSinceMs = 0;        ///< od kiedy wejscie milczy (0 = slychac)
+    static constexpr juce::uint32 quietHintMs = 6000;
     juce::TextButton prepareButton, preparationButton;
     bool preparation = true;
     zs::StepBar flow;
