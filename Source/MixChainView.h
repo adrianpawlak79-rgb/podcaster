@@ -150,14 +150,19 @@ private:
         void paintButton (juce::Graphics& g, bool over, bool) override
         {
             using I = zs::Ink;
-            const auto r = getLocalBounds().toFloat().reduced (1.0f);
+            // specyfikacja E: tor 34 x 18, wylaczony #252F3B / obrys #465261 /
+            // galka #AEB9C6, wlaczony #1476B7 / obrys #32B9FF / galka #E7EEF5
+            const auto r = getLocalBounds().toFloat().withSizeKeepingCentre (34.0f, 18.0f);
             const bool on = getToggleState() && isEnabled();
-            g.setColour (on ? I::green().withAlpha (0.85f) : I::edge());
-            g.fillRoundedRectangle (r, r.getHeight() / 2);
-            if (over && isEnabled()) { g.setColour (I::textNow().withAlpha (0.15f)); g.fillRoundedRectangle (r, r.getHeight() / 2); }
-            const float d = r.getHeight() - 4.0f;
-            g.setColour (isEnabled() ? I::textNow() : I::textDim());
-            g.fillEllipse (on ? r.getRight() - d - 2.0f : r.getX() + 2.0f, r.getY() + 2.0f, d, d);
+            auto track = juce::Colour (on ? 0xff1476b7 : 0xff252f3b);
+            if (over && isEnabled()) track = track.brighter (0.08f);
+            g.setColour (track.withMultipliedAlpha (isEnabled() ? 1.0f : 0.42f));
+            g.fillRoundedRectangle (r, 9.0f);
+            g.setColour (juce::Colour (on ? 0xff32b9ff : 0xff465261));
+            g.drawRoundedRectangle (r.reduced (0.5f), 9.0f, 1.0f);
+            const float d = 12.0f;
+            g.setColour (juce::Colour (on ? 0xffe7eef5 : 0xffaeb9c6).withMultipliedAlpha (isEnabled() ? 1.0f : 0.42f));
+            g.fillEllipse (on ? r.getRight() - d - 3.0f : r.getX() + 3.0f, r.getCentreY() - d / 2, d, d);
         }
     };
     struct Tile { Power power; juce::Slider amount; };

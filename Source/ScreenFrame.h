@@ -40,13 +40,11 @@ struct ScreenFrame
         return r.reduced (ui::frame::margin - ui::frame::pad + 4, 14);
     }
 
-    /** Plyta panelu: zaokraglona, z cienka ramka (prawy panel, karty). */
+    /** Plyta panelu (prawy panel, karty): gradient, cien, jasna krawedz u gory
+        — glebia zamiast plaskiej ramki (kierunek E, Depth w Look.h). */
     static void paintPanel (juce::Graphics& g, juce::Rectangle<int> r)
     {
-        g.setColour (Ink::panel());
-        g.fillRoundedRectangle (r.toFloat(), 8.0f);
-        g.setColour (Ink::edge().withAlpha (0.8f));
-        g.drawRoundedRectangle (r.toFloat().reduced (0.5f), 8.0f, 1.0f);
+        Depth::plate (g, r.toFloat(), 10.0f, Ink::panel());
     }
 
     static constexpr int leftBlock = 270;   ///< znak + nazwa programu + nazwa nagrania

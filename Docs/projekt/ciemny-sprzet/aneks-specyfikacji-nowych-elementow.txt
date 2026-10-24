@@ -1,0 +1,67 @@
+ANEKS - DODATKOWE EKRANY I NOWE ELEMENTY
+Do bazowej specyfikacji „Ciemny sprzęt z poświatą”. Rozmiar makiet: 1280 x 800 px.
+Kolory, typografia, panele i wspólne przyciski dziedziczą bazowe tokeny. Poniżej wyłącznie nowe elementy.
+
+1. POLE TEKSTOWE
+Pole jednoliniowe nazwy: wysokość 40 px, padding poziomy 12 px, radius 5 px.
+Wypełnienie #111A25, obrys 1 px #334151, tekst 13 px #E1E8EF.
+Placeholder #8997A7. Focus: obrys 2 px #32B9FF, offset 0; caret #32B9FF.
+Hover: obrys #526273. Pressed/typing: bez zmiany geometrii. Disabled: #111720, tekst #687585, alpha .48.
+
+Pole wielowierszowe promptera: radius 6 px; ten sam fill i obrys co pole nazwy.
+Padding 14 px; placeholder 13 px #8997A7; treść wpisana #DCE4ED, line-height 1.5.
+Focus #32B9FF 2 px. Disabled alpha .48. Bez cienia i poświaty.
+
+2. LISTA ROZWIJANA URZĄDZENIA / WEJŚCIA
+Kontrolka: wysokość 38 px, radius 6 px, padding tekstu 12 px.
+Fill #111A25, obrys 1 px #3A4858; aktywne urządzenie #DCE4ED, brak urządzenia #7F8C9B.
+Chevron 12 x 7 px, stroke 1.5 px #9BA9B8.
+Hover: obrys #657486. Open/focus: obrys 2 px #32B9FF; popup #151D27, shadow 0 4 12 rgba(0,0,0,.42).
+Wiersz popupu 34 px, padding 10 px. Hover wiersza #202A36; wybrane #142435 z tekstem #F2F5FA.
+Disabled: fill #111720, tekst #687585, alpha .48.
+
+3. MIERZENIE POZIOMU PRZY WYBORZE SPRZĘTU
+Pasek poziomu: wysokość 16 px, radius 3 px, tło #263242.
+Wypełnienie sygnału #32B9FF; próg ostrzegawczy jako pionowy marker 1 px #F0A33E przy 82% szerokości.
+Brak sygnału pokazuje 0% wypełnienia, nie stan disabled. Nie dodawać poświaty.
+Stan błędu/przesterowania używa #E64A55 na odcinku powyżej progu; etykieta tekstowa obok miernika.
+
+4. ZNACZNIKI MIEJSC DO SPRAWDZENIA
+Pasek pod falą: wysokość 21 px, wypełnienie #141E2A.
+Zwykły marker: szerokość 3 px, wysokość 21 px, #F0A33E. Marker neutralny: #788697.
+Aktywne miejsce: szerokość 3 px, #32B9FF; focus dodaje obrys 2 px #32B9FF, offset 2 px.
+Hover podświetla marker do 5 px i pokazuje opis miejsca. Disabled/zaakceptowane: #536171, alpha .55.
+Markery nie mają glow; pojedyncza decyzja wymaga tekstowej etykiety, nie samego koloru.
+
+5. UCHWYTY ZAKRESU FALI (POCZĄTEK / KONIEC)
+Zakres audio ma obrys aktywny #238FDB 1 px i wypełnienie selekcji #32B9FF alpha .08.
+Uchwyt pionowy: szerokość 10 px, wysokość 50 px, radius 4 px, fill #238FDB.
+Hit area uchwytu: 24 x 56 px; nie zmienia widocznego rozmiaru uchwytu.
+Hover: szerokość wizualna 12 px, fill #32B9FF. Drag: obrys #32B9FF 2 px i wypełnienie selekcji alpha .12.
+Focus klawiatury: obrys 2 px #32B9FF, offset 2 px. Disabled: #687585 alpha .45.
+Pasek suwaka zakresu: wysokość 6 px, radius 3 px; tor #25313E, uchwyt 12 x 12 px #32B9FF.
+
+6. PAUZA / PUNCH-IN I TEKST POD FALĄ
+Obszar pauzy: panel #151D27, obrys ostrzegawczy #B88331 1 px, radius 10 px.
+Etykieta „PAUZA”: 11 px #F0A33E na tle #382B16, padding 10 px poziomo, wysokość 22 px.
+Pionowa linia początku ponownego nagrania: 2 px #FF555E. Zaznaczony zastępowany region #642B35 alpha .44.
+Podpis „stąd nagrasz od nowa”: 11 px Semibold #FF6971, odsunięcie 4 px od linii.
+Tekst pod przebiegiem: 11 px / 600; słowa przed linią #B9C4D0, obszar powtórki #E8EDF3.
+Hover słowa/miejsca: tło #202A36; selected word: tło #17273A, lewy i prawy pasek 4 px #32B9FF.
+
+7. LICZNIK PAUZY
+Wklęsłe okno 87 x 38 px, radius 6 px, fill #21190F, obrys 1 px #95691E.
+Cyfry JetBrains Mono 18 px / 650, kolor #F0A33E. W stanie zwykłym bez glow.
+Aktywny countdown może użyć #FFB64F; paused pozostaje statyczny. Błąd czasu: #E64A55.
+
+8. EKRAN GOTOWE - METADANE PLIKU
+Etykiety: 11 px #93A1B1. Wartości: 13 px #E1E8EF.
+Nazwa pliku i parametry techniczne używają JetBrains Mono 13 px; jednostki zachowują pełny zapis LUFS / dBTP.
+Wiersze danych mają pitch 70 px. Brak metadanej: „—” w 12 px #7F8C9B, nie pusty wiersz.
+Potwierdzenie sukcesu: okrąg średnicy 98 px, fill #102E26, obrys 1.5 px #168B50; znak ✓ stroke 5 px #39CF7B.
+W stanie błędu eksportu zachowaj panel, pokaż format z błędem w #E64A55 i tekstowy powód; nie pokazuj zielonego potwierdzenia dla nieutworzonego pliku.
+
+9. NOWE STANY WSPÓLNE
+Focus klawiatury: outline #32B9FF, 2 px, offset 2 px. Minimalny hit target 44 x 44 px.
+Disabled nie znika z layoutu: alpha .48, brak hover i pressed. Wybrana pozycja listy ma neutralne niebieskie tło #142435.
+Przejście hover/pressed: 100 ms ease-out. Bez animacji skali dla list, pól tekstowych i danych pliku.

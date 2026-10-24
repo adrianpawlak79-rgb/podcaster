@@ -926,12 +926,14 @@ private:
         auto side = zs::ScreenFrame::sidebar (getLocalBounds());
         zs::ScreenFrame::paintPanel (g, side);
         auto main = doneContent();
+        // aneks E, pkt 8: kolo #102E26 z obrysem #168B50, znak #39CF7B kreska 5 px
         const auto emblem = main.removeFromTop (68).withSizeKeepingCentre (68, 68).toFloat();
-        g.setColour (Ink::green().withAlpha (0.18f)); g.fillEllipse (emblem);
-        g.setColour (Ink::green().withAlpha (0.5f)); g.drawEllipse (emblem, 1.5f);
+        zs::Depth::glow (g, emblem, emblem.getWidth() / 2, Ink::green(), 10.0f, 0.18f);
+        g.setColour (juce::Colour (0xff102e26)); g.fillEllipse (emblem);
+        g.setColour (juce::Colour (0xff168b50)); g.drawEllipse (emblem.reduced (0.75f), 1.5f);
         juce::Path check; check.startNewSubPath (emblem.getX()+21, emblem.getY()+34);
         check.lineTo (emblem.getX()+30, emblem.getY()+43); check.lineTo (emblem.getX()+48, emblem.getY()+25);
-        g.setColour (Ink::green()); g.strokePath (check, juce::PathStrokeType (4, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setColour (Ink::green()); g.strokePath (check, juce::PathStrokeType (5, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         main.removeFromTop (10);
         g.setColour (Ink::textDim()); g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
         g.drawText (PL("05 / GOTOWE"), main.removeFromTop (18), juce::Justification::centred);
@@ -1236,8 +1238,7 @@ private:
     void updateStyleButtons()
     {
         for (int i = 0; i < 3; ++i)
-            zs::Look::setKind (styleButtons[i], static_cast<mix::Decide::Style> (i) == wish.style
-                                                  ? zs::ui::ButtonKind::Primary : zs::ui::ButtonKind::Secondary);
+            zs::Look::setSelected (styleButtons[i], static_cast<mix::Decide::Style> (i) == wish.style);
     }
     void updateSelection() {
         if(cutFrom>=0 && cutTo>cutFrom)
@@ -1716,7 +1717,7 @@ private:
 
         auto strip = r.removeFromTop (22);
 
-        g.setColour (Ink::panel());
+        g.setColour (juce::Colour (0xff141e2a));      // aneks E, pkt 4
         g.fillRect (strip);
 
         for (const auto& t : review.timeline())

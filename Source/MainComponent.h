@@ -187,22 +187,26 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        // aneks specyfikacji E, pkt 3: tlo #263242, sygnal #32B9FF, znacznik
+        // progu pomaranczowy, przester czerwony powyzej progu; bez poswiaty
         auto r = getLocalBounds().toFloat().reduced (1.0f);
-        g.setColour (zs::Ink::edge());
-        g.fillRect (r);
+        g.setColour (juce::Colour (0xff263242));
+        g.fillRoundedRectangle (r, 3.0f);
 
         const float db = lvl > 1.0e-6f ? juce::Decibels::gainToDecibels (lvl) : -60.0f;
         const float norm = juce::jlimit (0.0f, 1.0f, (db + 60.0f) / 60.0f);
 
-        auto bar = r.withWidth (r.getWidth() * norm);
-        g.setColour (db > -1.5f ? zs::Ink::clip()
-                   : db > -8.0f ? zs::Ink::yellow()
-                                : zs::Ink::green());
-        g.fillRect (bar);
-
         // znacznik zalecanego szczytu: -12 dBFS
         const float mark = r.getX() + r.getWidth() * ((-12.0f + 60.0f) / 60.0f);
-        g.setColour (zs::Ink::textNext());
+        auto bar = r.withWidth (r.getWidth() * norm);
+        g.setColour (zs::Ink::accent());
+        g.fillRoundedRectangle (bar.withRight (juce::jmin (bar.getRight(), mark)), 3.0f);
+        if (bar.getRight() > mark)
+        {
+            g.setColour (db > -1.5f ? zs::Ink::clip() : zs::Ink::yellow());
+            g.fillRoundedRectangle (bar.withLeft (mark), 3.0f);
+        }
+        g.setColour (zs::Ink::yellow());
         g.fillRect (mark, r.getY(), 1.0f, r.getHeight());
 
         g.setColour (zs::Ink::textNext());

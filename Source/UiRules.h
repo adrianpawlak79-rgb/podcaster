@@ -51,9 +51,13 @@ struct Palette
     uint32_t textNow, textNext, textPast, textDim;
     uint32_t accent, onAccent, select;
     uint32_t green, yellow, red, lostBlue, lostText;
+    /** Srodek gradientu przycisku glownego, gdy rozni sie od akcentu (Studio:
+        jasny akcent #32B9FF swieci, a bialy napis stoi na ciemniejszym
+        niebieskim). 0 = przycisk w kolorze akcentu. */
+    uint32_t accentFill = 0;
 };
 
-enum class PaletteId { Copper, Console, Classic, Plugin };
+enum class PaletteId { Copper, Console, Classic, Plugin, Studio };
 
 inline const Palette& paletteFor (PaletteId id)
 {
@@ -83,11 +87,21 @@ inline const Palette& paletteFor (PaletteId id)
         0xffe3ecf8, 0xffc3d1e4, 0xff6b7a92, 0xff9fb2cc,
         0xff4ea8ff, 0xff06172e, 0xff7cc0ff,
         0xff39cf7b, 0xfff0a33a, 0xffff6b6b, 0xff6789ef, 0xffa8c0ff };
+    // E — Studio (24.10, makieta ChatGPT "ciemny sprzet z poswiata", wzor:
+    // iZotope Ozone i Tightarse): prawie czarne tlo, grafitowe plyty z glebia,
+    // jasniejszy niebieski, ktory swieci tylko na tym, co aktywne.
+    // Liczby ze specyfikacji ChatGPT (Docs/projekt/ciemny-sprzet/specyfikacja-juce.txt).
+    static const Palette studio { "Studio",
+        0xff080b10, 0xff0d1219, 0xff111720, 0xff151d27, 0xff303b49,
+        0xfff2f5fa, 0xffc4ced9, 0xff687585, 0xff96a3b2,
+        0xff32b9ff, 0xfff5f8fc, 0xff7ccfff,
+        0xff39cf7b, 0xfff0a33e, 0xffff555e, 0xff6789ef, 0xffa8c0ff,
+        0xff0e70bf };
     return id == PaletteId::Console ? console : id == PaletteId::Classic ? classic
-         : id == PaletteId::Plugin ? plugin : copper;
+         : id == PaletteId::Plugin ? plugin : id == PaletteId::Studio ? studio : copper;
 }
 
-inline PaletteId& currentPaletteId() { static PaletteId id = PaletteId::Plugin; return id; }   // Adrian 24.10: wtyczka (D)
+inline PaletteId& currentPaletteId() { static PaletteId id = PaletteId::Studio; return id; }   // Adrian 24.10: makieta Studio (E)
 inline void setPalette (PaletteId id) { currentPaletteId() = id; }
 inline const Palette& pal() { return paletteFor (currentPaletteId()); }
 
@@ -120,7 +134,8 @@ struct ButtonPaint { uint32_t fill, text, outline; };
 inline ButtonPaint paintFor (ButtonKind k)
 {
     const auto& c = pal();
-    if (k == ButtonKind::Primary || k == ButtonKind::Record) return { c.accent, c.onAccent, c.accent };
+    if (k == ButtonKind::Primary || k == ButtonKind::Record)
+        return { c.accentFill != 0 ? c.accentFill : c.accent, c.onAccent, c.accent };
     return { c.raised, c.textNow, c.edge };
 }
 

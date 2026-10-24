@@ -37,65 +37,85 @@ public:
         zostaja samym numerem, a gdy i to za malo — wszystkie. */
     void paintTabs (juce::Graphics& g)
     {
+        // Kierunek E (makieta 24.10): kolka z numerem polaczone linia, bez
+        // ramki dookola. Biezace kolko swieci, przebyta czesc linii jest
+        // niebieska. Gdy brakuje miejsca: napis tylko przy biezacym, potem same kolka.
         const juce::Font font (type::small, juce::Font::bold);
-        const int badge = 22, padX = 10, inner = 8, gap = 2, frame = 3;
         const int n = steps.size();
-        auto full = [&] (int i) { return padX + badge + inner + font.getStringWidth (steps[i]) + padX + 4; };
-        const int compactW = padX + badge + padX;
+        const float d = 28.0f, inner = 8.0f, lineMin = 14.0f, lineMax = 48.0f, lineGap = 8.0f;
+        auto labelW = [&] (int i) { return (float) font.getStringWidth (steps[i]); };
 
-        int mode = 0;                                   // 0 pelne, 1 tylko biezaca z napisem, 2 same numery
-        auto total = [&] (int m)
+        int mode = 0;                                   // 0 pelne, 1 tylko biezaca z napisem, 2 same kolka
+        auto itemsW = [&] (int m)
         {
-            int t = 2 * frame + gap * (n - 1);
+            float t = 0.0f;
             for (int i = 0; i < n; ++i)
-                t += (m == 0 || (m == 1 && i == current && ! allDone)) ? full (i) : compactW;
+            {
+                t += d;
+                if (m == 0 || (m == 1 && i == current && ! allDone)) t += inner + labelW (i);
+            }
             return t;
         };
-        while (mode < 2 && total (mode) > getWidth()) ++mode;
+        auto need = [&] (int m) { return itemsW (m) + (n - 1) * (lineMin + 2 * lineGap); };
+        while (mode < 2 && need (mode) > (float) getWidth()) ++mode;
+        const float line = n > 1 ? juce::jlimit (lineMin, lineMax, ((float) getWidth() - itemsW (mode)) / (n - 1) - 2 * lineGap)
+                                 : 0.0f;
 
-        auto box = getLocalBounds().toFloat().withWidth ((float) juce::jmin (getWidth(), total (mode)));
-        g.setColour (Ink::bg());
-        g.fillRoundedRectangle (box, 7.0f);
-        g.setColour (Ink::edge().withAlpha (0.8f));
-        g.drawRoundedRectangle (box.reduced (0.5f), 7.0f, 1.0f);
-
-        float x = (float) frame;
+        const float cy = getHeight() * 0.5f;
+        float x = 2.0f;
         for (int i = 0; i < n; ++i)
         {
             const auto state = ui::stepState (i, current, allDone);
             const bool active = state == ui::StepState::Current;
             const bool done = state == ui::StepState::Done;
             const bool label = mode == 0 || (mode == 1 && active);
-            const float w = (float) (label ? full (i) : compactW);
-            const auto tab = juce::Rectangle<float> (x, (float) frame, w, (float) getHeight() - 2.0f * frame);
-            x += w + (float) gap;
+            const auto b = juce::Rectangle<float> (x, cy - d / 2, d, d);
 
             if (active)
             {
-                g.setColour (Ink::accent());
-                g.fillRoundedRectangle (tab, 5.0f);
+                Depth::glow (g, b, d / 2, Ink::accent(), 8.0f, 0.55f);
+                g.setGradientFill (juce::ColourGradient (Ink::accent().brighter (0.25f), 0.0f, b.getY(),
+                                                         Ink::accent().darker (0.15f), 0.0f, b.getBottom(), false));
+                g.fillEllipse (b);
             }
-            const auto b = juce::Rectangle<float> (tab.getX() + padX, tab.getCentreY() - badge / 2.0f, (float) badge, (float) badge);
-            g.setColour (active ? Ink::onAccent().withAlpha (0.22f) : done ? Ink::raised().brighter (0.15f) : Ink::raised());
-            g.fillEllipse (b);
+            else
+            {
+                g.setColour (Ink::bg().darker (0.3f));
+                g.fillEllipse (b);
+                g.setColour (done ? Ink::select().withAlpha (0.8f) : Ink::edge().brighter (0.15f));
+                g.drawEllipse (b.reduced (0.75f), 1.5f);
+            }
             g.setColour (active ? Ink::onAccent() : done ? Ink::select() : Ink::textDim());
             if (done)
             {
                 juce::Path tick;
-                tick.startNewSubPath (b.getX() + 6.5f, b.getY() + 11.5f);
-                tick.lineTo (b.getX() + 10.0f, b.getY() + 15.0f);
-                tick.lineTo (b.getX() + 16.0f, b.getY() + 7.5f);
-                g.strokePath (tick, juce::PathStrokeType (1.8f));
+                tick.startNewSubPath (b.getX() + 9.0f, b.getY() + 14.5f);
+                tick.lineTo (b.getX() + 12.5f, b.getY() + 18.0f);
+                tick.lineTo (b.getX() + 19.5f, b.getY() + 10.0f);
+                g.strokePath (tick, juce::PathStrokeType (2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             }
             else
             {
-                g.setFont (juce::Font (type::tiny, juce::Font::bold));
+                g.setFont (juce::Font (type::small, juce::Font::bold));
                 g.drawText (juce::String (i + 1), b, juce::Justification::centred);
             }
-            if (! label) continue;
-            g.setColour (active ? Ink::onAccent() : done ? Ink::textNow() : Ink::textDim());
-            g.setFont (font);
-            g.drawText (steps[i], tab.withTrimmedLeft ((float) (padX + badge + inner)), juce::Justification::centredLeft);
+            x += d;
+            if (label)
+            {
+                g.setColour (active ? Ink::textNow() : done ? Ink::textNext() : Ink::textDim());
+                g.setFont (font);
+                g.drawText (steps[i], juce::Rectangle<float> (x + inner, 0.0f, labelW (i) + 2.0f, (float) getHeight()),
+                            juce::Justification::centredLeft, false);
+                x += inner + labelW (i);
+            }
+            if (i < n - 1)
+            {
+                // przebyta czesc drogi (do biezacego kroku) swieci na niebiesko
+                const bool passed = allDone || i < current;
+                g.setColour (passed ? Ink::accent() : Ink::edge());
+                g.fillRoundedRectangle (x + lineGap, cy - 1.0f, line, 2.0f, 1.0f);
+                x += line + 2 * lineGap;
+            }
         }
     }
 
