@@ -50,6 +50,7 @@
 #include "Recorder.h"
 #include "Wav.h"
 #include "Mp3.h"
+#include "MixChainView.h"
 #include "ReadMono.h"
 #include "CutReviewPanel.h"
 #include <limits>
@@ -184,6 +185,19 @@ public:
         editToggle.onClick=[this] { setEditMode (true); };
         detailsToggle.setButtonText(PL("Szczegóły miksu"));
         detailsToggle.onClick=[this] { detailsMode=!detailsMode;resized();repaint(); };
+        // Tor miksu: kazda zmiana to miks od nowa w tle, jak zmiana brzmienia.
+        chainView.onChange = [this] (const mix::Tweaks& t)
+        {
+            tweaks = t;
+            if (! mixReady()) return;
+            note = PL ("Miks z Twoimi zmianami liczy się…");
+            styleNote = true;
+            startMix();
+            repaint();
+        };
+        chainPort.setViewedComponent (&chainView, false);
+        chainPort.setScrollBarsShown (true, false);
+        addChildComponent (chainPort);
         nextButton.setButtonText(PL("Następne miejsce")); zs::Look::setKey(nextButton,"N");
         nextButton.onClick=[this] { nextTrouble(); };
         // Powiekszenie fali: wokol igly (kolko myszy — wokol kursora).
@@ -401,7 +415,8 @@ public:
 
                 if (waitForIt)                  // tylko zrzuty ekranu przy budowaniu
                 {
-                    review.run (wish);
+                    mixTweaks = tweaks;
+                    review.run (wish, mixTweaks);
                     adoptResult();
                 }
 
@@ -425,6 +440,19 @@ public:
     }
 
     // Podglad przechodzi ta sama droga zapisu co zwykly przycisk.
+    /** --preview-ui tor: szczegoly miksu z torem i dwiema przykladowymi zmianami. */
+    void previewChain()
+    {
+        if (editMode) return;
+        detailsMode = true;
+        tweaks = {};
+        tweaks.amount[(size_t) mix::Stage::Odszumianie] = 0.5f;
+        tweaks.off[(size_t) mix::Stage::DeEsser] = true;
+        mixTweaks = tweaks;
+        review.run (wish, mixTweaks);
+        adoptResult();
+        resized(); repaint();
+    }
     void previewDone() { if (! editMode) { previewSave = true; save(); previewSave = false; } }
 
     bool hasTake() const { return review.stage() != zs::TakeReview::Stage::Empty; }
@@ -748,6 +776,7 @@ public:
     {
         jobShield.setBounds (getLocalBounds()); jobShield.toFront (false);
         cutPanel.setVisible(!doneMode && editMode && !cutPanel.empty());   // decyzje po R: w montazu
+        chainPort.setVisible (false);                           // tylko w szczegolach miksu
         for (auto& b : styleButtons) b.setVisible (false);      // tylko w zwyklym widoku oceny
         for (auto* b : { &zoomIn, &zoomOut, &zoomAllButton }) b->setVisible (false);   // tylko w montazu
         if (doneMode) { layoutDone(); return; }
@@ -785,8 +814,19 @@ public:
         folderButton.setBounds (tools.removeFromRight (172)); folderButton.setVisible (true);
         tools.removeFromLeft (12); tools.removeFromRight (12); feedbackArea = tools;
         main.removeFromTop (8);
+        if (detailsMode)
+        {
+            // w malym oknie tor sie przewija; tekst pod nim znika, gdy brak miejsca
+            const int need = chainView.heightFor (main.getWidth());
+            const int h = juce::jmin (main.getHeight(), need);
+            chainPort.setVisible (true);
+            chainPort.setBounds (main.removeFromTop (h));
+            const int w = main.getWidth() - (need > h ? chainPort.getScrollBarThickness() + 4 : 0);
+            chainView.setSize (w, chainView.heightFor (w));
+            main.removeFromTop (8);
+        }
         summaryArea = main;
-        words.setVisible (detailsMode);
+        words.setVisible (detailsMode && main.getHeight() >= 48);
         words.setBounds (main);
         detailsToggle.setEnabled(true);
         detailsToggle.setButtonText (detailsMode ? PL("Ukryj szczegóły") : PL("Szczegóły miksu"));
@@ -1110,7 +1150,8 @@ private:
         }
         editMode = false; detailsMode = false; doneMode = false;
         note.clear();   // uwagi z montazu ("Miejsce 3 z 27…") nie dotycza miksu
-        if (mixedVersion == takeVersion && mixedStyle == wish.style && review.stage() == zs::TakeReview::Stage::Ready)
+        if (mixedVersion == takeVersion && mixedStyle == wish.style && mixedTweaks == tweaks
+            && review.stage() == zs::TakeReview::Stage::Ready)
             adoptResult();
         else
             startMix();
@@ -1122,6 +1163,8 @@ private:
         for (auto* b : { &playButton, &abButton, &saveButton, &editToggle }) b->setEnabled (false);
         afterEnv = {}; words.clear(); assessment.clear();
         busySinceMs = juce::jmax (1u, juce::Time::getMillisecondCounter());
+        mixTweaks = tweaks;                     // watek czyta tylko te kopie
+        chainView.setBusy (true);
         startThread();
     }
 
@@ -1256,7 +1299,7 @@ private:
     }
     //==========================================================================
     /** Rosnie z oknem — liczby i uzasadnienie w zs::ui::review (UiRules.h). */
-    int waveHeight() const { if(!cutPanel.empty() && editMode) return getHeight()<720 ? 0 : 80; const int h=juce::jmax(zs::ui::review::waveMin,zs::ui::review::waveHeight(getHeight())-juce::jmax(0,headH()-78)); return editMode ? juce::jmax(120,h-(middleMode?72:16)) : h; }
+    int waveHeight() const { if(!cutPanel.empty() && editMode) return getHeight()<720 ? 0 : 80; const int h=juce::jmax(zs::ui::review::waveMin,zs::ui::review::waveHeight(getHeight())-juce::jmax(0,headH()-78)); return editMode ? juce::jmax(120,h-(middleMode?72:16)) : detailsMode ? juce::jmin(h,getHeight()<720?56:96) : h; }
 
     /** Podtytul ekranu: montaz (z decyzjami po R albo bez) albo miks. */
     juce::String subtitle() const
@@ -1285,7 +1328,7 @@ private:
        kilkaset uruchomien. */
     void run() override
     {
-        review.run (wish);
+        review.run (wish, mixTweaks);
 
         if (threadShouldExit()) return;
 
@@ -1295,7 +1338,9 @@ private:
     void adoptResult()
     {
         if (styleNote) { note.clear(); styleNote = false; }   // "Miks ... liczy się…" juz nieaktualne
-        mixedVersion = takeVersion; mixedStyle = wish.style;
+        mixedVersion = takeVersion; mixedStyle = wish.style; mixedTweaks = mixTweaks;
+        chainView.setState (review.whatIDecided().params, review.whatIMixedWith(), mixTweaks);
+        chainView.setBusy (false);
         afterEnv.build (review.mixedAudio(), sr, 1400);
 
         const double playbackRate=recorder.currentSampleRate()>0?recorder.currentSampleRate():sr;
@@ -1854,6 +1899,11 @@ private:
     int takeVersion = 0, mixedVersion = -1; ///< ktora wersja montazu jest zmiksowana...
     int loadedVersion = 0, savedVersion = -1; ///< ...wczytana z dysku i zapisana jako miks (hasUnsavedEdits)
     mix::Decide::Style mixedStyle = mix::Decide::Style::Studyjny;   ///< ...i jakim brzmieniem
+    /** Tor miksu: tweaks — co ustawil czlowiek, mixTweaks — kopia dla watku,
+        mixedTweaks — z czym policzono obecny miks. */
+    mix::Tweaks tweaks, mixTweaks, mixedTweaks;
+    MixChainView chainView;
+    juce::Viewport chainPort;
     juce::TextEditor words, assessment;
     zs::StepBar flow;
     juce::TextButton markStart,markEnd,cutButton,undoButton,editToggle,detailsToggle,nextButton;

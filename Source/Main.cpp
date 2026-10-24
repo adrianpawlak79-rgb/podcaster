@@ -77,6 +77,7 @@ countries: pl
             }
             if(mode=="witaj") preview.previewStart(fixture.getParentDirectory());
             if(mode=="review") preview.previewReview(fixture);
+            if(mode=="tor") preview.previewChain(fixture);
             if(mode=="edit") preview.previewReview(fixture,true);
             if(mode=="done") preview.previewReview(fixture,false,true);
             if(mode=="review-big") { preview.setSize(1600,1200); preview.previewReview(fixture); }

@@ -63,6 +63,7 @@ TESTY=(
   "odzysk-test"
   "dziennik-test"
   "tekst-test"
+  "tor-test"
 )
 
 ZNANE=$(grep -v '^#' znane-bledy.txt 2>/dev/null | awk '{print $1}')
