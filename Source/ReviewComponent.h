@@ -117,7 +117,7 @@ public:
 
         formats.registerBasicFormats();
 
-        playButton.setButtonText (PL ("Odtwórz"));
+        setPlayLabel (false);
         playButton.onClick = [this] { togglePlay(); };
         addAndMakeVisible (playButton);
 
@@ -1362,7 +1362,13 @@ private:
         if (player.isPlaying()) player.pause();
         else                    player.play();
 
-        playButton.setButtonText (player.isPlaying() ? PL ("Zatrzymaj") : PL ("Odtwórz"));
+        setPlayLabel (player.isPlaying());
+    }
+
+    void setPlayLabel (bool playing)
+    {
+        playButton.setButtonText (playing ? PL ("Pauza") : PL ("Odtwórz"));
+        zs::Look::setIcon (playButton, playing ? zs::Look::Icon::Pause : zs::Look::Icon::Play);
     }
 
     void toggleAb()
@@ -1625,15 +1631,27 @@ private:
             g.fillRect (px, (float) r.getY(), 1.5f, (float) r.getHeight());
         }
 
-        g.setColour (Ink::textDim());
-        g.setFont (juce::Font (zs::type::tiny));
-        juce::String clock = plr::clock (player.positionSec()) + " / " + plr::clock (review.seconds());
+        // licznik w rogu: ciemne okienko jak w odtwarzaczu, zakres widoku obok
+        const juce::Font mono (juce::Font::getDefaultMonospacedFontName(), zs::type::small, juce::Font::bold);
+        const juce::String clock = plr::clock (player.positionSec()) + " / " + plr::clock (review.seconds());
+        auto box = juce::Rectangle<float> (0.0f, 0.0f, (float) mono.getStringWidth (clock) + 16.0f, mono.getHeight() + 6.0f)
+                       .withPosition ((float) r.getRight() - 6.0f, (float) r.getY() + 4.0f);
+        box.setX (box.getX() - box.getWidth());
+        g.setColour (Ink::bg().darker (0.35f).withAlpha (0.9f));
+        g.fillRoundedRectangle (box, 5.0f);
+        g.setColour (Ink::edge());
+        g.drawRoundedRectangle (box.reduced (0.5f), 5.0f, 1.0f);
+        g.setColour (Ink::textNow());
+        g.setFont (mono);
+        g.drawText (clock, box.toNearestInt(), juce::Justification::centred);
         if (zoomed())
         {
             const auto v = view();
-            clock = PL ("widać ") + plr::clock (v.from) + PL ("–") + plr::clock (v.from + v.len) + "   " + clock;
+            g.setColour (Ink::textDim());
+            g.setFont (juce::Font (zs::type::tiny));
+            g.drawText (PL ("widać ") + plr::clock (v.from) + PL ("–") + plr::clock (v.from + v.len),
+                        box.toNearestInt().withX (r.getX()).withRight ((int) box.getX() - 8), juce::Justification::centredRight);
         }
-        g.drawText (clock, r.reduced (6, 4), juce::Justification::topRight);
     }
 
     //==========================================================================
@@ -1725,7 +1743,7 @@ private:
         {
             updateMontageButtons();
             const bool playing = player.isPlaying();
-            if (playing != wasPlaying) { wasPlaying = playing; playButton.setButtonText (playing ? PL ("Zatrzymaj") : PL ("Odtwórz")); }
+            if (playing != wasPlaying) { wasPlaying = playing; setPlayLabel (playing); }
             if (playing) { followPlayback (player.positionSec()); repaint (waveArea()); }
             if (isThreadRunning()) repaint();
             return;
@@ -1748,7 +1766,7 @@ private:
         if (playingNow != wasPlaying)
         {
             wasPlaying = playingNow;
-            playButton.setButtonText (playingNow ? PL ("Zatrzymaj") : PL ("Odtwórz"));
+            setPlayLabel (playingNow);
         }
 
         if (playingNow)

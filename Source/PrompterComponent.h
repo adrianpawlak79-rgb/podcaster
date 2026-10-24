@@ -436,10 +436,12 @@ public:
 
     void setupTransport()
     {
-        tRecord.setButtonText (PL ("● Nagraj"));
-        tPause.setButtonText (PL ("❚❚ Pauza"));
-        tPlay.setButtonText (PL ("▶ Odtwórz"));
-        tEnd.setButtonText (PL ("■ Zakończ"));
+        tRecord.setButtonText (PL ("Nagraj"));   zs::Look::setIcon (tRecord, zs::Look::Icon::Record);
+        tPause.setButtonText (PL ("Pauza"));     zs::Look::setIcon (tPause, zs::Look::Icon::Pause);
+        tPlay.setButtonText (PL ("Odtwórz"));    zs::Look::setIcon (tPlay, zs::Look::Icon::Play);
+        tEnd.setButtonText (PL ("Zakończ"));     zs::Look::setIcon (tEnd, zs::Look::Icon::Stop);
+        tRecord.setTooltip (PL ("Nagraj (spacja)")); tPause.setTooltip (PL ("Pauza (spacja)"));
+        tPlay.setTooltip (PL ("Odsłuchaj od zaznaczonego miejsca")); tEnd.setTooltip (PL ("Zakończ nagranie (Esc)"));
         tRecord.onClick = [this] { if (! recorder.isRecording()) { if (onStartStop) onStartStop(); } else resumeRecording(); };
         tPause.onClick  = [this] { pauseRecording(); };
         tPlay.onClick   = [this] { togglePlay(); };
@@ -454,20 +456,23 @@ public:
         tRecord.setEnabled (! rec || (pz.on && ! pz.resuming));
         tPause.setEnabled (rec && ! pz.on);
         tPlay.setEnabled (pz.on && ! pz.resuming);
-        tPlay.setButtonText (pz.playStartMs >= 0.0 ? PL ("■ Stop") : PL ("▶ Odtwórz"));
+        tPlay.setButtonText (pz.playStartMs >= 0.0 ? PL ("Stop") : PL ("Odtwórz"));
+        zs::Look::setIcon (tPlay, pz.playStartMs >= 0.0 ? zs::Look::Icon::Stop : zs::Look::Icon::Play);
         tEnd.setEnabled (rec);
         zs::Look::setKind (tRecord, (! rec || pz.on) ? zs::ui::ButtonKind::Primary : zs::ui::ButtonKind::Secondary);
     }
 
+    static constexpr int clockWidth = 84;
+
     void layoutTransport()
     {
         auto row = stripLayout (stripCard()).transport.toNearestInt();
-        row.removeFromRight (64);                      // czas nagrania
-        // Kazdy przycisk tak szeroki jak jego napis. Gdy cztery sie nie mieszcza
-        // (male okno), zostaja same znaki ● ❚❚ ▶ ■ — jak w odtwarzaczu; nazwy
+        row.removeFromRight (clockWidth + 8);          // licznik czasu
+        // Kazdy przycisk tak szeroki jak ikona i napis. Gdy cztery sie nie mieszcza
+        // (male okno), zostaja same ikony — jak w odtwarzaczu; nazwy
         // i klawisze stoja w podpowiedzi pod spodem.
         const juce::Font f (zs::type::body, juce::Font::bold);
-        const auto widthOf = [&] (juce::Button* b) { return f.getStringWidth (b->getButtonText()) + 32; };
+        const auto widthOf = [&] (juce::Button* b) { return f.getStringWidth (b->getButtonText()) + 32 + zs::Look::iconSpace; };
         int need = 3 * 8;
         for (auto* b : { &tRecord, &tPause, &tPlay, &tEnd }) need += juce::jmax (widthOf (b), widthOf (&tPlay));
         const bool compact = need > row.getWidth();
@@ -734,12 +739,18 @@ public:
             g.drawText (PL ("NAGRYWANIE  ·  ostatnie 10 s"), hint.withTrimmedLeft (14.0f).toNearestInt(), juce::Justification::centredLeft);
         }
 
-        // czas nagrania po prawej stronie paska transportu
+        // licznik czasu po prawej stronie paska transportu: ciemne okienko
+        // jak w odtwarzaczu; w pauzie pomaranczowy, bo pokazuje miejsce w nagraniu
         const double secs = pz.on ? pz.atSec : recorder.recordedSeconds();
-        g.setColour (Ink::textNow());
-        g.setFont (juce::Font (zs::type::body + 2.0f, juce::Font::bold));
+        const auto clockBox = L.transport.withLeft (L.transport.getRight() - (float) clockWidth);
+        g.setColour (Ink::bg().darker (0.35f));
+        g.fillRoundedRectangle (clockBox, 6.0f);
+        g.setColour (Ink::edge());
+        g.drawRoundedRectangle (clockBox.reduced (0.5f), 6.0f, 1.0f);
+        g.setColour (pz.on ? Ink::yellow() : Ink::textNow());
+        g.setFont (juce::Font (juce::Font::getDefaultMonospacedFontName(), zs::type::body + 4.0f, juce::Font::bold));
         g.drawText (juce::String::formatted ("%02d:%02d", (int) secs / 60, (int) secs % 60),
-                    L.transport.toNearestInt(), juce::Justification::centredRight);
+                    clockBox.toNearestInt(), juce::Justification::centred);
     }
 
     /** Po R: w sluchawkach 2 s tego, co w czystym pliku bedzie przed tym
