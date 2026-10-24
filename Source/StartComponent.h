@@ -12,8 +12,8 @@
     Nazwa projektu idzie do nazwy pliku nagrania (Recorder::start), wiec
     lista ostatnich nagran mowi ludzkimi nazwami, a nie samymi datami.
 
-    "Glos z podkladem" jest na razie zaznaczony jako "wkrotce": odtwarzanie
-    muzyki podczas nagrania i w miksie to osobny krok.
+    "Glos z podkladem": wybor pliku muzyki — gra w sluchawkach podczas
+    nagrania (Backing.h, Recorder::setBacking); w miksie dojdzie w kolejnym kroku.
 
   ==============================================================================
 */
@@ -30,6 +30,7 @@ public:
     std::function<void (const juce::String& name)> onStart;
     std::function<void (const juce::File&)> onOpen;
     std::function<void()> onOpenOther;
+    std::function<void()> onChooseMusic;   ///< klik w karte "Glos z podkladem" (wybor pliku)
 
     StartComponent()
     {
@@ -54,6 +55,15 @@ public:
         otherButton.onClick = [this] { if (onOpenOther) onOpenOther(); };
         addAndMakeVisible (otherButton);
     }
+
+    /** Wybrana muzyka (pusty File = sam glos). sec: dlugosc do pokazania. */
+    void setMusic (const juce::File& f, double sec)
+    {
+        music = f; musicSec = sec; musicMode = f.existsAsFile();
+        repaint();
+    }
+    /** Muzyka do nagrania albo pusty File, gdy wybrany "Sam glos". */
+    juce::File chosenMusic() const { return musicMode ? music : juce::File(); }
 
     /** Nazwa w polu, gdy ekran wraca (np. po skonczonym odcinku: pusta). */
     void setName (const juce::String& n) { nameInput.setText (n, juce::dontSendNotification); }
@@ -116,13 +126,16 @@ public:
         g.drawText (PL ("Nazwa"), L.nameLabel, juce::Justification::bottomLeft);
         g.drawText (PL ("Rodzaj nagrania"), L.kindLabel, juce::Justification::bottomLeft);
 
-        paintCard (g, L.voiceCard, true, true, PL ("Sam głos"),
+        paintCard (g, L.voiceCard, ! musicMode, true, PL ("Sam głos"),
                    PL ("Podcast, lektor, audiobook. Prompter i lampka prowadzą przez nagranie."), false);
-        paintCard (g, L.musicCard, false, false, PL ("Głos z podkładem"),
-                   PL ("Muzyka pod głosem, ściszana, gdy mówisz."), true);
+        paintCard (g, L.musicCard, musicMode, true, PL ("Głos z podkładem"),
+                   music.existsAsFile()
+                       ? music.getFileName() + "  (" + duration (musicSec) + PL (")\nKliknij, by wybrać inny plik.")
+                       : PL ("Muzyka w słuchawkach, nagrywasz do bitu. Kliknij i wybierz plik (WAV, MP3)."), true);
 
         g.setColour (I::textDim()); g.setFont (juce::Font (zs::type::small));
-        g.drawText (PL ("Dalej: mikrofon i tekst do promptera."),
+        g.drawText (musicMode ? PL ("Dalej: mikrofon i tekst. Muzyka zagra po Nagraj.")
+                              : PL ("Dalej: mikrofon i tekst do promptera."),
                     L.startHint, juce::Justification::centredLeft);
 
         if (equipment.isNotEmpty())
@@ -167,11 +180,21 @@ public:
     {
         const int r = rowAt (e.getPosition());
         if (r != hoverRow) { hoverRow = r; repaint(); }
-        setMouseCursor (r >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+        const auto L = layout();
+        const bool card = L.voiceCard.contains (e.getPosition()) || L.musicCard.contains (e.getPosition());
+        setMouseCursor (r >= 0 || card ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
     }
     void mouseExit (const juce::MouseEvent&) override { if (hoverRow >= 0) { hoverRow = -1; repaint(); } }
     void mouseUp (const juce::MouseEvent& e) override
     {
+        const auto L = layout();
+        if (L.voiceCard.contains (e.getPosition())) { musicMode = false; repaint(); return; }
+        if (L.musicCard.contains (e.getPosition()))
+        {
+            if (music.existsAsFile() && ! musicMode) { musicMode = true; repaint(); }
+            else if (onChooseMusic) onChooseMusic();
+            return;
+        }
         const int r = rowAt (e.getPosition());
         if (r >= 0 && onOpen) onOpen (recent[(size_t) r].file);
     }
@@ -192,6 +215,9 @@ private:
     juce::TextButton startButton, otherButton;
     std::vector<Item> recent;
     int hoverRow = -1;
+    juce::File music;
+    double musicSec = 0.0;
+    bool musicMode = false;
     juce::String equipment;
     bool equipmentChecked = false;
 
