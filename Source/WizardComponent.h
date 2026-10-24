@@ -174,7 +174,7 @@ public:
         g.fillAll (zs::Ink::bg());
 
         zs::ScreenFrame::paint (g, getLocalBounds(), PL("Sprawdzenie sprzętu"), PL("Przygotuj mikrofon przed nagraniem"));
-        g.setColour (zs::Ink::bar()); g.fillRect(zs::ScreenFrame::sidebar(getLocalBounds()));
+        zs::ScreenFrame::paintPanel (g, zs::ScreenFrame::sidebar (getLocalBounds()));
         g.setColour (zs::Ink::textNow()); g.setFont(juce::Font(zs::type::title,juce::Font::bold));
         g.drawText(PL("Sprawdzenie sprzętu"),header(),juce::Justification::centredLeft);
         g.setColour (zs::Ink::panel()); g.fillRoundedRectangle(card().toFloat(),6.0f);

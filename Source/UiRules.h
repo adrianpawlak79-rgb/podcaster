@@ -53,7 +53,7 @@ struct Palette
     uint32_t green, yellow, red, lostBlue, lostText;
 };
 
-enum class PaletteId { Copper, Console, Classic };
+enum class PaletteId { Copper, Console, Classic, Plugin };
 
 inline const Palette& paletteFor (PaletteId id)
 {
@@ -75,10 +75,19 @@ inline const Palette& paletteFor (PaletteId id)
         0xfff1f4f2, 0xffb8c2bd, 0xff829089, 0xff929e97,
         0xff39cf7b, 0xff08190f, 0xff39cf7b,
         0xff39cf7b, 0xffe8bd4d, 0xffe36a63, 0xff6789ef, 0xffa8c0ff };
-    return id == PaletteId::Console ? console : id == PaletteId::Classic ? classic : copper;
+    // D — Wtyczka (24.10, wybor Adriana z kierunkow A-D, wzor: wtyczki RS /
+    // Soundshot): granat jak w panelach wtyczek, niebieski = sterowanie,
+    // zielen = dobrze, pomarancz = uwaga i wzorzec, czerwien = nagrywanie.
+    static const Palette plugin { "Wtyczka",
+        0xff0a1220, 0xff101b2d, 0xff0d1829, 0xff12203a, 0xff2c4366,
+        0xffe3ecf8, 0xffc3d1e4, 0xff6b7a92, 0xff9fb2cc,
+        0xff4ea8ff, 0xff06172e, 0xff7cc0ff,
+        0xff39cf7b, 0xfff0a33a, 0xffff6b6b, 0xff6789ef, 0xffa8c0ff };
+    return id == PaletteId::Console ? console : id == PaletteId::Classic ? classic
+         : id == PaletteId::Plugin ? plugin : copper;
 }
 
-inline PaletteId& currentPaletteId() { static PaletteId id = PaletteId::Console; return id; }   // Adrian 13.10: granat
+inline PaletteId& currentPaletteId() { static PaletteId id = PaletteId::Plugin; return id; }   // Adrian 24.10: wtyczka (D)
 inline void setPalette (PaletteId id) { currentPaletteId() = id; }
 inline const Palette& pal() { return paletteFor (currentPaletteId()); }
 
@@ -146,9 +155,11 @@ namespace frame
 {
     // Kroki w lewej kolumnie (projekt ChatGPT, 13.10) — pasek kroków u góry zniknął,
     // tekst promptera ma więcej wysokości.
+    // 24.10 (kierunek D): kroki to zakladki w naglowku, lewej kolumny nie ma;
+    // tresc i prawy panel odsuniete od krawedzi o pad, miedzy nimi gap.
     constexpr int header = 64, steps = 0, footer = 42;
-    constexpr int margin = 28, sidePadding = 22;
-    inline int navWidth (int width) { return std::clamp (width / 6, 204, 232); }
+    constexpr int margin = 16, sidePadding = 22, pad = 12, gap = 10;
+    inline int navWidth (int) { return 0; }
     inline int sideWidth (int width) { return std::clamp (width / 4, 260, 316); }
 }
 

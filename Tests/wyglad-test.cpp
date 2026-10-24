@@ -59,7 +59,7 @@ int main()
 
     // Palety A (miedz), B (granat) i klasyczna — kazda musi byc czytelna, a
     // w nowych zielen znaczy tylko "dobrze" (Adrian 13.10).
-    for (auto id : { PaletteId::Copper, PaletteId::Console, PaletteId::Classic })
+    for (auto id : { PaletteId::Copper, PaletteId::Console, PaletteId::Classic, PaletteId::Plugin })
     {
         const auto& c = paletteFor (id);
         std::printf ("    %s\n", c.name);
@@ -86,7 +86,7 @@ int main()
             check (c.accent != c.green && c.accent != c.yellow && c.accent != c.red,
                    "akcent nie jest zadnym z kolorow lampki", "");
     }
-    check (currentPaletteId() == PaletteId::Console, "domyslna paleta: B (granat) — wybor Adriana", "");
+    check (currentPaletteId() == PaletteId::Plugin, "domyslna paleta: D (wtyczka) — wybor Adriana 24.10", "");
 
     // ---- 2. trzy rodzaje przyciskow --------------------------------------------------
     std::printf ("\n  2. przyciski\n");

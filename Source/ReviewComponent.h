@@ -812,8 +812,7 @@ public:
         zs::ScreenFrame::paint (g, getLocalBounds(), file.getFileNameWithoutExtension(),
             PL("Spacja — odtwarzanie · Tab — przed / po · Esc — wróć do montażu"));
         auto side = zs::ScreenFrame::sidebar (getLocalBounds());
-        g.setColour (Ink::bar()); g.fillRect (side);
-        g.setColour (Ink::edge()); g.drawVerticalLine (side.getX(), (float) side.getY(), (float) side.getBottom());
+        zs::ScreenFrame::paintPanel (g, side);
         auto main = zs::ScreenFrame::paintHead (g, getLocalBounds(), PL("04 / MIKS"), PL("Wybierz brzmienie"), subtitle());
         drawWave (g, main.removeFromTop (waveHeight()));
         drawStrip (g, main.removeFromTop (zs::ui::review::strip));
@@ -865,8 +864,7 @@ private:
         g.fillAll (Ink::bg());
         zs::ScreenFrame::paint (g, getLocalBounds(), file.getFileNameWithoutExtension(), PL("Plik zapisany na dysku · Esc — wróć do miksu"));
         auto side = zs::ScreenFrame::sidebar (getLocalBounds());
-        g.setColour (Ink::bar()); g.fillRect (side);
-        g.setColour (Ink::edge()); g.drawVerticalLine (side.getX(), side.getY(), side.getBottom());
+        zs::ScreenFrame::paintPanel (g, side);
         auto main = doneContent();
         const auto emblem = main.removeFromTop (68).withSizeKeepingCentre (68, 68).toFloat();
         g.setColour (Ink::green().withAlpha (0.18f)); g.fillEllipse (emblem);
@@ -1065,8 +1063,7 @@ private:
         zs::ScreenFrame::paint(g,getLocalBounds(),file.getFileNameWithoutExtension(),
             cutPanel.empty() ? PL("Klik — posłuchaj · przeciągnij — zaznacz · kółko, + − — powiększ · N — następne · Esc — wróć")
                              : PL("Spacja — połączenie · Enter — zaznacz do wycięcia · Backspace — zostaw · ↑↓ — miejsca · Esc — wróć"));
-        auto side=zs::ScreenFrame::sidebar(getLocalBounds());g.setColour(Ink::bar());g.fillRect(side);
-        g.setColour(Ink::edge());g.drawVerticalLine(side.getX(),side.getY(),side.getBottom());
+        auto side=zs::ScreenFrame::sidebar(getLocalBounds());zs::ScreenFrame::paintPanel(g,side);
         auto main=zs::ScreenFrame::paintHead(g,getLocalBounds(),PL("03 / ODSŁUCH I MONTAŻ"),PL("Posłuchaj i popraw"),subtitle());
         g.setColour(Ink::textNext());
         drawWave(g,main.removeFromTop(waveHeight()));
