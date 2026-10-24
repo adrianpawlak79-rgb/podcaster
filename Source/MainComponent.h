@@ -133,8 +133,12 @@ public:
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds().reduced (8);
-        const int d = juce::jmax(0, juce::jmin (r.getWidth()-20, r.getHeight() - 54));
-        auto circle = juce::Rectangle<int> (d, d).withCentre ({ r.getCentreX(), r.getY() + d / 2 + 6 });
+        // specyfikacja E: lampka do 132 px, poswiata tylko, gdy cos mowi
+        const int d = juce::jmax (0, juce::jmin (132, r.getWidth() - 40, r.getHeight() - 70));
+        // lampka i zdanie pod nia razem, na srodku miejsca (zdanie nie odjezdza na dol)
+        const int block = d + 10 + 18 + 48;
+        const int top = r.getY() + juce::jmax (0, (r.getHeight() - block) / 2);
+        auto circle = juce::Rectangle<int> (d, d).withCentre ({ r.getCentreX(), top + 5 + d / 2 });
 
         juce::Colour c;
         juce::String label;
@@ -154,19 +158,28 @@ public:
         if (dim && state == 0)
             c = c.withMultipliedBrightness (0.72f);
 
-        g.setColour (c.withAlpha (dim && state == 0 ? 0.10f : 0.18f));
-        g.fillEllipse (circle.expanded (10).toFloat());
-        g.setColour (c);
-        g.fillEllipse (circle.toFloat());
+        const bool idle = (! recording && state == 0) || listening;
+        const auto cf = circle.toFloat();
+        if (! idle) zs::Depth::glow (g, cf, cf.getWidth() / 2, c, 12.0f, dim && state == 0 ? 0.12f : 0.24f);
+        // pierscien: ciemna szczelina i obwodka w kolorze stanu (makieta "Wtyczka")
+        g.setColour (zs::Ink::bg());
+        g.fillEllipse (cf.expanded (5.0f));
+        g.setColour (idle ? zs::Ink::edge() : c.withAlpha (0.85f));
+        g.drawEllipse (cf.expanded (4.0f), 2.0f);
+        // dysk: swiatlo z gory po lewej
+        const auto lit = idle ? juce::Colour (0xff2a3542) : c;
+        g.setGradientFill (juce::ColourGradient (lit.brighter (0.45f), cf.getX() + cf.getWidth() * 0.38f, cf.getY() + cf.getHeight() * 0.3f,
+                                                 lit.darker (0.25f), cf.getRight(), cf.getBottom(), true));
+        g.fillEllipse (cf);
 
-        g.setColour ((!recording && state==0) || listening ? zs::Ink::bg() : zs::Ink::onAccent());
+        g.setColour (idle ? zs::Ink::textNext() : juce::Colour (0xff06140c));
         g.setFont (juce::Font (juce::jmax (14.0f, d * (recording && ! listening ? 0.22f : 0.15f)), juce::Font::bold));
         g.drawText (label, circle, juce::Justification::centred);
 
         g.setColour (zs::Ink::textNext());
         g.setFont (juce::Font (zs::type::body));
         g.drawFittedText (message,
-                          r.removeFromBottom (44).reduced (4, 0),
+                          juce::Rectangle<int> (r.getX(), circle.getBottom() + 18, r.getWidth(), 48).reduced (4, 0),
                           juce::Justification::centredTop, 2);
     }
 
@@ -220,6 +233,70 @@ private:
 };
 
 //==============================================================================
+//==============================================================================
+/** Miernik segmentowy (specyfikacja E): segmenty od -60 do 0 dBFS, niebieskie
+    nisko, zielone w zakresie mowy, pomaranczowe przy progu, czerwone przy
+    przesterze; linia szczytu trzyma 0,9 s i opada 12 dB/s; skala i liczba. */
+class SegMeter : public juce::Component
+{
+public:
+    static constexpr int height = 50;
+
+    void setLevel (float lin)
+    {
+        const float db = lin > 1.0e-6f ? juce::Decibels::gainToDecibels (lin) : -90.0f;
+        const auto now = juce::Time::getMillisecondCounter();
+        const float dt = lastMs == 0 ? 0.0f : (float) (now - lastMs) / 1000.0f;
+        lastMs = now;
+        levelDb = db;
+        if (db >= peakDb) { peakDb = db; holdUntil = now + 900; }
+        else if (now > holdUntil) peakDb = juce::jmax (db, peakDb - 12.0f * dt);
+        repaint();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat();
+        auto bar = r.removeFromTop (16.0f);
+        const int n = 30;
+        const float gap = 3.0f, w = (bar.getWidth() - gap * (n - 1)) / n;
+        const auto xOf = [&] (float db) { return bar.getX() + bar.getWidth() * juce::jlimit (0.0f, 1.0f, (db + 60.0f) / 60.0f); };
+        for (int i = 0; i < n; ++i)
+        {
+            const float db = -60.0f + 60.0f * (i + 0.5f) / n;
+            const juce::Colour c (db > -1.5f ? 0xffe64a55 : db > -6.0f ? 0xfff0a33e : db > -24.0f ? 0xff39cf7b : 0xff30b5fc);
+            const bool lit = db <= levelDb;
+            g.setColour (lit ? c : juce::Colour (0xff303a46).withAlpha (0.58f));
+            g.fillRoundedRectangle (bar.getX() + i * (w + gap), bar.getY(), w, bar.getHeight(), 2.0f);
+        }
+        if (peakDb > -60.0f)
+        {
+            g.setColour (zs::Ink::textNow());
+            g.fillRect (xOf (peakDb) - 0.5f, bar.getY() - 2.0f, 1.5f, bar.getHeight() + 4.0f);
+        }
+        r.removeFromTop (3.0f);
+        auto scale = r.removeFromTop (14.0f);
+        g.setColour (juce::Colour (0xff8996a5));
+        g.setFont (juce::Font (juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::plain));
+        for (float db : { -48.0f, -24.0f, -12.0f, -6.0f, 0.0f })
+        {
+            const float x = xOf (db);
+            const juce::String t = juce::String ((int) db);
+            const float tw = 30.0f;
+            g.drawText (t, juce::Rectangle<float> (juce::jlimit (scale.getX(), scale.getRight() - tw, x - tw / 2), scale.getY(), tw, scale.getHeight()),
+                        db >= 0.0f ? juce::Justification::centredRight : juce::Justification::centred);
+        }
+        g.setColour (zs::Ink::textNext());
+        g.setFont (juce::Font (zs::type::small));
+        g.drawText (peakDb > -60.0f ? PL ("szczyt ") + juce::String (peakDb, 1) + " dBFS" : PL ("cisza"),
+                    r.toNearestInt(), juce::Justification::centredLeft);
+    }
+
+private:
+    float levelDb = -90.0f, peakDb = -90.0f;
+    juce::uint32 holdUntil = 0, lastMs = 0;
+};
+
 class MainComponent : public juce::Component,
                       private juce::Timer,
                       private juce::ChangeListener
@@ -292,6 +369,7 @@ public:
         zs::Look::setKind (recButton, zs::ui::ButtonKind::Record);
         updatePrompterButton();
         addAndMakeVisible (meter);
+        addChildComponent (segMeter);
 
         recButton.setButtonText ("Nagraj");
         recButton.onClick = [this] { toggleRecord(); };
@@ -521,11 +599,13 @@ public:
         const bool rec = recorder.isRecording();
         const auto name = recordingName();
         zs::ScreenFrame::paint (g, getLocalBounds(), name,
-            rec ? (inPrompter ? PL ("Spacja — pauza  ·  Esc — zakończ") : PL ("Spacja albo Esc — zakończ i oceń")) : preparation ? PL("Wybierz mikrofon i przygotuj tekst") : PL ("Nagraj, a potem odsłuchaj podejście"));
+            inPrompter ? PL ("Spacja — pauza / nagraj  ·  R — powtórz wers  ·  Esc — zakończ")
+            : rec ? PL ("Spacja albo Esc — zakończ i oceń") : preparation ? PL("Wybierz mikrofon i przygotuj tekst") : PL ("Nagraj, a potem odsłuchaj podejście"));
         auto side = zs::ScreenFrame::sidebar (getLocalBounds());
         zs::ScreenFrame::paintPanel (g, side);
         if (settingsOpen) { paintHardwareSettings (g); return; }
         if (preparation) { paintPreparation (g); return; }
+        if (inPrompter) { paintPrompterSide (g); return; }
         auto main = zs::ScreenFrame::mainArea (getLocalBounds());
         g.setFont (juce::Font (zs::type::tiny, juce::Font::bold)); g.setColour (I::textDim());
         g.drawText (PL ("02 / NAGRANIE"), main.removeFromTop (18), juce::Justification::centredLeft);
@@ -602,9 +682,18 @@ public:
             okButton.setBounds (area.removeFromBottom (34).removeFromRight (206));
             area.removeFromBottom (8); events.setBounds (area);
         }
+        segMeter.setVisible (inPrompter && prompter != nullptr);
         if (inPrompter && prompter)
-            for (auto* c : std::initializer_list<juce::Component*> { &lamp, &recButton, &repeatButton, &hints, &flow })
+        {
+            // jeden zegar, lampka, miernik — przyciski sa w transporcie promptera
+            const auto P = prompterSide();
+            lamp.setBounds (P.lamp);
+            segMeter.setBounds (P.meter);
+            for (auto* c : std::initializer_list<juce::Component*> { &recButton, &repeatButton, &meter, &status, &hints })
+                c->setVisible (false);
+            for (auto* c : std::initializer_list<juce::Component*> { &lamp, &segMeter, &flow })
                 c->toFront (false);
+        }
     }
 
     /** Esc na ekranie nagrywania (bez promptera). Prompter ma swoje klawisze
@@ -686,6 +775,9 @@ private:
     juce::Rectangle<int> homeCard() const
     {
         auto r = zs::ScreenFrame::mainArea (getLocalBounds());
+        // z prompterem tytul i wiersz podpowiedzi zabieraly ~130 px tekstowi
+        // (przeglad ekranu nagrania 24.10) — klawisze stoja w stopce
+        if (inPrompter) return r;
         r.removeFromTop (98);
         r.removeFromBottom (36);
         return r;
@@ -694,6 +786,88 @@ private:
     juce::Rectangle<int> settingsBox() const
     {
         return zs::ScreenFrame::sidebar (getLocalBounds());
+    }
+
+    /** Prawy panel w nagraniu z prompterem (przeglad 24.10): jeden zegar w
+        okienku ze stanem, lampka, miernik segmentowy, postep w tekscie. */
+    struct PrompterSide { juce::Rectangle<int> clockCap, clock, limit, lamp, meterCap, meter, textCap, text, bar; };
+    PrompterSide prompterSide() const
+    {
+        PrompterSide L;
+        auto s = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 22);
+        L.clockCap = s.removeFromTop (18); s.removeFromTop (6);
+        L.clock = s.removeFromTop (64);    s.removeFromTop (4);
+        L.limit = s.removeFromTop (18);    s.removeFromTop (4);
+        L.bar = s.removeFromBottom (6);    s.removeFromBottom (6);
+        L.text = s.removeFromBottom (20);
+        L.textCap = s.removeFromBottom (18); s.removeFromBottom (18);
+        L.meter = s.removeFromBottom (SegMeter::height); s.removeFromBottom (6);
+        L.meterCap = s.removeFromBottom (18); s.removeFromBottom (12);
+        L.lamp = s;
+        return L;
+    }
+
+    void paintPrompterSide (juce::Graphics& g)
+    {
+        using I = zs::Ink;
+        const auto L = prompterSide();
+        const auto caption = [&] (const juce::String& t, juce::Rectangle<int> r)
+        {
+            g.setColour (I::textDim()); g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
+            g.drawText (t, r, juce::Justification::centredLeft);
+        };
+        const bool rec = recorder.isRecording();
+        const bool paused = rec && prompter != nullptr && prompter->isPausedView();
+        const bool cue = paused && prompter->isResuming();
+        const double t = rec && prompter != nullptr ? prompter->clockSeconds() : 0.0;
+        const bool nearLimit = rec && zs::ui::session::phase (t) != zs::ui::session::Phase::Ok;
+
+        caption (PL ("CZAS NAGRANIA"), L.clockCap);
+        // okienko z liczba (spec. E); na pauzie pomaranczowe (aneks pkt 7)
+        const auto box = L.clock.toFloat();
+        if (paused)
+        {
+            g.setColour (juce::Colour (0xff21190f)); g.fillRoundedRectangle (box, 6.0f);
+            g.setColour (juce::Colour (0xff95691e)); g.drawRoundedRectangle (box.reduced (0.5f), 6.0f, 1.0f);
+        }
+        else zs::Depth::well (g, box, 6.0f);
+        auto in = L.clock.reduced (16, 0);
+        const juce::String tag = cue ? PL ("ROZBIEG") : paused ? PL ("PAUZA") : rec ? PL ("REC") : PL ("GOTOWY");
+        const juce::Font tagFont (zs::type::tiny, juce::Font::bold);
+        const auto tagArea = in.removeFromRight (tagFont.getStringWidth (tag) + 4);
+        if (rec && ! paused)
+        {
+            g.setColour (I::red());
+            g.fillEllipse (tagArea.toFloat().withSizeKeepingCentre (8.0f, 8.0f).translated (-12.0f - tagFont.getStringWidth (tag) / 2.0f, 0.0f));
+        }
+        g.setColour (paused ? I::yellow() : rec ? I::red() : I::textDim());
+        g.setFont (tagFont);
+        g.drawText (tag, tagArea, juce::Justification::centredRight);
+        g.setColour (paused || nearLimit ? I::yellow() : rec ? I::textNow() : I::textNext());
+        g.setFont (juce::Font (juce::Font::getDefaultMonospacedFontName(), 32.0f, juce::Font::bold));
+        g.drawText (pl::hhmmss (t), in, juce::Justification::centredLeft);
+        if (nearLimit)
+        {
+            g.setColour (I::yellow()); g.setFont (juce::Font (zs::type::small));
+            g.drawText (PL ("Zostało ") + juce::String (zs::ui::session::minutesLeft (t)) + PL (" min do końca sesji"),
+                        L.limit, juce::Justification::centredLeft, true);
+        }
+
+        caption (PL ("POZIOM"), L.meterCap);
+
+        caption (PL ("TEKST"), L.textCap);
+        const int n = prompter != nullptr ? prompter->lineTotal() : 0;
+        const int k = prompter != nullptr ? prompter->lineNow() + 1 : 0;
+        g.setColour (I::textNext()); g.setFont (juce::Font (zs::type::small));
+        g.drawText (n > 0 ? PL ("wers ") + juce::String (k) + PL (" z ") + juce::String (n) : PL ("bez tekstu"),
+                    L.text, juce::Justification::centredLeft);
+        g.setColour (juce::Colour (0xff263242));
+        g.fillRoundedRectangle (L.bar.toFloat(), 3.0f);
+        if (n > 0)
+        {
+            g.setColour (I::accent());
+            g.fillRoundedRectangle (L.bar.toFloat().withWidth (L.bar.getWidth() * (float) k / (float) n), 3.0f);
+        }
     }
 
     void paintRecording (juce::Graphics& g, juce::Rectangle<int> side)
@@ -730,7 +904,7 @@ private:
         const bool rec=recorder.isRecording();
         const bool home=!inWizard && !inReview && !inPrompter;
         const bool idleHome=home && !rec;
-        settingsButton.setVisible(!inWizard && !inReview);settingsButton.setEnabled(idleHome);
+        settingsButton.setVisible(!inWizard && !inReview && !rec);settingsButton.setEnabled(idleHome);   // w trakcie nagrania nieaktywny przycisk tylko zawadzal
         detailsButton.setVisible(idleHome && !settingsOpen);openButton.setVisible(idleHome && !settingsOpen);
         settingsButton.setButtonText(settingsOpen?PL("Zamknij ustawienia"):PL("Mikrofon i sprzęt"));
         detailsButton.setButtonText(detailsOpen?PL("Ukryj uwagi"):PL("Pokaż uwagi"));
@@ -1217,6 +1391,7 @@ private:
 
         const float lvNow = recorder.inputLevel();
         meter.setLevel (lvNow);
+        if (segMeter.isVisible()) segMeter.setLevel (lvNow);
         if (preparation && heardLabel.isVisible()) updateHeard (lvNow);
 
         if (recorder.isRecording())
@@ -1361,6 +1536,7 @@ private:
 
     Lamp lamp;
     Meter meter;
+    SegMeter segMeter;                    ///< miernik segmentowy w nagraniu z prompterem
     juce::TextButton recButton, repeatButton, folderButton, okButton, settingsButton, detailsButton, openButton;
     juce::Label hints;
     juce::String hintsFull;               ///< pelna podpowiedz; w waskim oknie bez ostatnich pozycji
