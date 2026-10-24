@@ -7,7 +7,7 @@
     kafel: nazwa, ile modul robi w tym miksie, wlacznik i jeden suwak
     "mniej <-> wiecej" (0 = jak automat; dwuklik wraca do 0). Logika poprawek
     jest w DSP/Mix/Tweaks.h — tu tylko kafle. Modul, ktorego automat w tym
-    brzmieniu nie uzyl, jest wyszarzony.
+    brzmieniu nie uzyl, jest wyszarzony, ale da sie go wlaczyc.
 
     Zmiana idzie do onChange po puszczeniu suwaka (nie w trakcie: kazda
     zmiana to miks od nowa w tle).
@@ -34,7 +34,13 @@ public:
             const auto s = (mix::Stage) i;
             t.power.setClickingTogglesState (true);
             t.power.setTooltip (PL ("Włącz / wyłącz: ") + PL (mix::stageName (s)));
-            t.power.onClick = [this, i] { tweaks.off[(size_t) i] = ! tiles[(size_t) i].power.getToggleState(); send(); };
+            t.power.onClick = [this, i]
+            {
+                const bool state = tiles[(size_t) i].power.getToggleState();
+                if (used (i)) tweaks.off[(size_t) i] = ! state;
+                else          tweaks.forced[(size_t) i] = state;    // wlaczenie recznie: od ustawien studyjnego
+                send();
+            };
             addAndMakeVisible (t.power);
 
             t.amount.setSliderStyle (juce::Slider::LinearHorizontal);
@@ -103,8 +109,7 @@ public:
         {
             const auto s = (mix::Stage) i;
             const auto tile = tileBounds (i);
-            const bool used = known && mix::stageUsed (decidedParams, s);
-            const bool on = used && ! tweaks.off[(size_t) i];
+            const bool on = isOn (i);
             const auto rf = tile.toFloat();
             g.setColour (on ? I::panel().brighter (0.04f) : I::bg());
             g.fillRoundedRectangle (rf, 7.0f);
@@ -118,18 +123,18 @@ public:
             g.setColour (on ? I::green() : I::textDim().withAlpha (0.5f));
             g.fillEllipse (top.removeFromLeft (8).withSizeKeepingCentre (7, 7).toFloat());
             top.removeFromLeft (7);
-            g.setColour (used ? I::textNow() : I::textDim());
+            g.setColour (on || used (i) ? I::textNow() : I::textNext());
             g.setFont (juce::Font (zs::type::small, juce::Font::bold));
             g.drawText (PL (mix::stageName (s)), top, juce::Justification::centredLeft, true);
 
             auto valueRow = in.removeFromTop (18);
             g.setFont (juce::Font (zs::type::tiny));
             g.setColour (on ? I::textNext() : I::textDim());
-            g.drawText (! known ? juce::String() : ! used ? PL ("nie w tym brzmieniu")
-                                 : ! on ? PL ("wyłączone") : PL (mix::stageValue (mixedParams, s).c_str()),
+            g.drawText (! known ? juce::String() : on ? PL (mix::stageValue (mixedParams, s).c_str())
+                                 : used (i) ? PL ("wyłączone") : PL ("nie w tym brzmieniu"),
                         valueRow, juce::Justification::centredLeft, true);
 
-            if (used)
+            if (on)
             {
                 auto slider = in.removeFromTop (22);
                 g.setColour (I::textDim());
@@ -175,18 +180,24 @@ private:
         return { c * (w + gap), header + row * (tileH + gap), w, tileH };
     }
 
+    /** Automat uzyl modulu (przed poprawkami). */
+    bool used (int i) const { return known && mix::stageUsed (decidedParams, (mix::Stage) i); }
+    /** Modul pracuje w tym miksie: uzyty i nie wylaczony albo wlaczony recznie. */
+    bool isOn (int i) const { return used (i) ? ! tweaks.off[(size_t) i] : known && tweaks.forced[(size_t) i]; }
+
     void refreshControls()
     {
         for (int i = 0; i < mix::stageCount; ++i)
         {
             auto& t = tiles[(size_t) i];
-            const bool used = known && mix::stageUsed (decidedParams, (mix::Stage) i);
-            t.power.setVisible (used);
-            t.amount.setVisible (used);
-            t.power.setToggleState (! tweaks.off[(size_t) i], juce::dontSendNotification);
+            t.power.setVisible (known);
+            t.amount.setVisible (known && isOn (i));
+            t.power.setToggleState (isOn (i), juce::dontSendNotification);
+            t.power.setTooltip (used (i) ? PL ("Włącz / wyłącz: ") + PL (mix::stageName ((mix::Stage) i))
+                                         : PL ("Włącz — od ustawień brzmienia Studyjnego"));
             t.amount.setValue (tweaks.amount[(size_t) i], juce::dontSendNotification);
             t.power.setEnabled (! busy);
-            t.amount.setEnabled (! busy && ! tweaks.off[(size_t) i]);
+            t.amount.setEnabled (! busy);
         }
         resetButton.setEnabled (! busy && ! tweaks.isDefault());
     }

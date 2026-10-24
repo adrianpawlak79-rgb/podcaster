@@ -101,6 +101,38 @@ int main()
         check (mix::describeTweaks (gentle(), t).empty(), "poprawki nieuzytych modulow nie trafiaja do opisu");
     }
 
+    // reczne wlaczenie modulu, ktorego automat nie uzyl
+    {
+        auto p = gentle();
+        mix::Tweaks t;
+        t.forced[(size_t) Stage::Korektor] = true;
+        t.forced[(size_t) Stage::DeEsser] = true;
+        t.forced[(size_t) Stage::Barwa] = true;
+        t.amount[(size_t) Stage::Barwa] = 1.0f;
+        mix::applyTweaks (p, t);
+        check (p.preEq.size() == 3 && p.useDeEsser && std::abs (p.essMaxCutDb + 3.0f) < 1e-4f,
+               "delikatny + wlaczony korektor i de-esser: ustawienia studyjnego",
+               mix::stageValue (p, Stage::Korektor) + "; " + mix::stageValue (p, Stage::DeEsser));
+        check (std::abs (p.presenceDb - 3.0f) < 1e-4f && std::abs (p.airDb - 8.0f) < 1e-4f,
+               "wlaczona barwa + suwak wiecej: od studyjnego w gore", mix::stageValue (p, Stage::Barwa));
+        check (p.levelerRatio == 2.0f && ! p.useGate, "pozostale moduly bez zmian");
+        const auto d = mix::describeTweaks (gentle(), t);
+        check (d == "Twoje zmiany w torze miksu: Korektor — włączone, De-esser — włączone, Barwa — włączone, więcej.",
+               "opis recznie wlaczonych", d);
+
+        auto q = gentle();
+        mix::Tweaks r; r.forced[(size_t) Stage::Rezonanse] = true;
+        mix::applyTweaks (q, r);
+        check (q.notchEq.empty(), "rezonanse bez pomiaru: nic nie wycina", mix::stageValue (q, Stage::Rezonanse));
+        mix::TweakContext ctx; ctx.resonances = { { 3100.0, 4.0 }, { 5300.0, 9.0 } };
+        mix::applyTweaks (q, r, ctx);
+        check (q.notchEq.size() == 2 && std::abs (q.notchEq[0].db + 3.0f) < 1e-4f && std::abs (q.notchEq[1].db + 5.0f) < 1e-4f,
+               "rezonanse z pomiaru: jak w studyjnym (2-5 dB)", mix::stageValue (q, Stage::Rezonanse));
+
+        mix::Tweaks e; e.forced[(size_t) Stage::Ekspander] = true;
+        check (! e.isDefault() && e.anyForced() && e != mix::Tweaks {}, "wlaczenie to zmiana (miks od nowa)");
+    }
+
     // opis i liczby po polsku
     {
         mix::Tweaks t; t.off[(size_t) Stage::DeEsser] = true; t.amount[(size_t) Stage::Odszumianie] = -0.5f;

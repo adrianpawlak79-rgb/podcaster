@@ -447,14 +447,17 @@ public:
     }
 
     // Podglad przechodzi ta sama droga zapisu co zwykly przycisk.
-    /** --preview-ui tor: szczegoly miksu z torem i dwiema przykladowymi zmianami. */
+    /** --preview-ui tor: szczegoly miksu z torem (Delikatny, jedna zmiana, jeden modul wlaczony recznie). */
     void previewChain()
     {
         if (editMode) return;
         detailsMode = true;
+        // Delikatny: wiekszosc modulow nieuzyta; korektor wlaczony recznie
+        wish.style = mix::Decide::Style::Delikatny;
+        updateStyleButtons();
         tweaks = {};
         tweaks.amount[(size_t) mix::Stage::Odszumianie] = 0.5f;
-        tweaks.off[(size_t) mix::Stage::DeEsser] = true;
+        tweaks.forced[(size_t) mix::Stage::Korektor] = true;
         mixTweaks = tweaks;
         review.run (wish, mixTweaks);
         adoptResult();
