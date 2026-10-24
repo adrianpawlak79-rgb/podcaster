@@ -123,7 +123,64 @@ public:
         b.repaint();
     }
 
-    /** Waski przycisk: rysuje sam znak sprzed pierwszej spacji ("● Nagraj" -> "●"). */
+    /** Ikony transportu, rysowane sciezkami jak w DAW-ach (kierunek D, 24.10).
+        Znaki Unicode (▶ ❚❚ ■ ●) wygladaly w kazdym kroju inaczej, a "❚❚"
+        w Segoe UI bywal szerszy niz caly przycisk. */
+    enum class Icon { None = 0, Play, Pause, Stop, Record, Loop, ToStart };
+
+    static void setIcon (juce::Button& b, Icon icon)
+    {
+        if ((int) b.getProperties().getWithDefault ("zsIcon", 0) == (int) icon) return;
+        b.getProperties().set ("zsIcon", (int) icon);
+        b.repaint();
+    }
+
+    static Icon iconOf (const juce::Button& b) { return (Icon) (int) b.getProperties().getWithDefault ("zsIcon", 0); }
+
+    /** Szerokosc ikony z odstepem do napisu — do liczenia szerokosci przyciskow. */
+    static constexpr int iconSpace = 16 + 8;
+
+    static void drawIcon (juce::Graphics& g, Icon icon, juce::Rectangle<float> r, juce::Colour c)
+    {
+        const auto s = r.withSizeKeepingCentre (14.0f, 14.0f);
+        g.setColour (c);
+        juce::Path p;
+        switch (icon)
+        {
+            case Icon::Play:
+                p.addTriangle (s.getX() + 1.5f, s.getY(), s.getX() + 1.5f, s.getBottom(), s.getRight(), s.getCentreY());
+                g.fillPath (p); break;
+            case Icon::Pause:
+                g.fillRoundedRectangle (s.getX() + 1.0f, s.getY(), 4.5f, s.getHeight(), 1.0f);
+                g.fillRoundedRectangle (s.getRight() - 5.5f, s.getY(), 4.5f, s.getHeight(), 1.0f);
+                break;
+            case Icon::Stop:
+                g.fillRoundedRectangle (s.reduced (1.0f), 1.5f); break;
+            case Icon::Record:
+                g.setColour (Ink::red());
+                g.fillEllipse (s); break;
+            case Icon::ToStart:
+                g.fillRect (s.getX(), s.getY(), 2.5f, s.getHeight());
+                p.addTriangle (s.getRight(), s.getY(), s.getRight(), s.getBottom(), s.getX() + 3.0f, s.getCentreY());
+                g.fillPath (p); break;
+            case Icon::Loop:
+            {
+                const auto o = s.expanded (1.0f);
+                p.addCentredArc (o.getCentreX(), o.getCentreY(), o.getWidth() / 2 - 1.0f, o.getHeight() / 2 - 1.0f,
+                                 0.0f, 0.4f, 5.6f, true);
+                g.strokePath (p, juce::PathStrokeType (1.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                juce::Path head;
+                const float ax = o.getCentreX() + std::sin (5.6f) * (o.getWidth() / 2 - 1.0f);
+                const float ay = o.getCentreY() - std::cos (5.6f) * (o.getHeight() / 2 - 1.0f);
+                head.addTriangle (ax - 3.5f, ay - 3.0f, ax + 3.0f, ay - 1.0f, ax - 1.0f, ay + 3.5f);
+                g.fillPath (head);
+                break;
+            }
+            case Icon::None: default: break;
+        }
+    }
+
+    /** Waski przycisk: z ikona — sama ikona; bez ikony — znak sprzed pierwszej spacji. */
     static void setCompact (juce::Button& b, bool compact)
     {
         if ((bool) b.getProperties().getWithDefault ("zsCompact", false) == compact) return;
@@ -181,17 +238,22 @@ public:
         // przygaszony napis. Przezroczysty akcent (40 %) dawal szare bloto,
         // a napis 50 % ginal (przeglad wygladu 20.10).
         if (! b.isEnabled()) g.setColour (Ink::panel());
+        // Nagrywanie (ikona ●): ciemna czerwien z czerwona ramka, jak w DAW-ach —
+        // czerwony znaczy w programie tylko nagrywanie i przester.
+        const bool recordKey = b.isEnabled() && iconOf (b) == Icon::Record;
+        if (recordKey) g.setColour (Ink::red().interpolatedWith (Ink::bg(), 0.78f).withMultipliedBrightness (down ? 0.85f : hover ? 1.2f : 1.0f));
         g.fillRoundedRectangle (r, radius);
 
         const bool focus = b.hasKeyboardFocus (true) && b.isEnabled();
-        g.setColour (focus ? Ink::accent() : b.isEnabled() ? juce::Colour (p.outline) : Ink::edge());
+        g.setColour (focus ? Ink::accent() : recordKey ? Ink::red() : b.isEnabled() ? juce::Colour (p.outline) : Ink::edge());
         g.drawRoundedRectangle (focus ? r.reduced (1.0f) : r, radius, focus ? 2.0f : 1.0f);
     }
 
     void drawButtonText (juce::Graphics& g, juce::TextButton& b, bool, bool) override
     {
         const auto p = ui::paintFor (kindOf (b));
-        const auto text = b.isEnabled() ? juce::Colour (p.text) : Ink::textDim();
+        const auto text = ! b.isEnabled() ? Ink::textDim()
+                        : iconOf (b) == Icon::Record ? Ink::textNow() : juce::Colour (p.text);
 
         if (kindOf (b) == ui::ButtonKind::Record)
         {
@@ -223,7 +285,26 @@ public:
         }
 
         auto label = b.getButtonText();
-        if ((bool) b.getProperties().getWithDefault ("zsCompact", false))
+        const bool compact = (bool) b.getProperties().getWithDefault ("zsCompact", false);
+        const auto icon = iconOf (b);
+        if (icon != Icon::None)
+        {
+            // ikona i napis razem, wysrodkowane; w waskim przycisku sama ikona
+            const auto f = getTextButtonFont (b, b.getHeight());
+            const bool withText = ! compact && label.isNotEmpty();
+            const float w = 16.0f + (withText ? 8.0f + (float) f.getStringWidth (label) : 0.0f);
+            auto box = b.getLocalBounds().toFloat().withSizeKeepingCentre (juce::jmin (w, (float) b.getWidth() - 4.0f), (float) b.getHeight());
+            drawIcon (g, icon, box.removeFromLeft (16.0f), b.isEnabled() ? text : text.withMultipliedAlpha (0.8f));
+            if (withText)
+            {
+                box.removeFromLeft (8.0f);
+                g.setColour (text);
+                g.setFont (f);
+                g.drawText (label, box, juce::Justification::centredLeft, false);
+            }
+            return;
+        }
+        if (compact)
             label = label.upToFirstOccurrenceOf (" ", false, false);
         g.setColour (text);
         g.setFont (getTextButtonFont (b, b.getHeight()));
