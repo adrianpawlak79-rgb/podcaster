@@ -242,6 +242,12 @@ public:
     static constexpr double backingCueSec = 3.0;   ///< rozbieg muzyki przed wznowieniem
 
     bool isPausedView() const noexcept { return pz.on; }
+    /** Dla prawego panelu (MainComponent): czas nagrania — na pauzie miejsce
+        pauzy — i ktory wers z ilu (przeglad ekranu nagrania 24.10). */
+    double clockSeconds() const { return pz.on ? pz.atSec : recorder.recordedSeconds(); }
+    bool   isResuming() const noexcept { return pz.resuming; }
+    int    lineNow() const noexcept   { return lines.empty() ? 0 : juce::jlimit (0, (int) lines.size() - 1, shownLine); }
+    int    lineTotal() const noexcept { return (int) lines.size(); }
 
     void pauseRecording()
     {
@@ -462,13 +468,13 @@ public:
         L.transport = inner.removeFromBottom (34.0f);
         inner.removeFromBottom (6.0f);
         L.hint = inner.removeFromBottom (18.0f);
-        // niskie okno (960x640): slowa w jednym rzedzie — wiecej miejsca na tekst
-        L.labels = inner.removeFromBottom (card.getHeight() >= 176 ? 44.0f : 24.0f);
+        // slowa w jednym rzedzie (Adrian 24.10: dwa rzedy "schodkami" wygladaly slabo)
+        L.labels = inner.removeFromBottom (24.0f);
         L.wave = inner;
         return L;
     }
 
-    juce::TextButton tRecord, tPause, tPlay, tEnd;
+    juce::TextButton tRecord, tPause, tPlay, tRepeat, tEnd;
 
     void setupTransport()
     {
@@ -476,13 +482,17 @@ public:
         tPause.setButtonText (PL ("Pauza"));     zs::Look::setIcon (tPause, zs::Look::Icon::Pause);
         tPlay.setButtonText (PL ("Odtwórz"));    zs::Look::setIcon (tPlay, zs::Look::Icon::Play);
         tEnd.setButtonText (PL ("Zakończ"));     zs::Look::setIcon (tEnd, zs::Look::Icon::Stop);
+        // R byl tylko pod klawiszem (przeglad ekranu nagrania 24.10)
+        tRepeat.setButtonText (PL ("Powtórz wers")); zs::Look::setIcon (tRepeat, zs::Look::Icon::Loop);
+        tRepeat.setTooltip (PL ("Wróć na początek wersu i przeczytaj go jeszcze raz (R)"));
+        tRepeat.onClick = [this] { repeatLine(); };
         tRecord.setTooltip (PL ("Nagraj (spacja)")); tPause.setTooltip (PL ("Pauza (spacja)"));
         tPlay.setTooltip (PL ("Odsłuchaj od zaznaczonego miejsca")); tEnd.setTooltip (PL ("Zakończ nagranie (Esc)"));
         tRecord.onClick = [this] { if (! recorder.isRecording()) { if (onStartStop) onStartStop(); } else resumeRecording(); };
         tPause.onClick  = [this] { pauseRecording(); };
         tPlay.onClick   = [this] { togglePlay(); };
         tEnd.onClick    = [this] { if (recorder.isRecording() && onStopRequest) onStopRequest(); };
-        for (auto* b : { &tRecord, &tPause, &tPlay, &tEnd }) { b->setWantsKeyboardFocus (false); addAndMakeVisible (b); }
+        for (auto* b : { &tRecord, &tPause, &tPlay, &tRepeat, &tEnd }) { b->setWantsKeyboardFocus (false); addAndMakeVisible (b); }
         updateTransport();
     }
 
@@ -495,26 +505,25 @@ public:
         tPlay.setButtonText (pz.playStartMs >= 0.0 ? PL ("Stop") : PL ("Odtwórz"));
         zs::Look::setIcon (tPlay, pz.playStartMs >= 0.0 ? zs::Look::Icon::Stop : zs::Look::Icon::Play);
         tEnd.setEnabled (rec);
+        tRepeat.setEnabled (rec && ! pz.resuming && ! spans.empty());
         zs::Look::setKind (tRecord, (! rec || pz.on) ? zs::ui::ButtonKind::Primary : zs::ui::ButtonKind::Secondary);
     }
-
-    static constexpr int clockWidth = 84;
 
     void layoutTransport()
     {
         auto row = stripLayout (stripCard()).transport.toNearestInt();
-        row.removeFromRight (clockWidth + 8);          // licznik czasu
+        // licznik czasu jest raz — w prawym panelu (MainComponent), nie tu
         // Kazdy przycisk tak szeroki jak ikona i napis. Gdy cztery sie nie mieszcza
         // (male okno), zostaja same ikony — jak w odtwarzaczu; nazwy
         // i klawisze stoja w podpowiedzi pod spodem.
         const juce::Font f (zs::type::body, juce::Font::bold);
         const auto widthOf = [&] (juce::Button* b) { return f.getStringWidth (b->getButtonText()) + 32 + zs::Look::iconSpace; };
-        int need = 3 * 8;
-        for (auto* b : { &tRecord, &tPause, &tPlay, &tEnd }) need += juce::jmax (widthOf (b), widthOf (&tPlay));
+        int need = 4 * 8;
+        for (auto* b : { &tRecord, &tPause, &tPlay, &tRepeat, &tEnd }) need += juce::jmax (widthOf (b), widthOf (&tPlay));
         const bool compact = need > row.getWidth();
-        const int w = compact ? juce::jlimit (40, 64, (row.getWidth() - 3 * 8) / 4)
-                              : juce::jmax (widthOf (&tRecord), widthOf (&tPause), widthOf (&tPlay), widthOf (&tEnd));
-        for (auto* b : { &tRecord, &tPause, &tPlay, &tEnd })
+        const int w = compact ? juce::jlimit (40, 64, (row.getWidth() - 4 * 8) / 5)
+                              : juce::jmax (juce::jmax (widthOf (&tRecord), widthOf (&tPause), widthOf (&tPlay)), juce::jmax (widthOf (&tRepeat), widthOf (&tEnd)));
+        for (auto* b : { &tRecord, &tPause, &tPlay, &tRepeat, &tEnd })
         {
             zs::Look::setCompact (*b, compact);
             b->setBounds (row.removeFromLeft (w)); row.removeFromLeft (8);
@@ -706,11 +715,12 @@ public:
             }
         }
 
-        // uslyszane slowa: wieksze, w dwoch rzedach, nie wychodza poza karte
+        // uslyszane slowa: jeden rzad; slowo, ktore by nachodzilo na poprzednie,
+        // nie jest rysowane (zostaje co drugie — i tak widac, gdzie jest tekst)
         {
         juce::Graphics::ScopedSaveState clipWords (g);
         g.reduceClipRegion (labels.withX (wave.getX()).withWidth (wave.getWidth()).toNearestInt());
-        const int rows = labels.getHeight() >= 40.0f ? 2 : 1;      // niskie okno: jeden rzad
+        const int rows = 1;
         const float wordRow = labels.getHeight() / (float) rows;
         const juce::Font wordFont (zs::type::body, juce::Font::bold);
         g.setFont (wordFont);
@@ -774,24 +784,6 @@ public:
             g.setColour (Ink::textDim());
             g.drawText (PL ("NAGRYWANIE  ·  ostatnie 10 s"), hint.withTrimmedLeft (14.0f).toNearestInt(), juce::Justification::centredLeft);
         }
-
-        // licznik czasu po prawej stronie paska transportu: ciemne okienko
-        // jak w odtwarzaczu; w pauzie pomaranczowy, bo pokazuje miejsce w nagraniu
-        const double secs = pz.on ? pz.atSec : recorder.recordedSeconds();
-        const auto clockBox = L.transport.withLeft (L.transport.getRight() - (float) clockWidth);
-        if (pz.on)
-        {
-            // aneks E, pkt 7: wklesle okno #21190F z obrysem #95691E
-            g.setColour (juce::Colour (0xff21190f));
-            g.fillRoundedRectangle (clockBox, 6.0f);
-            g.setColour (juce::Colour (0xff95691e));
-            g.drawRoundedRectangle (clockBox.reduced (0.5f), 6.0f, 1.0f);
-        }
-        else zs::Depth::well (g, clockBox, 6.0f);
-        g.setColour (pz.on ? Ink::yellow() : Ink::textNow());
-        g.setFont (juce::Font (juce::Font::getDefaultMonospacedFontName(), zs::type::body + 4.0f, juce::Font::bold));
-        g.drawText (juce::String::formatted ("%02d:%02d", (int) secs / 60, (int) secs % 60),
-                    clockBox.toNearestInt(), juce::Justification::centred);
     }
 
     /** Po R: w sluchawkach 2 s tego, co w czystym pliku bedzie przed tym
