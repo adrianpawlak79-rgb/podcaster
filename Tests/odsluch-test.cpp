@@ -272,6 +272,30 @@ int main (int argc, char** argv)
                std::to_string (r.toRedo().size()));
     }
 
+    // ---- 3b. prawie cisza: ostrzezenie zamiast "Miks gotowy" ----------
+    {
+        std::printf ("\n  prawie cisza\n");
+
+        std::vector<float> hiss ((size_t) (sr * 3.0));
+        std::mt19937 rng (3); std::normal_distribution<float> g (0.0f, 1e-5f);
+        for (auto& v : hiss) v = g (rng);
+        zs::TakeReview q;
+        q.setTake (hiss, sr, {});
+        q.run();
+        check (q.stage() == zs::TakeReview::Stage::Ready && q.nearlySilent(),
+               "szum -100 dBFS: prawie cisza", std::to_string (q.whatIDid().lufsBefore) + " LUFS");
+        check (! q.plainSays().empty() && q.plainSays().front().rfind ("Nagranie jest prawie ciche", 0) == 0,
+               "pierwsze zdanie mowi, ze cisza");
+
+        auto quiet = speech (src, sr, 10.0);
+        for (auto& v : quiet) v *= 0.05f;      // -26 dB: mowa daleko od mikrofonu
+        zs::TakeReview d;
+        d.setTake (quiet, sr, {});
+        d.run();
+        check (! d.nearlySilent(), "cicha, ale prawdziwa mowa to nie cisza",
+               std::to_string (d.whatIDid().lufsBefore) + " LUFS");
+    }
+
     // ---- 4. caly przebieg: slucha, decyduje, miksuje ---------------------
     //
     // Cel glosnosci jest DEKLARACJA programu, a sufit obietnica. Jedno i drugie
