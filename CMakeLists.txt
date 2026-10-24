@@ -34,6 +34,7 @@ if (WIN32)
 endif()
 
 target_include_directories(ZieloneSwiatlo PRIVATE Source)
+target_compile_definitions(ZieloneSwiatlo PRIVATE ZS_FONTS=1)
 
 target_compile_definitions(ZieloneSwiatlo PUBLIC
     JUCE_WEB_BROWSER=0
@@ -48,7 +49,12 @@ target_compile_definitions(ZieloneSwiatlo PUBLIC
 
 # Ekran startowy: zdjecie od ChatGPT (Adrian: zostaje oryginal)
 # (Docs/projekt/szata-chatgpt/).
-juce_add_binary_data(ZsObrazy SOURCES Resources/splash.jpg)
+# Fonty kierunku E (specyfikacja: Docs/projekt/ciemny-sprzet/): Inter do napisow,
+# JetBrains Mono do liczb. Licencja OFL obok plikow. Look.h laduje je tylko
+# w programie (ZS_FONTS) — testy JUCE zostaja na kroju systemowym.
+juce_add_binary_data(ZsObrazy SOURCES Resources/splash.jpg
+    Resources/Fonts/Inter-Regular.ttf Resources/Fonts/Inter-SemiBold.ttf
+    Resources/Fonts/JetBrainsMono-SemiBold.ttf)
 
 target_link_libraries(ZieloneSwiatlo
     PRIVATE ZsObrazy juce::juce_audio_utils juce::juce_gui_extra

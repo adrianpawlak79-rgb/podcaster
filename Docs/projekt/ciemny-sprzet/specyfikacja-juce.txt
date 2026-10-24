@@ -1,0 +1,184 @@
+ZIELONE SWIATLO - CIEMNY SPRZET Z POSWIATA
+Specyfikacja do implementacji w JUCE 7
+
+ZASADA KIERUNKU
+Prawie czarne tlo, grafitowe panele z delikatnym swiatlem od gory. Akcent aktywny jest elektryczny blekit/cyjan. Poswiate dostaje tylko aktualnie aktywny element. Zielony oznacza poprawny stan, pomaranczowy ostrzezenie, czerwony nagrywanie. Prompter ma zostac spokojny, bez swiecenia i bez dekoracji.
+
+1. TOKENY KOLOROW
+
+Tla:
+BG-0 window base:             #080B10
+BG-1 toolbar / inset:         #0D1219
+BG-2 secondary well:          #0B1118
+BG-3 raised surface:          #151D27
+
+Panele:
+Panel top gradient:           #202A36
+Panel bottom gradient:        #111720
+Panel secondary top:          #1A232F
+Panel secondary bottom:       #10161E
+Panel inset/display:          #090F15
+
+Obrysy:
+Border default:               #303B49
+Border subtle:                #26313D
+Border active:                #168FDB
+Divider:                      #35404D
+
+Tekst:
+Text primary:                 #F2F5FA
+Text secondary:               #C4CED9
+Text tertiary:                #96A3B2
+Text disabled:                #687585
+
+Akcent aktywny:
+Accent:                       #32B9FF
+Accent dark:                  #087DD7
+Accent surface:               #142435
+Accent border:                #238FDB
+Accent glow:                  #32B9FF
+
+Stany:
+Good green:                   #39CF7B
+Good green dark:              #168B50
+Warning orange:               #F0A33E
+Warning orange dark:          #B86C1E
+Recording red:                #FF555E
+Recording red dark:           #C92D3C
+Error red:                    #E64A55
+
+Gradienty:
+Window: linear vertical 0deg, #111720 at 0%, #090D13 at 12%, #070A0F at 100%.
+Panel: linear vertical 0deg, #202A36 at 0%, #171F29 at 18%, #111720 at 100%.
+Panel secondary: linear vertical 0deg, #1A232F at 0%, #10161E at 100%.
+Active button: linear vertical 0deg, #32B9FF at 0%, #087DD7 at 100%.
+Record button: linear vertical 0deg, #FF555E at 0%, #C92D3C at 100%.
+Gradient direction assumes top-to-bottom. Do not apply a full-window blue/purple gradient.
+
+Poswiata (soft outer glow):
+Aktywny niebieski: color #32B9FF, blur radius 12 px, alpha 0.24, offset 0 0 px.
+Aktywny lampka green: color #39CF7B, blur radius 10 px, alpha 0.18, offset 0 0 px.
+Nagrywanie red: color #FF555E, blur radius 14 px, alpha 0.24, offset 0 0 px.
+Glow applies only to active tab, active mix module, active recording control or status lamp. No glow on idle controls, dividers, text, or whole panels.
+
+2. TYPOGRAFIA
+
+UI font: Inter. Fallback: Segoe UI.
+Numeric/display font: JetBrains Mono. Fallback: Consolas.
+Weights: Regular 400, Medium 500, Semibold 600, Bold 700.
+App name: 19 px / Semibold 600.
+Screen title: 28 px / Semibold 600.
+Panel heading: 18 px / Semibold 600.
+Control label: 13 px / Medium 500.
+Body and helper: 12 px / Regular 400.
+Small metadata: 10 px / Medium 500.
+Prompter current line: 38 px / Semibold 600; line height 1.35; min 30 px at 960x640.
+Numeric display (timer): 32 px / Semibold 600 / JetBrains Mono.
+Numeric control values: 13 px / Medium 500 / JetBrains Mono.
+Avoid decorative type, italic display faces, and condensed all-caps for long labels.
+
+3. SIATKA, ODSTEPY I KSZTALTY
+
+Reference canvas: 1280 x 800 px. Compact canvas: 960 x 640 px.
+Outer content inset: 24 px at 1280 width, 16 px at 960 width.
+Base spacing scale: 4, 8, 12, 16, 24, 32 px.
+Control gap: 8 px. Panel internal padding: 16 px. Major panel gap: 14 px.
+Header height: 64 px. Workflow navigation height: 50 px.
+Corner radius: small controls 6 px; buttons 8 px; module tiles 9 px; panels 12 px; prompter well 8 px.
+Default border: 1 px. Active border: 1.5 px. Focus outline: 2 px.
+JUCE drop shadow: dx 0 px, dy 4 px, radius 12 px, color #000000 alpha 0.42.
+Short inner top highlight: 1 px, #FFFFFF alpha 0.07. Avoid heavy bevels and metal grain.
+
+4. PRZEPISY KOMPONENTOW
+
+Panel:
+Fill gradient #202A36 -> #111720, top-to-bottom. Border 1 px #303B49, radius 12 px.
+Shadow dx 0, dy 4, radius 12, #000000 alpha .42. Top highlight 1 px #FFFFFF alpha .07.
+Secondary panel uses #1A232F -> #10161E. Inset areas use #0B1118.
+
+Okienko z liczba:
+Fill #090F15, border 1 px #303B49, radius 6 px, inner top line #FFFFFF alpha .05.
+Text JetBrains Mono, 13 px; timer 32 px. Text #DCE5EF.
+No glow while idle. On focus border #32B9FF; outline 2 px with 2 px offset.
+
+Przycisk glowny:
+Fill vertical #32B9FF -> #087DD7; border 1 px #45BFFF; radius 8 px.
+Label #F5F8FC, 14 px Semibold. Shadow dx 0 dy 3 radius 8 #000000 alpha .35.
+Hover: top/bottom #45C3FF -> #128CE4; glow #32B9FF radius 12 alpha .24.
+Pressed: #087DD7 -> #0666B7; translate y +1 px; remove outer glow.
+Disabled: fill #202833, border #303A46, label #687585; alpha .48, no glow.
+Active: same as hover, glow only while the associated action/state is active.
+
+Przycisk zwykly:
+Fill #1A232F -> #10161E; border 1 px #344251; radius 8 px.
+Label #DCE4ED, 14 px Medium. No shadow blur; optional short shadow 0 2 6 #000000 alpha .28.
+Hover: fill #222E3B -> #151E28; border #526273.
+Pressed: fill #0D131B; border #26313D; translate y +1 px.
+Disabled: fill #111720; border #26313D; label #687585; alpha .48.
+Active/toggled: fill #142435; border #238FDB; 2 px left/outer accent line #32B9FF. Glow only if it is the current selected module/tab.
+
+Przycisk Nagraj (okragly):
+Diameter 64 px minimum at 960x640, 72 px standard, 88 px prominent; hit target minimum 44x44 px.
+Outer disc: 100% diameter, fill #151D27, border 2 px #3A4654.
+Center red disc: 54% diameter, fill #FF555E -> #C92D3C vertical gradient.
+Inner ring: 86% diameter, 1.4% diameter stroke, #FFFFFF alpha .18.
+Hover: center #FF6970 -> #D63846; outer border #687585; no glow until recording.
+Pressed: scale 96%; center #D63846 -> #A92332; translate y +1 px.
+Disabled: alpha .42, saturation .35, no hover reaction.
+Keyboard focus: outline 2 px #32B9FF with 3 px offset; preserve red center.
+Recording/active: red glow #FF555E, radius 14 px, alpha .24. Show small REC label in red.
+
+Przelacznik:
+Track 34 x 18 px, radius 9 px. Off fill #252F3B, border 1 px #465261; knob diameter 12 px #AEB9C6.
+On fill #1476B7, border #32B9FF; knob #E7EEF5. No glow for ordinary on state.
+Hover brightens track by 8%; pressed knob scale 92%; disabled alpha .42; focus outline 2 px accent, offset 2 px.
+
+Suwak:
+Track height 6 px, radius 3 px; inactive #0A1017, border #344252; filled portion #32B9FF -> #087DD7.
+Thumb diameter 16 px, fill #DCE8F3, border 2 px #35B7FF.
+Hover thumb 18 px and border #69CCFF. Pressed thumb 16 px, fill #B6C9D9.
+Disabled track #202833, thumb #687585. Focus adds 2 px accent outline around thumb.
+Endpoint labels 9 px uppercase, tertiary text. Numeric value in separate recessed display.
+
+Zakladka workflow:
+Height 50 px, radius 8 px, horizontal padding 12 px; number badge 24 px.
+Inactive fill transparent, text #8D99A9, no glow. Hover fill #151D27, text #DCE4ED.
+Active fill #142435, border 1 px #238FDB, 3 px leading stripe #32B9FF, glow radius 10 px alpha .18.
+Completed number badge uses #252E39 with a check glyph; do not use green glow.
+Pressed state briefly uses #0D1722. Disabled text #687585, alpha .5. Focus outline 2 px #32B9FF offset 2 px.
+
+Karta modulu toru miksu:
+At 1280 width use 9 tiles, each 132 x 100 px with 6 px gap, radius 9 px.
+At 960 width allow horizontal scroll or two rows; never shrink labels below 10 px.
+Base fill #202A36 -> #111720; border 1 px #303B49. Icon 20 px #98A6B5; title 11 px #B3BECA.
+Hover border #526273, icon/text #DCE4ED. Pressed fill #0D131B.
+Disabled switch off, tile alpha .5. Enabled switch uses #1476B7 without glow.
+Selected tile fill #152637, border 1.5 px #279DEB, icon #38B7FF, one blue glow radius 10 px alpha .18.
+
+Miernik segmentowy:
+Segment 23 x 6 px, vertical gap 3 px, radius 2 px. Two columns separated by 11 px.
+Off #303A46 alpha .58. Active lower/mid segments #30B5FC. Good speech range #39CF7B. Warning near threshold #F0A33E. Clipping/error #E64A55.
+Scale marks at 0, -6, -18, -36 dB, numeric font 10 px JetBrains Mono, color #8996A5.
+Peak hold line 1 px, hold 900 ms, then decay 12 dB/s. Clipping indicator holds until acknowledged/reset.
+No glow on all segments; glow only on the status lamp if status is actively communicating.
+
+Lampka stanu:
+Diameter 72 px standard. Ring/diffuser radius 86%, fill #39CF7B when good, #F0A33E warning, #FF555E error/recording.
+Outer halo radius 10 px beyond disc, same state color alpha .18; active warning/error may pulse brightness by 8%, period 1.2 s.
+Keep text label adjacent and explicit: "Dobrze", "Uwaga", "Nagrywanie". Do not rely on color alone.
+
+Fala dzwiekowa:
+Wave panel fill #0B1118, border 1 px #293543, radius 8 px. Grid lines #283443 alpha .7 at 48 px horizontal / 32 px vertical.
+Baseline #536170, 1 px. Before waveform #98A7B6 alpha .72. After/active waveform #38B5FF alpha .9.
+Live played region may use accent blue. Inactive/future waveform #4B5867 alpha .55. Cursor 2 px #D7E0EA with accent glow radius 8 px alpha .18.
+Avoid waveform glow as a whole; only cursor or current recording region may be emphasized.
+
+5. KOLEJNOSC WDROZENIA
+
+1. Zdefiniuj tokeny kolorow, skale odstepow, promienie i style tekstu. Najwiekszy efekt spojnosc przy malym koszcie.
+2. Wprowadz wspolny rysunek paneli, inset display i cien. To nadaje calemu programowi glebokosc bez przebudowy ukladu.
+3. Ujednolic przyciski, zakladki i focus z klawiatury; akcent i poswiate ogranicz do aktywnych stanow.
+4. Zbuduj wspolne komponenty audio: miernik segmentowy, lampke, fale i karty modulu; zachowaj czytelnosc promptera.
+5. Dopasuj layout 1280x800 oraz 960x640, sprawdz kontrast, obcinanie tekstu, focus i stany hover/pressed/disabled w kazdym kroku.
+
+Makiety PNG w tym katalogu sa punktami odniesienia dla wymiarow 1280 x 800. Tresc paneli i poziomy toru miksu sa koncepcja wizualna; wartosci audio nalezy podstawic z rzeczywistego DSP.

@@ -59,7 +59,7 @@ int main()
 
     // Palety A (miedz), B (granat) i klasyczna — kazda musi byc czytelna, a
     // w nowych zielen znaczy tylko "dobrze" (Adrian 13.10).
-    for (auto id : { PaletteId::Copper, PaletteId::Console, PaletteId::Classic, PaletteId::Plugin })
+    for (auto id : { PaletteId::Copper, PaletteId::Console, PaletteId::Classic, PaletteId::Plugin, PaletteId::Studio })
     {
         const auto& c = paletteFor (id);
         std::printf ("    %s\n", c.name);
@@ -70,7 +70,7 @@ int main()
             { "tekst glowny na tle",            c.textNow,  c.bg,     7.0 },
             { "tekst drugorzedny na tle",       c.textNext, c.bg,     4.5 },
             { "tekst drugorzedny na panelu",    c.textNext, c.panel,  4.5 },
-            { "napis na przycisku glownym",     c.onAccent, c.accent, 4.5 },
+            { "napis na przycisku glownym",     c.onAccent, c.accentFill != 0 ? c.accentFill : c.accent, 4.5 },
             { "napis na przycisku drugorzednym",c.textNow,  c.raised, 4.5 },
             { "przeczytane wersy na tle",       c.textPast, c.bg,     3.0 },
             { "podpowiedzi (textDim) na panelu",c.textDim,  c.panel,  4.5 },
@@ -86,7 +86,7 @@ int main()
             check (c.accent != c.green && c.accent != c.yellow && c.accent != c.red,
                    "akcent nie jest zadnym z kolorow lampki", "");
     }
-    check (currentPaletteId() == PaletteId::Plugin, "domyslna paleta: D (wtyczka) — wybor Adriana 24.10", "");
+    check (currentPaletteId() == PaletteId::Studio, "domyslna paleta: E (Studio) — makieta 24.10", "");
 
     // ---- 2. trzy rodzaje przyciskow --------------------------------------------------
     std::printf ("\n  2. przyciski\n");
@@ -94,7 +94,7 @@ int main()
     check (buttonKindCount == 3, "sa trzy rodzaje, w tym okragly Nagraj", std::to_string (buttonKindCount));
 
     const auto pri = paintFor (ButtonKind::Primary), sec = paintFor (ButtonKind::Secondary);
-    check (pri.fill == pal().accent && sec.fill != pri.fill, "glowny ma akcent, drugorzedny nie", "");
+    check ((pri.fill == pal().accent || pri.fill == pal().accentFill) && sec.fill != pri.fill, "glowny ma akcent, drugorzedny nie", "");
 
     const auto rec = paintFor (ButtonKind::Record);
     check (rec.fill == pri.fill && contrast (rec.text, rec.fill) >= 4.5,
@@ -129,9 +129,15 @@ int main()
     check (look.find ("Segoe UI Variable") != std::string::npos
                && look.find ("Segoe UI") != std::string::npos,
            "Look wybiera Segoe UI z prototypu", "kroj systemowy Windows");
-    check (readFile ("../Source/Fonts.h").find ("BinaryData") == std::string::npos
-               && readFile ("../CMakeLists.txt").find ("Inter-Regular.ttf") == std::string::npos,
-           "Inter nie zastepuje kroju systemowego", "");
+    // Kierunek E (24.10): Inter do napisow i JetBrains Mono do liczb sa
+    // wkompilowane (ten sam wyglad na kazdym Windowsie); Segoe UI zostaje
+    // tylko jako zapas dla testow JUCE bez fontow.
+    const auto cmake = readFile ("../CMakeLists.txt");
+    check (cmake.find ("Inter-Regular.ttf") != std::string::npos && cmake.find ("JetBrainsMono-SemiBold.ttf") != std::string::npos
+               && look.find ("getTypefaceForFont") != std::string::npos,
+           "Inter i JetBrains Mono wkompilowane i podpiete w Look", "");
+    check (! readFile ("../Resources/Fonts/OFL.txt").empty() && ! readFile ("../Resources/Fonts/OFL-JetBrainsMono.txt").empty(),
+           "licencje fontow (OFL) leza obok plikow", "");
 
     // ---- 4. pasek krokow ------------------------------------------------------------
     std::printf ("\n  4. pasek krokow\n");

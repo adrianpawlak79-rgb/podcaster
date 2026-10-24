@@ -743,10 +743,15 @@ public:
         // jak w odtwarzaczu; w pauzie pomaranczowy, bo pokazuje miejsce w nagraniu
         const double secs = pz.on ? pz.atSec : recorder.recordedSeconds();
         const auto clockBox = L.transport.withLeft (L.transport.getRight() - (float) clockWidth);
-        g.setColour (Ink::bg().darker (0.35f));
-        g.fillRoundedRectangle (clockBox, 6.0f);
-        g.setColour (Ink::edge());
-        g.drawRoundedRectangle (clockBox.reduced (0.5f), 6.0f, 1.0f);
+        if (pz.on)
+        {
+            // aneks E, pkt 7: wklesle okno #21190F z obrysem #95691E
+            g.setColour (juce::Colour (0xff21190f));
+            g.fillRoundedRectangle (clockBox, 6.0f);
+            g.setColour (juce::Colour (0xff95691e));
+            g.drawRoundedRectangle (clockBox.reduced (0.5f), 6.0f, 1.0f);
+        }
+        else zs::Depth::well (g, clockBox, 6.0f);
         g.setColour (pz.on ? Ink::yellow() : Ink::textNow());
         g.setFont (juce::Font (juce::Font::getDefaultMonospacedFontName(), zs::type::body + 4.0f, juce::Font::bold));
         g.drawText (juce::String::formatted ("%02d:%02d", (int) secs / 60, (int) secs % 60),
