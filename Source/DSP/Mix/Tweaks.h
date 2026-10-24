@@ -17,9 +17,11 @@
     Dzieki temu poprawka pasuje do kazdego nagrania i kazdego brzmienia.
 
     Modul, ktorego automat w tym brzmieniu nie uzyl (np. korektor w
-    "Delikatnym"), jest pokazany jako nieuzywany i nie da sie go wlaczyc:
-    nie ma z czego go ustawic, a zgadywanie wlasnie popsulo pelny dobor
-    (12.10). Glosnosc i limiter nie sa na liscie — pilnuja normy, nie brzmienia.
+    "Delikatnym"), mozna wlaczyc recznie (Adrian 24.10: "zostawilbym
+    mozliwosc wlaczenia"). Startuje wtedy z ustawien "Studyjnego"
+    (enableStage), a suwak dziala od nich. Rezonanse trzeba zmierzyc na
+    nagraniu — TakeReview podaje je w TweakContext. Glosnosc i limiter nie sa
+    na liscie — pilnuja normy, nie brzmienia.
 
     Czysta funkcja na SpeechChain::Params, bez stanu i bez JUCE: test
     Tests/tor-test.cpp sprawdza ja bez okna.
@@ -31,6 +33,8 @@
 #include <cmath>
 #include <cstdio>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace mix
 {
@@ -47,14 +51,20 @@ struct Tweaks
 {
     std::array<bool,  stageCount> off {};      ///< true: modul wylaczony recznie
     std::array<float, stageCount> amount {};   ///< -1 (mniej) .. +1 (wiecej), 0 = jak automat
+    std::array<bool,  stageCount> forced {};   ///< true: wlaczony recznie, choc automat go nie uzyl
 
     bool isDefault() const noexcept
     {
         for (int i = 0; i < stageCount; ++i)
-            if (off[(size_t) i] || std::abs (amount[(size_t) i]) > 1e-4f) return false;
+            if (off[(size_t) i] || forced[(size_t) i] || std::abs (amount[(size_t) i]) > 1e-4f) return false;
         return true;
     }
-    bool operator== (const Tweaks& o) const noexcept { return off == o.off && amount == o.amount; }
+    bool anyForced() const noexcept
+    {
+        for (bool f : forced) if (f) return true;
+        return false;
+    }
+    bool operator== (const Tweaks& o) const noexcept { return off == o.off && amount == o.amount && forced == o.forced; }
     bool operator!= (const Tweaks& o) const noexcept { return ! (*this == o); }
 };
 
@@ -111,17 +121,59 @@ inline bool stageUsed (const SpeechChain::Params& p, Stage s)
     }
 }
 
+/** Co trzeba zmierzyc na nagraniu, zeby wlaczyc modul recznie. */
+struct TweakContext
+{
+    /** Waskie piki 2-7 kHz (Hz, ile wystaja w dB) — Decide::resonances. */
+    std::vector<std::pair<double, double>> resonances;
+};
+
+/** Wlacza modul, ktorego automat nie uzyl, z ustawieniami "Studyjnego"
+    (Decide::studio). Rezonanse tylko te, ktore zmierzono — gdy nic nie
+    wystaje, modul zostaje bez wyciec. */
+inline void enableStage (SpeechChain::Params& p, Stage s, const TweakContext& c)
+{
+    using Bell = SpeechChain::Params::Bell;
+    switch (s)
+    {
+        case Stage::Filtr:       p.highpassHz = 75.0; p.steepHighpass = true; break;
+        case Stage::Korektor:    p.preEq = { Bell { 200.0, 1.2, -2.5f }, Bell { 380.0, 1.4, -3.0f }, Bell { 800.0, 2.0, -1.5f } }; break;
+        case Stage::Odszumianie: p.useDenoise = true; p.denoiseDb = -10.0f; break;
+        case Stage::Oddechy:     p.useBreath = true; p.breathDb = -12.0f; break;
+        case Stage::Ekspander:   // prog liczy lancuch z nagrania (autoGate), lagodnie jak w studyjnym
+            p.useGate = true; p.autoGate = true; p.gateRatio = 2.0f; p.gateFloorDb = -18.0f;
+            p.gateAttackMs = 10.0; p.gateHoldMs = 120.0; p.gateReleaseMs = 300.0; p.gateLookaheadMs = 2.0;
+            break;
+        case Stage::Kompresja:   p.levelerRatio = 2.0f; break;
+        case Stage::Rezonanse:
+            p.notchEq.clear();
+            for (const auto& r : c.resonances)
+                p.notchEq.push_back (Bell { r.first, 6.0, (float) -std::clamp (r.second - 1.0, 2.0, 5.0) });
+            break;
+        case Stage::DeEsser:     p.useDeEsser = true; p.essShelfHz = 5500.0; p.essMaxCutDb = -3.0f; break;
+        case Stage::Barwa:       p.presenceHz = 3500.0; p.presenceQ = 1.0; p.presenceDb = 1.5f; p.airHz = 9000.0; p.airDb = 4.0f; break;
+        default: break;
+    }
+}
+
 /** -1..+1 -> 0,5..2 */
 inline float tweakScale (float amount) { return std::pow (2.0f, std::clamp (amount, -1.0f, 1.0f)); }
 
-/** Nakłada poprawki na ustawienia automatu. Moduly nieuzywane zostaja bez zmian. */
-inline void applyTweaks (SpeechChain::Params& p, const Tweaks& t)
+/** Nakłada poprawki na ustawienia automatu. Modul nieuzywany zostaje bez
+    zmian, chyba ze wlaczono go recznie (forced). */
+inline void applyTweaks (SpeechChain::Params& p, const Tweaks& t, const TweakContext& c = {})
 {
     for (int i = 0; i < stageCount; ++i)
     {
         const auto s = (Stage) i;
-        if (! stageUsed (p, s)) continue;
-        const bool off = t.off[(size_t) i];
+        bool off = t.off[(size_t) i];
+        if (! stageUsed (p, s))
+        {
+            if (! t.forced[(size_t) i]) continue;
+            enableStage (p, s, c);
+            if (! stageUsed (p, s)) continue;      // rezonanse: nic nie wystaje
+            off = false;
+        }
         const float k = tweakScale (t.amount[(size_t) i]);
         const auto ratio = [k] (float r) { return r > 1.0f ? std::clamp (1.0f + (r - 1.0f) * k, 1.0f, 20.0f) : r; };
 
@@ -214,7 +266,8 @@ inline std::string stageValue (const SpeechChain::Params& p, Stage s)
         case Stage::Kompresja:
             return p.peakRatio > 1.0f ? num (p.levelerRatio) + ":1 i " + num (p.peakRatio) + ":1"
                                       : num (p.levelerRatio) + ":1";
-        case Stage::Rezonanse:   return tweakText::count (p.notchEq.size(), "wycięcie", "wycięcia", "wycięć");
+        case Stage::Rezonanse:   return p.notchEq.empty() ? "nic nie wystaje"
+                                                         : tweakText::count (p.notchEq.size(), "wycięcie", "wycięcia", "wycięć");
         case Stage::DeEsser:     return "do " + num (-(p.useDeEsser ? p.essMaxCutDb : p.tameMaxCutDb)) + " dB";
         case Stage::Barwa:       return "obecność " + std::string (p.presenceDb >= 0 ? "+" : "") + num (p.presenceDb)
                                       + ", powietrze " + std::string (p.airDb >= 0 ? "+" : "") + num (p.airDb);
@@ -229,10 +282,12 @@ inline std::string describeTweaks (const SpeechChain::Params& decided, const Twe
     for (int i = 0; i < stageCount; ++i)
     {
         const auto s = (Stage) i;
-        if (! stageUsed (decided, s)) continue;
+        const bool used = stageUsed (decided, s);
+        if (! used && ! t.forced[(size_t) i]) continue;
         const float a = t.amount[(size_t) i];
         std::string what;
-        if (t.off[(size_t) i]) what = "wyłączone";
+        if (! used)            what = std::abs (a) > 1e-4f ? (a > 0 ? "włączone, więcej" : "włączone, mniej") : "włączone";
+        else if (t.off[(size_t) i]) what = "wyłączone";
         else if (a > 1e-4f)    what = "więcej";
         else if (a < -1e-4f)   what = "mniej";
         else continue;

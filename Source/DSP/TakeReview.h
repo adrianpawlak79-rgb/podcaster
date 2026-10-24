@@ -373,7 +373,10 @@ public:
 
         mix::SpeechChain chain;
         chain.params = decision.params;
-        mix::applyTweaks (chain.params, tweaks);
+        mix::TweakContext ctx;          // rezonanse mierzymy tylko, gdy ktos je wlaczyl recznie
+        if (tweaks.forced[(size_t) mix::Stage::Rezonanse] && ! mix::stageUsed (chain.params, mix::Stage::Rezonanse))
+            ctx.resonances = mix::Decide::resonances (before, sr);
+        mix::applyTweaks (chain.params, tweaks, ctx);
         mixedParams = chain.params;
         {
             const auto changes = mix::describeTweaks (decision.params, tweaks);
