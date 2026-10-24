@@ -37,6 +37,10 @@ InstallDirRegKey HKCU "Software\ZieloneSwiatlo" "Folder"
 RequestExecutionLevel user
 BrandingText "${NAZWA} ${WERSJA}"
 
+; ikona instalatora i deinstalatora (Resources/ikona.svg -> .ico)
+!define MUI_ICON "../Resources/ikona.ico"
+!define MUI_UNICON "../Resources/ikona.ico"
+
 !include "MUI2.nsh"
 
 !define MUI_ABORTWARNING

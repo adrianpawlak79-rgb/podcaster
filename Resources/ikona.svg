@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Ikona programu: zielony pierscien z mikrofonem na granatowym tle (paleta "Wtyczka") -->
+  <defs>
+    <linearGradient id="tlo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#16263f"/>
+      <stop offset="1" stop-color="#0a1220"/>
+    </linearGradient>
+    <radialGradient id="blask" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0.55" stop-color="#39cf7b" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#39cf7b" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect x="32" y="32" width="960" height="960" rx="210" fill="url(#tlo)"/>
+  <rect x="32" y="32" width="960" height="960" rx="210" fill="none" stroke="#2c4366" stroke-width="12"/>
+  <circle cx="512" cy="512" r="420" fill="url(#blask)"/>
+  <circle cx="512" cy="512" r="318" fill="#0d1829" stroke="#5ee39a" stroke-width="56"/>
+  <g fill="none" stroke="#5ee39a" stroke-width="52" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="442" y="292" width="140" height="262" rx="70"/>
+    <path d="M372 478v28a140 140 0 0 0 280 0v-28"/>
+    <path d="M512 646v72"/>
+    <path d="M432 726h160"/>
+  </g>
+</svg>
