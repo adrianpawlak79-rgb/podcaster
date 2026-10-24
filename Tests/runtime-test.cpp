@@ -35,6 +35,12 @@ int main(int argc,char** argv) {
     const auto firstFile=r.currentFile();reader.reset();
     check(r.start(folder).isEmpty(),"second session starts");
     check(r.currentFile()!=firstFile,"sessions never overwrite earlier takes");
+    r.stop();
+    check(r.start(folder,juce::String::fromUTF8("Odcinek 12: \xc5\x9bwiat?/")).isEmpty(),"named session starts");
+    check(r.currentFile().getFileName().startsWith(juce::String::fromUTF8("Odcinek 12 \xc5\x9bwiat_"))
+          && r.currentFile().getParentDirectory()==folder,"project name becomes a legal file name in the folder");
+    r.stop();
+    check(r.start(folder,"   ").isEmpty() && r.currentFile().getFileName().startsWith("sesja_"),"empty name falls back to sesja_");
     const float* invalid[]={nullptr};
     r.audioDeviceIOCallbackWithContext(invalid,1,out,1,512,{});r.stop();
     check(r.recordingDamaged() && r.recordedSeconds()==0,"invalid input is reported, not counted as written");
