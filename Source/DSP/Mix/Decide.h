@@ -56,6 +56,7 @@
 #pragma once
 
 #include "Reference.h"
+#include "VoiceProfile.h"
 #include "SpeechChain.h"
 #include "Tame.h"
 #include "VoiceTone.h"
@@ -135,6 +136,10 @@ public:
         /** Wynik kreatora. Pusty, gdy kreatora nie przechodzono — wtedy
             wszystko bierze sie z samego nagrania, jak dotad. */
         RoomCheck room;
+
+        /** Wzorzec brzmienia z zatwierdzonego miksu (VoiceProfile.h). Pusty =
+            bez wzorca. Delikatny go nie uzywa: zostawia glos jak nagrany. */
+        VoiceProfile profile;
     };
 
     //==========================================================================
@@ -458,6 +463,13 @@ public:
             {
                 studio (in, sr, wish, headroom, d);
                 if (wish.style == Style::Mocny) strong (d);
+                if (wish.profile.valid())
+                {
+                    d.params.profile = wish.profile;
+                    d.because.push_back ("Barwa dociągnięta do Twojego wzorca brzmienia"
+                                         + (wish.profile.label.empty() ? std::string() : " (" + wish.profile.label + ")")
+                                         + ": szerokimi pasmami, najwyżej o 3 dB.");
+                }
             }
             if (humWanted && ! d.params.deHum)
             {
