@@ -267,9 +267,13 @@ public:
         detailsToggle.setButtonText(PL("Zaawansowane ustawienia"));
         detailsToggle.onClick=[this] { detailsMode=!detailsMode;resized();repaint(); };
         // Tor miksu: kazda zmiana to miks od nowa w tle, jak zmiana brzmienia.
+        defaultsButton.setButtonText (PL ("Przywróć ustawienia domyślne"));
+        defaultsButton.onClick = [this] { chainView.resetAll(); };
+        addChildComponent (defaultsButton);
         chainView.onChange = [this] (const mix::Tweaks& t)
         {
             tweaks = t;
+            defaultsButton.setEnabled (chainView.canReset());
             if (! mixReady()) return;
             note = PL ("Miks z Twoimi zmianami liczy się…");
             styleNote = true;
@@ -909,7 +913,7 @@ public:
         chainPort.setVisible (false);                           // tylko w szczegolach miksu
         for (auto& b : styleCards) b.setVisible (false);
         for (auto& b : musicLevel) b.setVisible (false);
-        duckButton.setVisible (false);
+        duckButton.setVisible (false); defaultsButton.setVisible (false);
         for (auto* b : { &zoomIn, &zoomOut, &zoomAllButton }) b->setVisible (false);   // tylko w montazu
         withMusicButton.setVisible (false);
         if (doneMode) { layoutDone(); return; }
@@ -966,6 +970,9 @@ public:
         const int toolW = juce::jmin (220, tools.getWidth() / 2);
         detailsToggle.setButtonText (getWidth() < 1100 ? PL ("Zaawansowane…") : PL ("Zaawansowane ustawienia"));
         detailsToggle.setBounds (tools.removeFromLeft (toolW));
+        // obok "Ukryj zaawansowane", nie w rogu nad kaflami - tam nikt go nie widzial (Adrian 25.10)
+        defaultsButton.setVisible (detailsMode);
+        if (detailsMode) { tools.removeFromLeft (10); defaultsButton.setBounds (tools.removeFromLeft (juce::jmin (250, tools.getWidth() / 2))); defaultsButton.setEnabled (chainView.canReset()); }
         folderButton.setBounds (tools.removeFromRight (juce::jmin (172, tools.getWidth()))); folderButton.setVisible (true);
         tools.removeFromLeft (12); tools.removeFromRight (12); feedbackArea = tools;
         main.removeFromTop (getHeight() < 720 ? 4 : 8);
@@ -1371,7 +1378,7 @@ private:
         mixTweaks = tweaks;                     // watek czyta tylko te kopie
         mixBedParams = bedParams;
         bed = {}; bedRaw = {};
-        chainView.setBusy (true);
+        chainView.setBusy (true); defaultsButton.setEnabled (false);
         startThread();
     }
 
@@ -1590,7 +1597,7 @@ private:
         if (styleNote) { note.clear(); styleNote = false; }   // "Miks ... liczy się…" juz nieaktualne
         mixedVersion = takeVersion; mixedStyle = wish.style; mixedTweaks = mixTweaks;
         chainView.setState (review.whatIDecided().params, review.whatIMixedWith(), mixTweaks);
-        chainView.setBusy (false);
+        chainView.setBusy (false); defaultsButton.setEnabled (chainView.canReset());
         afterEnv.build (review.mixedAudio(), sr, 1400);
 
         const double playbackRate=recorder.currentSampleRate()>0?recorder.currentSampleRate():sr;
@@ -2207,6 +2214,7 @@ private:
     juce::Rectangle<int> musicLabelArea;
 
     bool hasMusic() const { return ! music.left.empty(); }
+    juce::TextButton defaultsButton;
     static constexpr double previewSec = 15.0;   ///< probka miksu (Adrian 25.10)
     bool acceptingFull = false;                  ///< po akceptacji probki: calosc, potem zapis
     juce::TextButton withMusicButton;

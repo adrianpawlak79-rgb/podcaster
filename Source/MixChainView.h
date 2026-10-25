@@ -56,11 +56,14 @@ public:
             t.amount.onValueChange = [this, i] { if (! tiles[(size_t) i].amount.isMouseButtonDown()) take (i); };
             addAndMakeVisible (t.amount);
         }
-        resetButton.setButtonText (PL ("Przywróć domyślne ustawienia"));
+        resetButton.setButtonText (PL ("Przywróć ustawienia domyślne"));
         resetButton.setTooltip (PL ("Wszystkie moduły tak, jak dobrał je miks"));
         resetButton.onClick = [this] { tweaks = {}; refreshControls(); send(); };
-        addAndMakeVisible (resetButton);
+        addChildComponent (resetButton);   // przycisk stoi na dole ekranu miksu (ReviewComponent)
     }
+
+    void resetAll() { tweaks = {}; refreshControls(); send(); }
+    bool canReset() const { return known && ! busy && ! tweaks.isDefault(); }
 
     /** decided: ustawienia automatu (ktore moduly sa uzyte), mixed: z poprawkami
         (liczby na kaflach), t: poprawki, z ktorymi miks policzono. */
