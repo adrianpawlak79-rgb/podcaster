@@ -1743,6 +1743,7 @@ private:
             startScreen->onStart = [this] (const juce::String& name)
             {
                 backingFile = startScreen->chosenMusic();
+                startWithPrompter = startScreen->prompterChosen();
                 nameInput.setText (name.isEmpty() ? PL ("Nowy odcinek") : name, juce::dontSendNotification);
                 showStart (false);
                 if (! settings.hardwareChecked())
@@ -1750,7 +1751,7 @@ private:
                     preparationAfterWizard = true;
                     enterWizard();
                 }
-                else { preparation = true; settingsOpen = false; detailsOpen = false; resized(); repaint(); }
+                else { afterStartChoice(); resized(); repaint(); }
             };
             startScreen->onOpen = [this] (const juce::File& f) { showStart (false); openReview (f, false, true); };
             startScreen->onOpenOther = [this]
@@ -1823,7 +1824,7 @@ private:
 
         showRecordingUi (true);
         lamp.setState (0, PL ("Naciśnij Nagraj, kiedy będziesz gotowy."), true);
-        if (std::exchange (preparationAfterWizard, false)) { preparation = true; settingsOpen = false; detailsOpen = false; }
+        if (std::exchange (preparationAfterWizard, false)) afterStartChoice();
 
         // Kreator sluchal mikrofonu przez caly swoj czas. Zostawiony przy zyciu
         // slucha go dalej — takze w trakcie nagrywania, ktorego juz nie dotyczy.
@@ -2080,6 +2081,16 @@ private:
     double previewBackingDuration = 0.0, previewBackingPosition = 0.0;
     juce::String loadedBackingKey;        ///< sciezka@czestotliwosc tego, co siedzi w Recorderze
     bool inStart = false, preparationAfterWizard = false, hardwareCheckedThisSession = false;
+    bool startWithPrompter = true;        ///< wybor z ekranu startowego (Adrian 25.10)
+
+    /** Po ekranie startowym (i kreatorze): z prompterem — Przygotowanie z
+        tekstem; bez — od razu ekran nagrania bez tekstu (lampka, Nagraj). */
+    void afterStartChoice()
+    {
+        settingsOpen = false; detailsOpen = false;
+        preparation = startWithPrompter;
+        if (! startWithPrompter && inPrompter) showPrompter (false);
+    }
     bool inReview = false, reviewCameFromPrompter = false;
     bool closeAsked = false;              ///< okno "czy zamknac" juz pokazane
     std::unique_ptr<ReviewComponent> review;
