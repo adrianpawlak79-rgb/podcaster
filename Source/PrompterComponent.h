@@ -683,11 +683,18 @@ public:
         auto spans2 = removedSpans;
         const auto view = tw::EditedView::render (live, start, rate, now, spans2, liveStripSec);
         viewSpans = &spans2; viewNow = now;
-        drawStrip (g, area, view, now - liveStripSec, rate, now - liveStripSec, now, false);
+        // Jak w DAW (Adrian 25.10, zrzut ze Studio One): glowica "teraz" nie na
+        // samej krawedzi, tylko z kawalkiem przyszlosci po prawej — widac, co
+        // nadchodzi w podkladzie; nagrane to kolorowy blok do glowicy.
+        livePlayhead = now; liveRecordedFrom = now - (recorder.recordedSeconds() - tw::EditedView::removedAfter (0.0, recorder.recordedSeconds(), removedSpans));
+        drawStrip (g, area, view, now - liveStripSec, rate, now - (liveStripSec - liveAheadSec), now + liveAheadSec, false);
+        livePlayhead = -1.0e9;
         viewSpans = nullptr;
     }
 
     static constexpr double liveStripSec = 10.0;
+    static constexpr double liveAheadSec = 2.5;     ///< ile przyszlosci za glowica (podklad)
+    double livePlayhead = -1.0e9, liveRecordedFrom = 0.0;   ///< tylko na czas drawStrip na zywo
     bool previewLive = false;
 
     void drawStrip (juce::Graphics& g, juce::Rectangle<int> area, const std::vector<float>& hist,
@@ -725,6 +732,20 @@ public:
             g.fillRect (wave.getX(), musicArea.getY() - 3.5f, wave.getWidth(), 1.0f);
         }
 
+        // nagrany fragment jako blok (jak klip w DAW): tlo i pasek u gory
+        if (! paused && livePlayhead > -1.0e8)
+        {
+            const float a = juce::jmax (wave.getX(), xOf (juce::jmax (t0, liveRecordedFrom)));
+            const float b = juce::jmin (wave.getRight(), xOf (livePlayhead));
+            if (b > a)
+            {
+                g.setColour (juce::Colour (0xff38b5ff).withAlpha (0.10f));
+                g.fillRect (juce::Rectangle<float> (a, voiceArea.getY(), b - a, voiceArea.getHeight()));
+                g.setColour (juce::Colour (0xff38b5ff).withAlpha (0.45f));
+                g.fillRect (juce::Rectangle<float> (a, voiceArea.getY(), b - a, 3.0f));
+            }
+        }
+
         // Podklad rysujemy w dolnym pasmie, przed fala glosu. Indeks muzyki
         // jest atomowo publikowany przez Recorder; przesuniecie wyliczamy z
         // jego biezacej pozycji, bez dostepu do bufora watku audio.
@@ -743,7 +764,8 @@ public:
                 const auto bucket = (long) std::floor (musicSec * 100.0);
                 if (bucket < 0 || bucket >= (long) backingEnvelope.size()) continue;
                 const float peak = backingEnvelope[(size_t) bucket];
-                const float h = juce::jlimit (0.0f, 1.0f, peak) * musicHalf;
+                // w decybelach, jak glos — liniowo cicha muzyka byla kreska
+                const float h = peak > 0.0f ? juce::jlimit (0.0f, 1.0f, (20.0f * std::log10 (peak) + 60.0f) / 54.0f) * musicHalf : 0.0f;
                 if (h < 0.5f) continue;
                 const bool afterRestartLine = paused && pz.selected && t > pz.cutSec;
                 g.setColour (musicColour.withAlpha (afterRestartLine ? 0.15f : 0.60f));
@@ -800,6 +822,13 @@ public:
             const float h = juce::jlimit (0.0f, 1.0f, (20.0f * std::log10 (pk) + 60.0f) / 54.0f) * half;
             if (h < 0.5f) continue;
             g.drawVerticalLine ((int) (wave.getX() + (float) px), mid - h, mid + h + 1.0f);
+        }
+
+        // glowica "teraz": jasna linia przez oba pasy
+        if (! paused && livePlayhead > -1.0e8 && livePlayhead >= t0 && livePlayhead <= t1)
+        {
+            g.setColour (Ink::textNow().withAlpha (0.9f));
+            g.fillRect (juce::Rectangle<float> (xOf (livePlayhead) - 1.0f, wave.getY() - 2.0f, 2.0f, wave.getHeight() + 4.0f));
         }
 
         // szwy na zywo: tu nowe czytanie "nadpisalo" pomylke

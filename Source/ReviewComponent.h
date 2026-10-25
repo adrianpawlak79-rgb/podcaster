@@ -1147,6 +1147,12 @@ private:
             g.fillRoundedRectangle (2.f, getHeight()/2.f-25.f, getWidth()-4.f, 50.f, 4.f);
             if (hasKeyboardFocus (false)) { g.setColour (Ink::textNow()); g.drawRect (getLocalBounds(), 1); }
         }
+        /** Uchwyt lapie tylko za galke na srodku (50 px). Dawniej caly pas 14 px
+            na wysokosc fali: przeciagniecie zaczete przy krawedzi nagrania
+            przycinalo koniec, zamiast zaznaczac fragment do wyciecia (Adrian
+            25.10, dwa razy: koniec na 16,9 s i na 7,5 s). Poza galka mysz idzie
+            do fali pod spodem. */
+        bool hitTest (int, int y) override { return std::abs (y - getHeight() / 2) <= 30; }
         void mouseDown (const juce::MouseEvent&) override { grabKeyboardFocus(); }
         void mouseDrag (const juce::MouseEvent& e) override {
             if (move && axis.getWidth()>0) move (from + (e.getEventRelativeTo(getParentComponent()).position.x-axis.getX())/axis.getWidth()*seconds);
