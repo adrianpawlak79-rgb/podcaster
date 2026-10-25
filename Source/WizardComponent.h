@@ -35,6 +35,13 @@ public:
         kreator nigdy wiecej nie wrocil — a wszystkie dalsze decyzje programu
         opieraly sie na pomiarach, ktorych nikt nie zrobil. */
     bool completed() const noexcept { return finishedProperly; }
+    bool isDeviceStep() const noexcept { return wizard.step() == tw::SetupStep::Device && ! judged; }
+    juce::Rectangle<int> deviceControlsArea() const
+    {
+        auto c = card().reduced (32, 28);
+        c.removeFromTop (18 + 6 + 76 + 8 + 4 + 8);
+        return c.removeFromBottom (86);
+    }
 
     /** Jedno zdanie z liczbami, ktore kreator zmierzyl. Do zapisania na
         pozniej: po miesiacu czlowiek chce wiedziec, CO wtedy wyszlo, a nie
@@ -152,8 +159,7 @@ public:
         if (waiting)
         {
             title.setText (PL ("Nie widzę mikrofonu"), juce::dontSendNotification);
-            body.setText (PL ("Podłącz mikrofon albo kartę dźwiękową. Jeśli jest podłączony, kliknij „Pomiń sprawdzanie”, ")
-                        + PL ("potem „Mikrofon i sprzęt” i wybierz urządzenie oraz wejście — a „Sprawdź sprzęt” uruchomi to sprawdzanie jeszcze raz.\n\n")
+            body.setText (PL ("Podłącz mikrofon albo kartę dźwiękową. Wybierz kartę i wejście poniżej, powiedz kilka słów i sprawdź poziom sygnału. W razie potrzeby wróć i otwórz „Ustawienia”.\n\n")
                         + PL ("Na Windows sprawdź też: Ustawienia → Prywatność i zabezpieczenia → Mikrofon (dostęp dla aplikacji)."),
                           juce::dontSendNotification);
             measured.setText ({}, juce::dontSendNotification);
@@ -225,6 +231,7 @@ public:
 
         measured.setBounds (c.removeFromBottom (20));
         c.removeFromBottom (8);
+        if (isDeviceStep()) c.removeFromBottom (94);
         body.setBounds (c);
     }
 
