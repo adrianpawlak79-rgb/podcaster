@@ -97,6 +97,15 @@ int main()
                std::to_string ((long) firstO - (long) firstV));
     }
 
+    std::printf ("5. Glos prawie cichy (sciszony mikrofon)\n");
+    {
+        std::vector<float> quiet (voice.size());
+        for (size_t i = 0; i < quiet.size(); ++i) quiet[i] = voice[i] * 0.0005f;   // ok. -66 dB
+        const auto q = mix::MusicBed::render (quiet, mL, mR, sr, p);
+        check (std::abs (q.lufs - p.targetLufs) < 1.0, "calosc nadal na -16 LUFS (dawniej -25)", f1 (q.lufs));
+        check (q.peakDbtp <= p.ceilingDb + 0.1, "szczyt najwyzej -1 dBTP", f1 (q.peakDbtp));
+    }
+
     std::printf (fails ? "\nBLEDY: %d\n" : "\nWszystko OK\n", fails);
     return fails ? 1 : 0;
 }

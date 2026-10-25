@@ -136,6 +136,8 @@ public:
         shownLine = 0;
         layoutDirty = true;
         prepareSubstitutes();
+        refreshControls();
+        resized();
         repaint();
     }
 
@@ -226,7 +228,7 @@ public:
     /** Narzedzia wracaja po zatrzymaniu; klawisze dzialaja przez caly czas. */
     void refreshControls()
     {
-        const bool visible = !recorder.isRecording();
+        const bool visible = !recorder.isRecording() && ! noText();
         for (auto* b : { &backButton, &smallerButton, &largerButton, &previousButton, &nextButton, &mirrorButton })
             b->setVisible (visible);
     }
@@ -313,8 +315,9 @@ public:
     /** Klik w fale na pauzie: najblizsza cisza, prompter na wersie, ktory tam sie zaczyna. */
     void selectTime (double t)
     {
-        if (! pz.on || pz.resuming || lines.empty()) return;
+        if (! pz.on || pz.resuming || (lines.empty() && ! noText())) return;
         const double best = tw::PauseCut::nearest (t, pz.cuts, pz.atSec, pz.history, pz.rate, pz.historyStart);
+        if (noText()) { setSelection (best, -1, true); return; }
         int line = shownLine;
         for (const auto& h : heardWords)
             if (h.sec - tw::Punch().heardLagSec >= best - 0.05) { line = tw::lineOfWord (spans, h.word); break; }
@@ -323,6 +326,19 @@ public:
 
     void setSelection (double cut, int line, bool preview)
     {
+        // bez tekstu (Adrian 25.10): linia tylko na fali, bez wersu
+        if (noText())
+        {
+            pz.tooOld = false; pz.ahead = false;
+            pz.selected = true; pz.lineWord = -1; pz.line = -1;
+            pz.cutSec = juce::jlimit (pz.historyStart, pz.atSec, cut);
+            if (pz.cutSec < pz.viewEnd - pauseViewSec + 1.0 || pz.cutSec > pz.viewEnd)
+                pz.viewEnd = juce::jmin (pz.atSec, pz.cutSec + pauseViewSec * 0.7);
+            if (preview) playRange (pz.cutSec - 2.0, 2.0);
+            updateTransport();
+            repaint();
+            return;
+        }
         if (lines.empty() || line < 0 || line >= (int) lines.size()) return;
         pz.tooOld = false; pz.ahead = false;
         pz.selected = true;
@@ -598,7 +614,7 @@ public:
     {
         if (lines.empty()) return -1;
         auto r = textCard();
-        if (! recorder.isRecording()) r.removeFromBottom (barHeight);
+        if (! recorder.isRecording() && ! noText()) r.removeFromBottom (barHeight);
         if (follower.isLost()) r.removeFromBottom (bottomHeight());     // jak paint(): baner SZUKAM
         const float lineH = fontNow() * 1.35f;
         const float gap   = getHeight() >= 1000 ? 32.0f : 20.0f;
@@ -641,7 +657,7 @@ public:
             drawStrip (g, area, none, 0.0, 48000.0, previewNow - liveStripSec, previewNow, false);
             // Bez rozpoznawania mowy: jedno zdanie tam, gdzie po starcie bedzie
             // fala — wczesniej lezalo na tekscie promptera.
-            if (speech != nullptr && speech->whyNot().isNotEmpty())
+            if (speech != nullptr && speech->whyNot().isNotEmpty() && ! noText())
             {
                 const auto wave = stripLayout (area).wave.toNearestInt();
                 g.setColour (Ink::panel());
@@ -697,6 +713,18 @@ public:
 
         auto xOf = [&] (double t) { return wave.getX() + (float) ((t - t0) / (t1 - t0)) * wave.getWidth(); };
 
+        // Z podkladem dwa pasy z podpisami (Adrian 25.10: "podklad i wokal w
+        // osobnych oknach i opisane"): GLOS u gory, PODKLAD pod nim.
+        auto voiceArea = wave;
+        juce::Rectangle<float> musicArea;
+        if (! backingEnvelope.empty())
+        {
+            musicArea = voiceArea.removeFromBottom (juce::jmax (18.0f, wave.getHeight() * 0.32f));
+            voiceArea.removeFromBottom (6.0f);
+            g.setColour (juce::Colour (0xff293543));
+            g.fillRect (wave.getX(), musicArea.getY() - 3.5f, wave.getWidth(), 1.0f);
+        }
+
         // Podklad rysujemy w dolnym pasmie, przed fala glosu. Indeks muzyki
         // jest atomowo publikowany przez Recorder; przesuniecie wyliczamy z
         // jego biezacej pozycji, bez dostepu do bufora watku audio.
@@ -705,8 +733,8 @@ public:
             const double backingRate = recorder.currentSampleRate();
             const double shift = recorder.hasBacking() && backingRate > 0.0
                 ? recorder.recordedSeconds() - (double) recorder.backingIndexNow() / backingRate : 0.0;
-            const float musicMid = wave.getBottom() - juce::jmax (5.0f, wave.getHeight() * 0.18f);
-            const float musicHalf = juce::jmax (2.0f, wave.getHeight() * 0.16f);
+            const float musicMid = musicArea.getCentreY();
+            const float musicHalf = juce::jmax (2.0f, musicArea.getHeight() * 0.46f);
             const juce::Colour musicColour (0xff8f7cf0);
             for (int px = 0; px < (int) wave.getWidth(); ++px)
             {
@@ -718,7 +746,7 @@ public:
                 const float h = juce::jlimit (0.0f, 1.0f, peak) * musicHalf;
                 if (h < 0.5f) continue;
                 const bool afterRestartLine = paused && pz.selected && t > pz.cutSec;
-                g.setColour (musicColour.withAlpha (afterRestartLine ? 0.08f : 0.30f));
+                g.setColour (musicColour.withAlpha (afterRestartLine ? 0.15f : 0.60f));
                 g.drawVerticalLine ((int) (wave.getX() + (float) px), musicMid - h, musicMid + h);
             }
         }
@@ -740,9 +768,26 @@ public:
 
         // przebieg: szczyt na kolumne w skali decybeli (jak w DAW); na zywo
         // niebieski #38B5FF, na pauzie szary #98A7B6 (spec. E), linia zera #536170
-        const float mid = wave.getCentreY(), half = wave.getHeight() * 0.48f;
+        const float mid = voiceArea.getCentreY(), half = voiceArea.getHeight() * 0.48f;
         g.setColour (juce::Colour (0xff536170));
         g.drawHorizontalLine ((int) mid, wave.getX(), wave.getRight());
+        if (! backingEnvelope.empty())
+        {
+            // podpisy na ciemnej plakietce, zeby nie ginely w fali
+            const juce::Font tag (zs::type::tiny, juce::Font::bold);
+            g.setFont (tag);
+            const auto plate = [&] (const juce::String& t, juce::Rectangle<float> area, juce::Colour c)
+            {
+                const auto r = juce::Rectangle<float> (area.getX() + 2.0f, area.getY() + 2.0f, (float) tag.getStringWidth (t) + 10.0f, 14.0f);
+                g.setColour (juce::Colour (paused ? 0xff151d27 : 0xff0b1118).withAlpha (0.85f));
+                g.fillRoundedRectangle (r, 3.0f);
+                g.setColour (c);
+                g.drawText (t, r, juce::Justification::centred);
+            };
+            plate (PL ("GŁOS"), voiceArea, Ink::textNext());
+            plate (PL ("PODKŁAD"), musicArea, juce::Colour (0xffb3a6ff));
+            g.setColour (paused ? juce::Colour (0xff98a7b6).withAlpha (0.8f) : juce::Colour (0xff38b5ff).withAlpha (0.9f));
+        }
         g.setColour (paused ? juce::Colour (0xff98a7b6).withAlpha (0.8f) : juce::Colour (0xff38b5ff).withAlpha (0.9f));
         for (int px = 0; px < (int) wave.getWidth(); ++px)
         {
@@ -857,6 +902,8 @@ public:
                                        PL ("PAUZA  ·  za daleko wstecz — popraw w Montażu"))
                  : pz.resuming ? PL ("PAUZA  ·  za chwilę nagrywanie od czerwonej linii")
                  : pz.selected ? PL ("PAUZA  ·  Wznowisz od czerwonej linii")
+                 : noText()    ? pick (PL ("PAUZA  ·  kliknij miejsce na fali, od którego chcesz nagrać od nowa  ·  kółko — przewiń"),
+                                       PL ("PAUZA  ·  kliknij miejsce na fali"))
                                : pick (PL ("PAUZA  ·  kliknij wers albo miejsce na fali, od którego chcesz nagrać  ·  kółko — przewiń"),
                                        PL ("PAUZA  ·  kliknij wers albo miejsce na fali"));
             g.drawText (text, area, juce::Justification::centredLeft);
@@ -1074,7 +1121,14 @@ public:
        wejscia na ekran (Adrian 13.10, uklad z projektu ChatGPT). */
     static constexpr int stripGap = 12;
     static constexpr int transportH = 44, transportGap = 10;
-    int stripCardHeight() const { return juce::jlimit (getHeight() < 440 ? 110 : 132, 250, (int) (getHeight() * 0.30)); }
+    static constexpr int noTextCardH = 88;
+    /** Bez tekstu: maly naglowek u gory, a okno z fala zajmuje reszte. */
+    bool noText() const noexcept { return script.wordCount() == 0; }
+    int stripCardHeight() const
+    {
+        if (noText()) return juce::jmax (110, getHeight() - noTextCardH - stripGap - transportGap - transportH);
+        return juce::jlimit (getHeight() < 440 ? 110 : 132, 250, (int) (getHeight() * 0.30));
+    }
     juce::Rectangle<int> textCard() const  { auto r = getLocalBounds(); r.removeFromBottom (stripCardHeight() + stripGap + transportGap + transportH); return r; }
     juce::Rectangle<int> stripCard() const
     {
@@ -1119,8 +1173,8 @@ public:
         // a obrys rysowany jeszcze raz na koncu (Adrian 25.10: "na gorze tekst
         // zanika, powinien byc obrys").
         juce::Graphics::ScopedSaveState clipText (g);
-        g.reduceClipRegion (textCard().reduced (1, 12));
-        if (!recorder.isRecording()) r.removeFromBottom (barHeight);
+        g.reduceClipRegion (textCard().reduced (1, noText() ? 1 : 12));
+        if (!recorder.isRecording() && ! noText()) r.removeFromBottom (barHeight);
         auto bottom = r.removeFromBottom (follower.isLost() ? bottomHeight() : 0);
         // Lustro dotyczy czytanego tekstu; przyciski i lampka sa stale.
         juce::Graphics::ScopedSaveState keep (g);
@@ -1129,6 +1183,7 @@ public:
                                                  .translated ((float) getWidth(), 0.0f));
         drawScript (g, r);
         // wersy wychodzace poza karte gasna lagodnie, zamiast urywac sie na krawedzi
+        if (! noText())
         {
             const auto card = textCard().toFloat();
             const float fade = 44.0f;
@@ -1506,7 +1561,10 @@ public:
         // Z podkladem: wycinamy dokladnie to, od czego liczyl sie rozbieg muzyki
         // (removedSpans), zawsze i bez listy do decyzji — inaczej glos po cieciu
         // wypadlby obok bitu (BackingEdit.h).
-        if (recorder.hasBacking())
+        // Bez tekstu (Adrian 25.10: "musze moc cofnac nagranie tam, gdzie chce")
+        // nie ma wersow, wiec nie ma czego szukac po slowach: wycinamy dokladnie
+        // to, co wskazano na fali (linia stoi juz w ciszy — PauseCut::nearest).
+        if (recorder.hasBacking() || noText())
         {
             auto marks = lineLog.marks();
             res = zs::applyBackingCuts (wav, removedSpans, &marks);
@@ -1587,6 +1645,18 @@ private:
     {
         juce::Graphics::ScopedSaveState clip(g);
         g.reduceClipRegion(r);
+        if (lines.empty() && noText())
+        {
+            auto t = r.reduced (24, 10);
+            g.setColour (Ink::textNow());
+            g.setFont (juce::Font (zs::type::heading, juce::Font::bold));
+            g.drawText (PL ("Nagranie bez tekstu — mów swobodnie"), t.removeFromTop (t.getHeight() / 2), juce::Justification::bottomLeft);
+            g.setColour (Ink::textNext());
+            g.setFont (juce::Font (zs::type::small));
+            g.drawText (PL ("Pomyłka? Pauza (spacja), kliknij falę tam, skąd chcesz nagrać od nowa, i Nagraj od linii."),
+                        t, juce::Justification::topLeft);
+            return;
+        }
         if (lines.empty())
         {
             g.setColour (Ink::textDim());
