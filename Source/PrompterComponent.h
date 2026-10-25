@@ -248,6 +248,7 @@ public:
         int    lineWord = -1;               ///< ...jego pierwsze slowo (indeks wersu zmienia sie z oknem i +/-)
         int    pausedWord = -1;             ///< pierwsze slowo wersu z chwili pauzy — dalej wybrac nie mozna
         bool   tooOld = false;              ///< klikniety wers jest dalej niz pamiec nagrania
+        bool   ahead = false;               ///< klikniety wers jeszcze nie byl czytany
         bool   resuming = false;            ///< pre-roll i odliczanie, zapis jeszcze stoi
         double playFrom = 0.0, playLen = 0.0, playStartMs = -1.0;
         double endSec = 0.0;                ///< z podkladem: czas nagrania w chwili wznowienia
@@ -290,7 +291,9 @@ public:
         if (! pz.on || pz.resuming || line < 0 || line >= (int) lines.size()) return;
         // dalej niz wers z chwili pauzy nie ma czego nagrywac od nowa (porownanie
         // po slowie: po pierwszym wyborze shownLine stoi juz na wybranym wersie)
-        if (pz.pausedWord >= 0 && lines[(size_t) line].firstWord > pz.pausedWord) return;
+        // (przeklikanie 25.10: klik w taki wers nic nie robil i wygladal na blad — mowimy dlaczego)
+        if (pz.pausedWord >= 0 && lines[(size_t) line].firstWord > pz.pausedWord) { pz.ahead = true; repaint(); return; }
+        pz.ahead = false;
         const double cut = tw::PauseCut::forLine (lineLog.marks(), markFor (line, pz.atSec, tw::LineSource::Retake),
                                                   pz.history, pz.rate, pz.historyStart, heardWords, pz.cuts);
         // Wers starszy niz pamiec (5 min): linia wypadlaby w przypadkowym miejscu
@@ -314,7 +317,7 @@ public:
     void setSelection (double cut, int line, bool preview)
     {
         if (lines.empty() || line < 0 || line >= (int) lines.size()) return;
-        pz.tooOld = false;
+        pz.tooOld = false; pz.ahead = false;
         pz.selected = true;
         pz.lineWord = lines[(size_t) line].firstWord;
         pz.cutSec = juce::jlimit (pz.historyStart, pz.atSec, cut);
@@ -336,7 +339,10 @@ public:
     {
         if (! pz.on || pz.resuming) return;
         if (pz.playStartMs >= 0.0) { recorder.playPreRoll ({}); pz.playStartMs = -1.0; updateTransport(); return; }
-        const double from = pz.selected ? pz.cutSec - 3.0 : pz.atSec - 8.0;
+        // ze wskazana linia: tylko to, co zostanie przed nia (3 s), jak mowi opis;
+        // dawniej gralo dalej przez pomylke az do pauzy (przeklikanie 25.10)
+        if (pz.selected) { playRange (pz.cutSec - 3.0, pz.cutSec - juce::jmax (pz.historyStart, pz.cutSec - 3.0)); return; }
+        const double from = pz.atSec - 8.0;
         playRange (from, pz.atSec - juce::jmax (pz.historyStart, from));
     }
 
@@ -803,7 +809,9 @@ public:
             const auto area = hint.withTrimmedLeft (14.0f).toNearestInt();
             const auto pick = [&] (const juce::String& full, const juce::String& brief)
             { return juce::Font (zs::type::small).getStringWidth (full) <= area.getWidth() ? full : brief; };
-            text = pz.tooOld   ? pick (PL ("PAUZA  ·  ten wers jest dalej niż 5 minut wstecz — tak daleko nie nagrasz od nowa; popraw go w Montażu"),
+            text = pz.ahead    ? pick (PL ("PAUZA  ·  tego wersu jeszcze nie czytałeś — kliknij ten, przy którym jesteś, albo wcześniejszy"),
+                                       PL ("PAUZA  ·  ten wers jeszcze przed Tobą — kliknij wcześniejszy"))
+                 : pz.tooOld   ? pick (PL ("PAUZA  ·  ten wers jest dalej niż 5 minut wstecz — tak daleko nie nagrasz od nowa; popraw go w Montażu"),
                                        PL ("PAUZA  ·  za daleko wstecz — popraw w Montażu"))
                  : pz.resuming ? PL ("PAUZA  ·  za chwilę nagrywanie od czerwonej linii")
                  : pz.selected ? PL ("PAUZA  ·  Wznowisz od czerwonej linii")

@@ -27,6 +27,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 namespace mix
@@ -111,8 +112,11 @@ struct MusicBed
 
     /** voice: zmiksowany glos (mono). musicL/musicR: muzyka w tej samej
         czestotliwosci, od probki 0 nagrania (musicR puste = mono). */
+    /** measure = false: bez koncowego pomiaru glosnosci i szczytu (wersja tylko
+        do odsluchu). musicLufsKnown: glosnosc muzyki policzona wczesniej (NaN = licz). */
     static Result render (const std::vector<float>& voice, const std::vector<float>& musicL,
-                          const std::vector<float>& musicR, double sr, const Params& p)
+                          const std::vector<float>& musicR, double sr, const Params& p,
+                          bool measure = true, double musicLufsKnown = std::numeric_limits<double>::quiet_NaN())
     {
         Result res;
         const auto& mR = musicR.empty() ? musicL : musicR;
@@ -120,7 +124,7 @@ struct MusicBed
         if (len == 0 || sr <= 0.0) return res;
 
         const double voiceLufs = lufsOf (voice, {}, sr);
-        const double musicLufs = lufsOf (musicL, mR, sr);
+        const double musicLufs = std::isnan (musicLufsKnown) ? lufsOf (musicL, mR, sr) : musicLufsKnown;
         res.musicSilent = musicLufs < -70.0;
         const double gDb = res.musicSilent || voiceLufs < -100.0 ? 0.0 : voiceLufs + p.musicDb - musicLufs;
         res.musicGainDb = gDb;
@@ -157,13 +161,21 @@ struct MusicBed
         res.left.erase (res.left.begin(), res.left.begin() + (long) look);
         res.right.erase (res.right.begin(), res.right.begin() + (long) look);
 
+        if (measure) measureResult (res, sr);
+        return res;
+    }
+
+    /** Glosnosc i szczyt gotowej calosci (TruePeak to polowa czasu skladania —
+        program liczy to dopiero przy zapisie). */
+    static void measureResult (Result& res, double sr)
+    {
+        if (res.left.empty()) return;
         res.lufs = lufsOf (res.left, res.right, sr);
         TruePeak tp;
         tp.prepare (sr, 2);
         const float* in[] = { res.left.data(), res.right.data() };
-        tp.process (in, 2, (int) len);
+        tp.process (in, 2, (int) res.left.size());
         res.peakDbtp = tp.dbTP();
-        return res;
     }
 };
 

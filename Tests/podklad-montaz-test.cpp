@@ -74,7 +74,7 @@ int main()
         std::vector<float> a (sr * 4, 1.0f);
         const bool ok = tw::BackingEdit::muteRange (a, sr, 1.0, 2.0);
         check (ok && a.size() == (size_t) (sr * 4), "dlugosc bez zmian");
-        check (a[(size_t) (1.5 * sr)] == 0.0f, "srodek wyciszony");
+        check (std::abs (a[(size_t) (1.5 * sr)] - 0.001f) < 1e-6f, "srodek wyciszony o 60 dB (nie cyfrowa cisza)");
         check (a[(size_t) (0.99 * sr)] == 1.0f && a[(size_t) (2.01 * sr)] == 1.0f, "poza odcinkiem bez zmian");
         float jump = 0.0f;
         for (size_t i = 1; i < a.size(); ++i) jump = std::max (jump, std::abs (a[i] - a[i - 1]));

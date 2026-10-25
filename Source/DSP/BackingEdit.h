@@ -36,6 +36,7 @@ struct BackingEdit
     using Spans = std::vector<std::pair<double, double>>;   ///< [od, do) w sekundach nagrania
 
     static constexpr double fadeSec = 0.010;
+    static constexpr float floorGain = 0.001f;   ///< -60 dB: wyciszenie, nie cyfrowa cisza
 
     /** Odcinki do wyciecia: posortowane, zachodzace i stykajace sie sklejone,
         puste pominiete. */
@@ -88,8 +89,11 @@ struct BackingEdit
         return out;
     }
 
-    /** Wycisza [from, to) z krotkim wygaszeniem i narastaniem na brzegach,
-        dlugosc bez zmian. Zwraca false, gdy odcinek jest pusty. */
+    /** Wycisza [from, to) o 60 dB z krotkim wygaszeniem i narastaniem na brzegach,
+        dlugosc bez zmian. Nie do zera: cyfrowa cisza w srodku nagrania to dla
+        oceny "dziura do nagrania jeszcze raz" i blokowala zapis miksu
+        (przeklikanie 25.10); -60 dB tla jest nieslyszalne. Zwraca false, gdy
+        odcinek jest pusty. */
     static bool muteRange (std::vector<float>& audio, double sr, double from, double to)
     {
         if (sr <= 0.0 || ! std::isfinite (from) || ! std::isfinite (to)) return false;
@@ -98,9 +102,9 @@ struct BackingEdit
         const size_t fade = std::min ((size_t) std::lround (fadeSec * sr), (b - a) / 2);
         for (size_t i = a; i < b; ++i)
         {
-            float g = 0.0f;
-            if (i - a < fade)      g = 1.0f - (float) (i - a + 1) / (float) (fade + 1);
-            else if (b - i <= fade) g = 1.0f - (float) (b - i) / (float) (fade + 1);
+            float g = floorGain;
+            if (i - a < fade)      g = std::max (floorGain, 1.0f - (float) (i - a + 1) / (float) (fade + 1));
+            else if (b - i <= fade) g = std::max (floorGain, 1.0f - (float) (b - i) / (float) (fade + 1));
             audio[i] *= g;
         }
         return true;
