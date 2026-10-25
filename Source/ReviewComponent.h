@@ -927,6 +927,14 @@ public:
         auto main = zs::ScreenFrame::paintHead (g, getLocalBounds(), PL("04 / MIKS"), PL("Wybierz brzmienie"), subtitle());
         drawWave (g, main.removeFromTop (waveHeight()));
         drawStrip (g, main.removeFromTop (zs::ui::review::strip));
+        if (abButton.isVisible())
+            zs::Depth::well (g, abButton.getBounds().toFloat().expanded (4.0f, 3.0f), 9.0f);
+        if (styleButtons[0].isVisible())
+        {
+            auto group = styleButtons[0].getBounds().getUnion (styleButtons[1].getBounds())
+                                                   .getUnion (styleButtons[2].getBounds());
+            zs::Depth::well (g, group.toFloat().expanded (4.0f, 3.0f), 9.0f);
+        }
         side = side.reduced (22, 24);
         g.setColour (Ink::textNow()); g.setFont (juce::Font (zs::type::heading, juce::Font::bold));
         g.drawText (PL("Co zrobił miks"), side.removeFromTop (32), juce::Justification::centredLeft);

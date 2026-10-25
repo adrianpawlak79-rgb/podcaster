@@ -368,15 +368,28 @@ public:
             top = top.brighter (0.10f); bottom = bottom.brighter (0.10f);
             if (! primary && ! selected && ! recordKey) border = border.brighter (0.35f);
         }
-        if (on && down) { top = bottom = bottom.darker (0.25f); r = r.translated (0.0f, 1.0f); }
+        if (on && ! down) Depth::shadow (g, r, radius, 6.0f, 0.5f, 2.0f);
+        if (on && down)
+        {
+            const auto oldTop = top;
+            top = bottom.darker (0.10f);
+            bottom = oldTop.brighter (0.08f);
+            r = r.translated (0.0f, 1.0f);
+        }
 
         g.setGradientFill (juce::ColourGradient (top, 0.0f, r.getY(), bottom, 0.0f, r.getBottom(), false));
         g.fillRoundedRectangle (r, radius);
         if (! down && on)
         {
-            g.setColour (juce::Colours::white.withAlpha (primary || recordKey ? 0.16f : 0.06f));
+            g.setColour (juce::Colours::white.withAlpha (0.10f));
             g.drawHorizontalLine ((int) r.getY() + 1, r.getX() + radius, r.getRight() - radius);
         }
+        else if (down && on)
+        {
+            g.setColour (juce::Colours::black.withAlpha (0.28f));
+            g.drawHorizontalLine ((int) r.getY() + 1, r.getX() + radius, r.getRight() - radius);
+        }
+        if (on && down) Depth::innerGlow (g, r, radius, juce::Colours::black, 5.0f, 0.22f);
         // wybrany / glowny po najechaniu swieca do srodka (przycisk nie moze
         // rysowac poza soba); wybrany ma jeszcze kreske akcentu z lewej
         if (selected || (primary && hover) || recordKey)
@@ -384,6 +397,9 @@ public:
                               juce::jmin (10.0f, r.getHeight() * 0.3f), selected ? (hover ? 0.42f : 0.30f) : 0.22f);
         if (selected)
         {
+            const auto led = juce::Rectangle<float> (5.0f, 5.0f).withCentre ({ r.getX() + 10.0f, r.getCentreY() });
+            Depth::glow (g, led, 3.0f, Ink::accent(), 4.0f, 0.34f);
+            g.setColour (Ink::accent()); g.fillEllipse (led);
             g.setColour (Ink::accent());
             g.fillRoundedRectangle (r.getX() + 1.0f, r.getY() + 5.0f, 2.5f, r.getHeight() - 10.0f, 1.2f);
         }
@@ -393,7 +409,7 @@ public:
         g.drawRoundedRectangle (focus || selected ? r.reduced (0.5f) : r, radius, focus ? 2.0f : selected ? 1.5f : 1.0f);
     }
 
-    void drawButtonText (juce::Graphics& g, juce::TextButton& b, bool, bool) override
+    void drawButtonText (juce::Graphics& g, juce::TextButton& b, bool, bool down) override
     {
         const auto p = ui::paintFor (kindOf (b));
         const auto text = ! b.isEnabled() ? Ink::textPast()
@@ -414,6 +430,7 @@ public:
         // tyle, ile zostaje — inaczej JUCE dawal w nim wielokropek
         const int textW = getTextButtonFont (b, b.getHeight()).getStringWidth (b.getButtonText());
         auto r = b.getLocalBounds().reduced (juce::jlimit (2, 12, (b.getWidth() - textW) / 2 - 1), 0);
+        if (down && b.isEnabled()) r.translate (0, 1);
         const juce::String key = b.getProperties().getWithDefault ("zsKey", {}).toString();
 
         if (key.isNotEmpty())
@@ -518,10 +535,7 @@ public:
         const bool on = s.isEnabled();
         const float cy = y + h * 0.5f;
         const auto track = juce::Rectangle<float> ((float) x, cy - 3.0f, (float) w, 6.0f);
-        g.setColour (on ? juce::Colour (0xff0a1017) : Ink::panel());
-        g.fillRoundedRectangle (track, 3.0f);
-        g.setColour (juce::Colour (0xff344252));
-        g.drawRoundedRectangle (track.reduced (0.5f), 3.0f, 1.0f);
+        Depth::well (g, track, 3.0f);
         // wypelnienie: od lewej, a dla suwaka -1..+1 od srodka (tor miksu)
         const float zeroX = s.getMinimum() < 0.0 && s.getMaximum() > 0.0
                           ? (float) s.getPositionOfValue (0.0) : (float) x;
@@ -529,18 +543,24 @@ public:
         if (on && filled.getWidth() > 0.5f)
         {
             g.setGradientFill (juce::ColourGradient (Ink::accent(), filled.getX(), 0.0f, juce::Colour (0xff087dd7), filled.getRight(), 0.0f, false));
-            g.fillRoundedRectangle (filled, 3.0f);
+            g.fillRoundedRectangle (filled.reduced (0.0f, 1.0f), 3.0f);
+        }
+        if (s.getMinimum() < 0.0 && s.getMaximum() > 0.0)
+        {
+            g.setColour (juce::Colour (0xff9aa6b4).withAlpha (0.75f));
+            for (const float marker : { zeroX - 4.0f, zeroX + 4.0f })
+                g.fillEllipse (juce::Rectangle<float> (2.0f, 2.0f).withCentre ({ marker, cy }));
         }
         const bool over = on && s.isMouseOverOrDragging();
         const float d = over && ! s.isMouseButtonDown() ? 18.0f : 16.0f;
         const auto thumb = juce::Rectangle<float> (d, d).withCentre ({ pos, cy });
-        g.setColour (on ? juce::Colour (s.isMouseButtonDown() ? 0xffb6c9d9 : 0xffdce8f3) : juce::Colour (0xff687585));
-        g.fillEllipse (thumb);
-        if (on)
-        {
-            g.setColour (juce::Colour (over ? 0xff69ccff : 0xff35b7ff));
-            g.drawEllipse (thumb.reduced (1.0f), 2.0f);
-        }
+        if (on && ! s.isMouseButtonDown()) Depth::shadow (g, thumb, d * 0.5f, 4.0f, 0.38f, 2.0f);
+        juce::ColourGradient knob (juce::Colour (on ? 0xfff2f6fa : 0xff89939e), pos - d * 0.22f, cy - d * 0.30f,
+                                   juce::Colour (on ? 0xff8794a3 : 0xff58616b), pos, cy + d * 0.55f, true);
+        g.setGradientFill (knob); g.fillEllipse (thumb);
+        juce::ColourGradient rim (juce::Colour (0xff9aa6b4), pos, cy - d * 0.5f,
+                                  juce::Colour (0xff5a6572), pos, cy + d * 0.5f, false);
+        g.setGradientFill (rim); g.drawEllipse (thumb.reduced (0.75f), 1.5f);
     }
     juce::Font getPopupMenuFont() override                { return juce::Font (type::body); }
 

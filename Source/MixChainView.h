@@ -156,13 +156,21 @@ private:
             const bool on = getToggleState() && isEnabled();
             auto track = juce::Colour (on ? 0xff1476b7 : 0xff252f3b);
             if (over && isEnabled()) track = track.brighter (0.08f);
+            zs::Depth::well (g, r, 9.0f);
+            if (on) zs::Depth::glow (g, r, 9.0f, I::accent(), 5.0f, 0.24f);
             g.setColour (track.withMultipliedAlpha (isEnabled() ? 1.0f : 0.42f));
-            g.fillRoundedRectangle (r, 9.0f);
+            g.fillRoundedRectangle (r.reduced (1.0f), 8.0f);
             g.setColour (juce::Colour (on ? 0xff32b9ff : 0xff465261));
             g.drawRoundedRectangle (r.reduced (0.5f), 9.0f, 1.0f);
             const float d = 12.0f;
-            g.setColour (juce::Colour (on ? 0xffe7eef5 : 0xffaeb9c6).withMultipliedAlpha (isEnabled() ? 1.0f : 0.42f));
-            g.fillEllipse (on ? r.getRight() - d - 3.0f : r.getX() + 3.0f, r.getCentreY() - d / 2, d, d);
+            const auto knob = juce::Rectangle<float> (d, d).withPosition (
+                on ? r.getRight() - d - 3.0f : r.getX() + 3.0f, r.getCentreY() - d / 2);
+            zs::Depth::shadow (g, knob, d * 0.5f, 3.0f, 0.38f, 1.5f);
+            g.setGradientFill (juce::ColourGradient (juce::Colour (on ? 0xfff4f7fa : 0xffd2d8df),
+                knob.getX() + 3.0f, knob.getY() + 1.0f,
+                juce::Colour (on ? 0xff8e9aa8 : 0xff7d8792), knob.getCentreX(), knob.getBottom(), true));
+            g.fillEllipse (knob);
+            g.setColour (juce::Colour (0xff5a6572)); g.drawEllipse (knob.reduced (0.5f), 1.0f);
         }
     };
     struct Tile { Power power; juce::Slider amount; };
