@@ -542,13 +542,9 @@ public:
         if (pz.on) resumeRecording(); else pauseRecording();
     }
 
-    /** "Powtorz wers" (R albo przycisk): pauza, linia przed biezacym wersem i od
-        razu Nagraj (pre-roll, odliczanie). Bez nagrania — tylko cofa tekst.
-
-        Bez pewnej pozycji z rozpoznanych slow R tylko pauzuje i proponuje
-        linie — wznawia czlowiek (spacja), gdy zobaczy, ze to dobre miejsce.
-        Symulacja (przebieg C, same sylaby): licznik sylab potrafi byc dwa
-        wersy obok i automatyczne wznowienie wycinalo dobre czytanie. */
+    /** "Powtorz wers" (R albo przycisk): pauzuje, ustawia znacznik na poczatku
+        biezacego wersu i czeka. Uzytkownik moze odsluchac zaznaczone miejsce,
+        a nagrywanie wznowi dopiero przyciskiem. */
     void repeatLine()
     {
         if (spans.empty()) return;
@@ -561,12 +557,9 @@ public:
             return;
         }
         if (pz.resuming) return;
-        const bool sure = listening && words.hasLock (recorder.recordedSeconds());
         if (! pz.on) pauseRecording();
         const int from = tw::repeatLineStart (spans, follower.currentWord());
-        selectLine (tw::lineOfWord (spans, from), ! sure);
-        if (pz.selected) { if (sure) resumeRecording(); }
-        else { recorder.resume(); pz = {}; updateTransport(); }
+        selectLine (tw::lineOfWord (spans, from), false);
     }
 
     //==========================================================================

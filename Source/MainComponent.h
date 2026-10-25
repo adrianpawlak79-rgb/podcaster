@@ -350,6 +350,17 @@ public:
         otherTextButton.onClick = [this] { openScript(); };
         addAndMakeVisible (otherTextButton);
 
+        musicButton.setButtonText (PL ("Wybierz podkład"));
+        musicButton.onClick = [this] { chooseBacking(); };
+        addChildComponent (musicButton);
+        editScriptButton.setButtonText (PL ("Wpisz lub wklej tekst"));
+        editScriptButton.onClick = [this] {
+            scriptEditorOpen = ! scriptEditorOpen;
+            editScriptButton.setButtonText (scriptEditorOpen ? PL ("Ukryj edytor") : PL ("Wpisz lub wklej tekst"));
+            refreshHomeVisibility(); resized(); repaint();
+        };
+        addChildComponent (editScriptButton);
+
         forgetProfileButton.setButtonText (PL ("Usuń wzorzec"));
         forgetProfileButton.setTooltip (PL ("Kolejne miksy bez dociągania barwy do wzorca"));
         forgetProfileButton.onClick = [this] { settings.setVoiceProfile ({}); forgetProfileButton.setVisible (false); repaint(); };
@@ -475,6 +486,7 @@ public:
         scriptInput.setFont (juce::Font (zs::type::body));
         scriptInput.setReturnKeyStartsNewLine (true);
         scriptInput.setTextToShowWhenEmpty (PL("Tu możesz wpisać tekst lub otworzyć plik TXT."), zs::Ink::textDim());
+        scriptInput.onTextChange = [this] { repaint(); };
         if (settings.lastScript().existsAsFile()) scriptInput.setText (settings.lastScript().loadFileAsString());
         for (auto* input : { &nameInput, &scriptInput }) {
             input->setColour (juce::TextEditor::backgroundColourId, zs::Ink::panel());
@@ -485,10 +497,16 @@ public:
         prepareButton.setButtonText (PL("Przejdź do nagrania →"));
         zs::Look::setKind (prepareButton, zs::ui::ButtonKind::Primary);
         prepareButton.onClick = [this] {
+            if (startWithMusic && ! backingFile.existsAsFile())
+            {
+                juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::InfoIcon, PL ("Dodaj podkład"),
+                    PL ("Wybrano nagrywanie z podkładem. Dodaj plik muzyczny, aby przejść dalej."));
+                return;
+            }
             preparation = false; settingsOpen = false; detailsOpen = false;
-            // bez tekstu ten sam ekran nagrania co z prompterem — fala, transport,
-            // pauza i nagranie od wskazanego miejsca (Adrian 25.10); tylko bez wersow
-            ensurePrompter(); prompter->load (scriptInput.getText().trim()); showPrompter (true);
+            ensurePrompter();
+            prompter->load (startWithPrompter ? scriptInput.getText().trim() : juce::String());
+            showPrompter (true);
         };
         addAndMakeVisible (prepareButton);
         preparationButton.setButtonText (PL("← Przygotowanie"));
@@ -600,15 +618,18 @@ public:
     /** Dla okna, ktore chce zapamietac swoje polozenie. */
     Settings& userSettings() noexcept { return settings; }
     void previewSettings() { settingsOpen=true;resized();repaint(); }
-    void previewPreparation() { inStart = false; preparation = true; settingsOpen = false; refreshHomeVisibility(); resized(); repaint(); }
+    void previewPreparation (bool music = false, bool withPrompter = true)
+    {
+        inStart = false; preparation = true; settingsOpen = false;
+        startWithMusic = music; startWithPrompter = withPrompter;
+        backingFile = juce::File();
+        refreshHomeVisibility(); resized(); repaint();
+    }
     /** --preview-ui witaj: ekran startowy z nagraniami z folderu przykladu. */
     void previewStart (const juce::File& folder)
     {
         showStart (true);
         if (startScreen != nullptr) startScreen->setFolder (folder);
-        // podglad karty z podkladem, gdy w folderze lezy "podklad.wav"
-        const auto music = folder.getChildFile ("podklad.wav");
-        if (startScreen != nullptr && music.existsAsFile()) startScreen->setMusic (music, 222.0);
     }
     void previewPrompter() {
         preparation = false;
@@ -1059,19 +1080,23 @@ private:
         selector->setVisible(idleHome && settingsOpen);
         folderButton.setVisible(idleHome && settingsOpen);checkButton.setVisible(idleHome && settingsOpen);
         events.setVisible(idleHome && detailsOpen && !settingsOpen);okButton.setVisible(idleHome && detailsOpen && !settingsOpen);
-        prompterButton.setVisible(idleHome && !settingsOpen);
+        prompterButton.setVisible(idleHome && !preparation && !settingsOpen);
         otherTextButton.setVisible(idleHome && !settingsOpen && settings.lastScript().existsAsFile());
         flow.setVisible(!inWizard && !inReview);
         flow.setCurrent (inStart ? 0 : preparation || settingsOpen ? 1 : 2);
         const bool prepare = idleHome && preparation;
-        nameInput.setVisible(prepare && !settingsOpen); scriptInput.setVisible(prepare && !detailsOpen && !settingsOpen);
+        nameInput.setVisible(false);
+        scriptInput.setVisible(prepare && startWithPrompter && scriptEditorOpen && !settingsOpen);
+        musicButton.setVisible(prepare && startWithMusic && !settingsOpen);
+        editScriptButton.setVisible(prepare && startWithPrompter && !settingsOpen);
         prepareButton.setVisible(prepare && !settingsOpen);
         preparationButton.setVisible(!preparation && !rec && !inWizard && !inReview);
         for (auto* c : { (juce::Component*) &deviceBox, (juce::Component*) &inputBox, (juce::Component*) &heardLabel })
             c->setVisible(false);
         if (prepare) {
-            prompterButton.setVisible(!detailsOpen && !settingsOpen); otherTextButton.setVisible(false);
-            checkButton.setVisible(true); folderButton.setVisible(settingsOpen);
+            prompterButton.setVisible(false); otherTextButton.setVisible(false);
+            checkButton.setVisible(!settingsOpen); folderButton.setVisible(settingsOpen);
+            detailsButton.setVisible(false); openButton.setVisible(false);
         }
         lamp.setVisible(!inWizard && !inReview && (rec || inPrompter));
         // w Przygotowaniu miernika nie ma (wybor wejscia jest w kreatorze); zostawal
@@ -1138,64 +1163,139 @@ private:
     static juce::String hardwareSubtitle() { return PL("Urządzenia, słuchawki, wzorzec brzmienia i folder sesji."); }
     juce::String preparationSubtitle() const
     {
-        return backingFile != juce::File()
-            ? PL("Ustaw mikrofon i tekst. Podkład „") + backingFile.getFileName() + PL("” zagra w słuchawkach po Nagraj.")
-            : PL("Ustaw nazwę i mikrofon. Dodaj tekst, jeśli chcesz używać promptera.");
+        if (startWithMusic && startWithPrompter)
+            return PL ("Dodaj podkład i tekst do promptera. Nazwa odcinka jest już ustawiona.");
+        if (startWithMusic)
+            return PL ("Dodaj podkład muzyczny. Nazwa odcinka jest już ustawiona.");
+        if (startWithPrompter)
+            return PL ("Dodaj tekst do promptera lub wklej go samodzielnie.");
+        return PL ("Wszystko gotowe. Możesz jeszcze sprawdzić mikrofon przed nagraniem.");
     }
 
     void paintPreparation (juce::Graphics& g)
     {
-        auto main = zs::ScreenFrame::mainArea (getLocalBounds());
-        auto text = [&g] (const juce::String& value, juce::Rectangle<int> r, float size, bool bold = false) {
-            g.setColour (bold ? zs::Ink::textNow() : zs::Ink::textNext());
-            g.setFont (juce::Font (size, bold ? juce::Font::bold : juce::Font::plain));
-            g.drawFittedText (value, r, juce::Justification::centredLeft, 2);
+        using I = zs::Ink;
+        auto main = zs::ScreenFrame::paintHead (g, getLocalBounds(), PL("01 / PRZYGOTOWANIE"),
+                                               PL("Przygotowanie nagrania"), preparationSubtitle());
+        main.removeFromTop (12);
+        auto card = [] (juce::Graphics& gg, juce::Rectangle<int> r) {
+            gg.setColour (I::panel()); gg.fillRoundedRectangle (r.toFloat(), 8.0f);
+            gg.setColour (I::edge()); gg.drawRoundedRectangle (r.toFloat().reduced (0.5f), 8.0f, 1.0f);
         };
-        // naglowek jak na pozostalych ekranach (etykieta kroku pogrubiona, podtytul 1-2 wiersze)
-        main = zs::ScreenFrame::paintHead (g, getLocalBounds(), PL("01 / PRZYGOTOWANIE"), PL("Przygotowanie nagrania"), preparationSubtitle());
-        main.removeFromTop(8);
-        text (PL("Nazwa nagrania"), main.removeFromTop(22), zs::type::small);
-        main.removeFromTop(56);
-        text (PL("TEKST DO PROMPTERA"), main.removeFromTop(38), zs::type::small, true);
-        text (PL("Bez tekstu możesz nagrywać swobodnie."), main.removeFromBottom(28), zs::type::small);
-        if (!settingsOpen) {
-            auto side = settingsBox().reduced(22,24);
-            text (PL("Przed nagraniem"), side.removeFromTop(32), zs::type::heading, true);
-            side.removeFromTop(4);
-            const auto device = deviceManager.getCurrentAudioDevice();
-            const auto inputName = inputBox.getText().isNotEmpty() ? inputBox.getText() : PL("wejście nieustawione");
-            const auto freshness = hardwareCheckedThisSession ? PL("sprawdzone dziś")
-                : settings.hardwareChecked() ? PL("sprawdzone wcześniej") : PL("niesprawdzone");
-            const auto state = (device != nullptr ? inputDeviceName() : PL("Mikrofon nie wybrany"))
-                             + PL(" · ") + inputName + PL(" · ") + freshness;
-            text (state, side.removeFromTop(56), zs::type::body);
+        auto label = [&g] (const juce::String& s, juce::Rectangle<int> r) {
+            g.setColour (I::textDim()); g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
+            g.drawText (s, r, juce::Justification::centredLeft);
+        };
+        auto body = [&g] (const juce::String& s, juce::Rectangle<int> r, bool strong = false) {
+            g.setColour (strong ? I::textNow() : I::textNext()); g.setFont (juce::Font (strong ? zs::type::heading : zs::type::body));
+            g.drawFittedText (s, r, juce::Justification::centredLeft, 2);
+        };
+
+        auto summary = main.removeFromTop (62);
+        card (g, summary);
+        auto si = summary.reduced (16, 8);
+        label (PL ("ODCINEK"), si.removeFromTop (16));
+        body (recordingName(), si, true);
+        main.removeFromTop (10);
+
+        if (startWithMusic)
+        {
+            auto row = main.removeFromTop (84);
+            card (g, row);
+            auto ri = row.reduced (16, 10);
+            label (PL ("PODKŁAD MUZYCZNY"), ri.removeFromTop (16));
+            auto fileText = backingFile.existsAsFile() ? backingFile.getFileName()
+                                                       : PL ("Nie dodano pliku. Obsługiwane: MP3, WAV, FLAC, AIFF, OGG.");
+            ri.removeFromRight (musicButton.getWidth() + 12);
+            body (fileText, ri, backingFile.existsAsFile());
+            main.removeFromTop (10);
+        }
+
+        if (startWithPrompter)
+        {
+            auto row = main.removeFromTop (88);
+            card (g, row);
+            auto ri = row.reduced (16, 10);
+            label (PL ("TEKST DO PROMPTERA"), ri.removeFromTop (16));
+            auto content = scriptInput.getText().trim();
+            const auto scriptState = content.isEmpty() ? PL ("Nie dodano tekstu — możesz czytać swobodnie.")
+                : PL ("Tekst gotowy · ") + juce::String (content.length()) + PL (" znaków");
+            ri.removeFromRight (332);
+            body (scriptState, ri.removeFromBottom (26));
+            main.removeFromTop (10);
+        }
+        else
+        {
+            auto row = main.removeFromTop (56);
+            card (g, row);
+            body (PL ("Nagrywanie bez promptera — tekst nie jest potrzebny."), row.reduced (16, 8));
+            main.removeFromTop (10);
+        }
+
+        if (scriptEditorOpen && startWithPrompter)
+        {
+            auto edit = main.reduced (0, 0);
+            card (g, edit);
+        }
+
+        if (! settingsOpen)
+        {
+            auto side = settingsBox().reduced (22, 24);
+            label (PL ("PRZED NAGRANIEM"), side.removeFromTop (22));
+            side.removeFromTop (8);
+            auto* device = deviceManager.getCurrentAudioDevice();
+            const auto name = device != nullptr ? inputDeviceName() : PL ("Mikrofon nie wybrany");
+            body (name, side.removeFromTop (48), true);
+            const auto freshness = hardwareCheckedThisSession ? PL ("Sprawdzone dziś")
+                : settings.hardwareChecked() ? PL ("Sprawdzone wcześniej") : PL ("Test jeszcze nie wykonany");
+            body (freshness, side.removeFromTop (42));
+            side.removeFromTop (12);
+            g.setColour (I::edge()); g.drawHorizontalLine (side.getY(), (float) side.getX(), (float) side.getRight());
+            side.removeFromTop (12);
+            body (startWithMusic ? PL ("Podkład: do słuchawek") : PL ("Tryb: sam głos"), side.removeFromTop (42));
         }
     }
 
     void layoutPreparation()
     {
-        auto main = zs::ScreenFrame::mainArea(getLocalBounds());
-        main.removeFromTop(zs::ScreenFrame::headHeight (getLocalBounds(), preparationSubtitle()) + 8 + 22);
-        nameInput.setBounds(main.removeFromTop(40)); main.removeFromTop(16);
-        auto row = main.removeFromTop(38);
-        prompterButton.setButtonText(PL("Otwórz tekst"));
-        prompterButton.setBounds(row.removeFromRight(156)); main.removeFromTop(8);
-        main.removeFromBottom(28);
-        scriptInput.setBounds(main);
-        if (detailsOpen) {
-            okButton.setBounds(main.removeFromBottom(34).removeFromRight(206));
-            main.removeFromBottom(8); events.setBounds(main);
+        auto main = zs::ScreenFrame::mainArea (getLocalBounds());
+        main.removeFromTop (zs::ScreenFrame::headHeight (getLocalBounds(), preparationSubtitle()) + 8 + 12);
+        main.removeFromTop (62); main.removeFromTop (10);
+        if (startWithMusic)
+        {
+            auto row = main.removeFromTop (84);
+            musicButton.setButtonText (backingFile.existsAsFile() ? PL ("Zmień podkład") : PL ("Wybierz podkład"));
+            musicButton.setBounds (row.removeFromRight (156).withSizeKeepingCentre (140, 36));
+            main.removeFromTop (10);
         }
+        if (startWithPrompter)
+        {
+            auto row = main.removeFromTop (88);
+            auto actions = row.reduced (16, 10).removeFromBottom (32);
+            editScriptButton.setBounds (actions.removeFromRight (168)); actions.removeFromRight (8);
+            prompterButton.setButtonText (PL ("Wczytaj plik TXT"));
+            prompterButton.setBounds (actions.removeFromRight (156));
+            main.removeFromTop (10);
+        }
+        else { main.removeFromTop (56); main.removeFromTop (10); }
+        if (scriptEditorOpen && startWithPrompter)
+        {
+            auto editor = main.reduced (0, 0).reduced (12, 12);
+            scriptInput.setBounds (editor);
+        }
+        else scriptInput.setBounds ({ });
+
         auto side = settingsBox().reduced(22,24);
-        auto bottom = side.removeFromBottom(210);
+        auto bottom = side.removeFromBottom (92);
         prepareButton.setBounds(bottom.removeFromBottom(42)); bottom.removeFromBottom(8);
-        checkButton.setBounds(bottom.removeFromBottom(38)); bottom.removeFromBottom(8);
-        openButton.setBounds(bottom.removeFromBottom(32)); bottom.removeFromBottom(8);
-        detailsButton.setBounds(bottom.removeFromBottom(32));
-        const bool checked = hardwareCheckedThisSession;
-        zs::Look::setKind (prepareButton, checked ? zs::ui::ButtonKind::Primary : zs::ui::ButtonKind::Secondary);
-        zs::Look::setKind (checkButton, checked ? zs::ui::ButtonKind::Secondary : zs::ui::ButtonKind::Primary);
-        checkButton.setButtonText (PL("Sprawdź sprzęt"));
+        checkButton.setBounds (bottom.removeFromBottom (38));
+        zs::Look::setKind (prepareButton, zs::ui::ButtonKind::Primary);
+        zs::Look::setKind (checkButton, zs::ui::ButtonKind::Secondary);
+        checkButton.setButtonText (PL ("Sprawdź sprzęt"));
+        prompterButton.setVisible (startWithPrompter && ! settingsOpen);
+        editScriptButton.setVisible (startWithPrompter && ! settingsOpen);
+        scriptInput.setVisible (startWithPrompter && scriptEditorOpen && ! settingsOpen);
+        musicButton.setVisible (startWithMusic && ! settingsOpen);
         folderButton.setVisible(false);
         status.setVisible(false);
     }
@@ -1435,18 +1535,35 @@ private:
     void finishReplacement()
     {
         if (! correctionMode || ! recorder.isRecording()) return;
-        const auto fresh = recorder.currentFile();
+        pendingReplacement = recorder.currentFile();
         recorder.stop(); correctionWaitingStart = false;
         if (prompter != nullptr)
         {
             tw::LineLog log; log.begin();
             for (const auto& mark : prompter->replacementMarks()) log.restart (mark, mark.source);
             const auto text = juce::String::fromUTF8 (log.toText().c_str());
-            fresh.getSiblingFile (fresh.getFileNameWithoutExtension() + ".wersy.txt").replaceWithText (text, false, false, "\n");
+            pendingReplacement.getSiblingFile (pendingReplacement.getFileNameWithoutExtension() + ".wersy.txt")
+                .replaceWithText (text, false, false, "\n");
             recorder.playPreRoll ({});
         }
-        const auto result = zs::replaceRecordedRange (correctionSource, fresh, correctionFrom, correctionTo, correctionFixedLength);
         correctionMode = false;
+        juce::AlertWindow::showOkCancelBox (juce::AlertWindow::QuestionIcon,
+            PL ("Czy podmienić fragment?"),
+            PL ("Poprawka jest gotowa. Podmienić nią zaznaczone miejsce? Oryginał zostanie zachowany w folderze surowe."),
+            PL ("Podmień fragment"), PL ("Zostaw oryginał"), this,
+            juce::ModalCallbackFunction::create ([safe = juce::Component::SafePointer<MainComponent> (this)] (int result)
+            {
+                if (safe == nullptr) return;
+                if (result == 1) safe->applyReplacement();
+                else safe->discardPendingReplacement();
+            }));
+    }
+
+    void applyReplacement()
+    {
+        if (! pendingReplacement.existsAsFile()) return;
+        const auto result = zs::replaceRecordedRange (correctionSource, pendingReplacement,
+                                                       correctionFrom, correctionTo, correctionFixedLength);
         if (! result.applied)
         {
             if (prompter != nullptr) prompter->clearReplacement();
@@ -1456,6 +1573,7 @@ private:
                 result.error + PL (". Oryginalne nagranie pozostało bez zmian."));
             return;
         }
+        pendingReplacement = juce::File();
         correctionUndo = result.rawCopy;
         append (PL ("--- podmieniono fragment; poprzednia wersja w folderze surowe"));
         if (prompter != nullptr) prompter->clearReplacement();
@@ -1467,6 +1585,18 @@ private:
             const double newLength = correctionTo - correctionFrom - result.removedSec;
             review->showReplacementSeams (correctionFrom, correctionFrom + newLength);
         }
+    }
+
+    void discardPendingReplacement()
+    {
+        for (const auto* suffix : { ".wersy.txt", ".ciecia.tsv", ".podklad.txt", ".tekst.txt" })
+            pendingReplacement.getSiblingFile (pendingReplacement.getFileNameWithoutExtension() + suffix).deleteFile();
+        pendingReplacement.deleteFile();
+        pendingReplacement = juce::File();
+        if (prompter != nullptr) prompter->clearReplacement();
+        append (PL ("--- poprawka odrzucona; oryginalne nagranie pozostało bez zmian"));
+        showPrompter (false); openReview (correctionSource, true, true);
+        if (review != nullptr) review->setEditMode (true);
     }
 
     void cancelReplacement()
@@ -1920,7 +2050,7 @@ private:
     Recorder recorder;
     bool correctionMode = false, correctionWaitingStart = false, correctionFixedLength = false;
     double correctionFrom = 0.0, correctionTo = 0.0;
-    juce::File correctionSource, correctionUndo;
+    juce::File correctionSource, correctionUndo, pendingReplacement;
 
     /* Rozpoznawanie mowy dla promptera. Model wczytuje sie w tle od startu
        programu (1-2 s), zeby nie czekac na niego przy pierwszym nagraniu.
@@ -1946,8 +2076,9 @@ private:
     juce::Label heardLabel;               ///< "slysze wejscie 2" albo podpowiedz o ciszy
     juce::uint32 quietSinceMs = 0;        ///< od kiedy wejscie milczy (0 = slychac)
     static constexpr juce::uint32 quietHintMs = 6000;
-    juce::TextButton prepareButton, preparationButton;
+    juce::TextButton prepareButton, preparationButton, musicButton, editScriptButton;
     bool preparation = true;
+    bool scriptEditorOpen = false;
     zs::StepBar flow;
     juce::File previewFolder;   ///< tylko --preview-ui: nagrywanie do katalogu tymczasowego
     bool settingsOpen=false, detailsOpen=false;
@@ -1985,39 +2116,25 @@ private:
         repaint();
     }
 
-    /** Ekran startowy (StartComponent.h): nowy projekt albo ostatnie nagranie.
-        Przykrywa cale okno; pod spodem czeka Przygotowanie. */
+    /** Ekran startowy: wybór rodzaju sesji, nazwy albo odsłuch ostatniego pliku. */
     void showStart (bool on)
     {
         if (on && (recorder.isRecording() || inWizard)) return;
         if (on && startScreen == nullptr)
         {
             startScreen = std::make_unique<StartComponent>();
-            startScreen->onChooseMusic = [this]
+            startScreen->onCheckEquipment = [this]
             {
-                chooser = std::make_unique<juce::FileChooser> (PL ("Wybierz podkład muzyczny"), backingFile.existsAsFile() ? backingFile : sessionFolder,
-                                                               "*.mp3;*.wav;*.flac;*.aif;*.aiff;*.ogg");
-                chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-                    [safe = juce::Component::SafePointer<MainComponent> (this)] (const juce::FileChooser& fc)
-                    {
-                        const auto f = fc.getResult();
-                        if (safe == nullptr || ! f.existsAsFile() || safe->startScreen == nullptr) return;
-                        juce::AudioFormatManager formats;
-                        formats.registerBasicFormats();
-                        std::unique_ptr<juce::AudioFormatReader> r (formats.createReaderFor (f));
-                        if (r == nullptr || r->sampleRate <= 0.0)
-                        {
-                            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, PL ("Podkład"),
-                                PL ("Nie umiem otworzyć „") + f.getFileName() + PL ("”. Wybierz WAV, MP3, FLAC albo AIFF."));
-                            return;
-                        }
-                        safe->startScreen->setMusic (f, (double) r->lengthInSamples / r->sampleRate);
-                    });
+                wizardReturnToStart = true;
+                showStart (false);
+                enterWizard();
             };
             startScreen->onStart = [this] (const juce::String& name)
             {
-                backingFile = startScreen->chosenMusic();
+                startWithMusic = startScreen->musicChosen();
                 startWithPrompter = startScreen->prompterChosen();
+                backingFile = juce::File();
+                scriptEditorOpen = false;
                 nameInput.setText (name.isEmpty() ? PL ("Nowy odcinek") : name, juce::dontSendNotification);
                 showStart (false);
                 if (! settings.hardwareChecked())
@@ -2047,7 +2164,7 @@ private:
             if (on)
             {
                 startScreen->setFolder (sessionFolder);
-                startScreen->setName (juce::String());
+                startScreen->setRecordingName (juce::String());
                 auto* dev = deviceManager.getCurrentAudioDevice();
                 const int d = settings.daysSinceCheck();
                 const bool checked = settings.hardwareChecked();
@@ -2098,7 +2215,8 @@ private:
 
         showRecordingUi (true);
         lamp.setState (0, PL ("Naciśnij Nagraj, kiedy będziesz gotowy."), true);
-        if (std::exchange (preparationAfterWizard, false)) afterStartChoice();
+        if (std::exchange (wizardReturnToStart, false)) showStart (true);
+        else if (std::exchange (preparationAfterWizard, false)) afterStartChoice();
 
         // Kreator sluchal mikrofonu przez caly swoj czas. Zostawiony przy zyciu
         // slucha go dalej — takze w trakcie nagrywania, ktorego juz nie dotyczy.
@@ -2141,6 +2259,31 @@ private:
                 if (! f.existsAsFile()) return;
 
                 loadScript (f);
+            });
+    }
+
+    /** Plik muzyczny wybiera się dopiero w Przygotowaniu po wskazaniu tego trybu. */
+    void chooseBacking()
+    {
+        chooser = std::make_unique<juce::FileChooser> (PL ("Wybierz podkład muzyczny"),
+            backingFile.existsAsFile() ? backingFile : sessionFolder, "*.mp3;*.wav;*.flac;*.aif;*.aiff;*.ogg");
+        chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+            [safe = juce::Component::SafePointer<MainComponent> (this)] (const juce::FileChooser& fc)
+            {
+                const auto f = fc.getResult();
+                if (safe == nullptr || ! f.existsAsFile()) return;
+                juce::AudioFormatManager formats;
+                formats.registerBasicFormats();
+                std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (f));
+                if (reader == nullptr || reader->sampleRate <= 0.0)
+                {
+                    juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, PL ("Podkład"),
+                        PL ("Nie umiem otworzyć „") + f.getFileName() + PL ("”. Wybierz WAV, MP3, FLAC albo AIFF."));
+                    return;
+                }
+                safe->backingFile = f;
+                safe->preloadBacking();
+                safe->resized(); safe->repaint();
             });
     }
 
@@ -2385,8 +2528,8 @@ private:
     double previewBackingDuration = 0.0, previewBackingPosition = 0.0;
     juce::String loadedBackingKey;        ///< sciezka@czestotliwosc tego, co siedzi w Recorderze
     std::vector<float> backingEnvelope;   ///< obwiednia promptera, liczona poza callbackiem
-    bool inStart = false, preparationAfterWizard = false, hardwareCheckedThisSession = false;
-    bool startWithPrompter = true;        ///< wybor z ekranu startowego (Adrian 25.10)
+    bool inStart = false, preparationAfterWizard = false, wizardReturnToStart = false, hardwareCheckedThisSession = false;
+    bool startWithPrompter = true, startWithMusic = false;
 
     /** Nazwa urzadzenia MIKROFONU. AudioIODevice::getName() na Windows (WASAPI,
         DirectSound) to nazwa wyjscia, gdy wejscie i wyjscie sa rozne — Adrian
@@ -2400,19 +2543,13 @@ private:
         return dev != nullptr ? dev->getName() : juce::String();
     }
 
-    /** Po ekranie startowym (i kreatorze): z prompterem — Przygotowanie z
-        tekstem; bez — od razu ekran nagrania bez tekstu (lampka, Nagraj). */
+    /** Każdy nowy projekt przechodzi przez Przygotowanie. */
     void afterStartChoice()
     {
         settingsOpen = false; detailsOpen = false;
-        preparation = startWithPrompter;
-        preloadBacking();
-        if (! startWithPrompter)
-        {
-            ensurePrompter();
-            prompter->load ({});
-            if (! inPrompter) showPrompter (true);
-        }
+        preparation = true;
+        preparationButton.setVisible (false);
+        refreshHomeVisibility(); resized(); repaint();
     }
 
     /** Podklad wczytywany w tle zaraz po Starcie, nie po Nagraj: dekodowanie

@@ -31,7 +31,7 @@ public:
     std::function<void (const juce::String& name)> onStart;
     std::function<void (const juce::File&)> onOpen;
     std::function<void()> onOpenOther;
-    std::function<void()> onChooseMusic;   ///< klik w karte "Glos z podkladem" (wybor pliku)
+    std::function<void()> onCheckEquipment;
 
     StartComponent()
     {
@@ -56,6 +56,10 @@ public:
         otherButton.onClick = [this] { if (onOpenOther) onOpenOther(); };
         addAndMakeVisible (otherButton);
 
+        equipmentButton.setButtonText (PL ("Sprawdź sprzęt"));
+        equipmentButton.onClick = [this] { if (onCheckEquipment) onCheckEquipment(); };
+        addAndMakeVisible (equipmentButton);
+
         flow.setSteps ({ PL ("Ekran startowy"), PL ("Przygotowanie"), PL ("Nagranie"),
                          PL ("Odsłuch i montaż"), PL ("Miks"), PL ("Gotowe") });
         flow.setTileMode();
@@ -63,19 +67,12 @@ public:
         addAndMakeVisible (flow);
     }
 
-    /** Wybrana muzyka (pusty File = sam glos). sec: dlugosc do pokazania. */
-    void setMusic (const juce::File& f, double sec)
-    {
-        music = f; musicSec = sec; musicMode = f.existsAsFile();
-        repaint();
-    }
-    /** Muzyka do nagrania albo pusty File, gdy wybrany "Sam glos". */
-    juce::File chosenMusic() const { return musicMode ? music : juce::File(); }
-    /** Z prompterem (Przygotowanie z tekstem) albo bez (od razu nagranie). */
+    /** Wybor trybu promptera na ekranie startowym. */
     bool prompterChosen() const noexcept { return withPrompter; }
+    bool musicChosen() const noexcept { return musicMode; }
 
     /** Nazwa w polu, gdy ekran wraca (np. po skonczonym odcinku: pusta). */
-    void setName (const juce::String& n) { nameInput.setText (n, juce::dontSendNotification); }
+    void setRecordingName (const juce::String& n) { nameInput.setText (n, juce::dontSendNotification); }
 
     /** Folder nagran: zbiera najnowsze nagrania (bez miksow i kopii). */
     void setFolder (const juce::File& folder)
@@ -135,22 +132,20 @@ public:
         g.setColour (I::textNext()); g.setFont (juce::Font (zs::type::small));
         g.drawText (PL ("Nazwa"), L.nameLabel, juce::Justification::bottomLeft);
         g.drawText (PL ("Rodzaj nagrania"), L.kindLabel, juce::Justification::bottomLeft);
-        g.drawText (PL ("Tekst"), L.textLabel, juce::Justification::centredLeft);
+        g.drawText (PL ("Prompter"), L.textLabel, juce::Justification::centredLeft);
         paintChoice (g, L.withText, withPrompter, PL ("Z prompterem"));
         paintChoice (g, L.withoutText, ! withPrompter, PL ("Bez promptera"));
 
         paintCard (g, L.voiceCard, ! musicMode, true, PL ("Sam głos"),
                    PL ("Podcast, lektor, audiobook. Lampka mówi, czy nagranie się nadaje."), false);
         paintCard (g, L.musicCard, musicMode, true, PL ("Głos z podkładem"),
-                   music.existsAsFile()
-                       ? music.getFileName() + "  (" + duration (musicSec) + PL (")\nKliknij, by wybrać inny plik.")
-                       : PL ("Muzyka w słuchawkach, nagrywasz do bitu. Kliknij i wybierz plik (WAV, MP3)."), true);
+                   PL ("Muzykę dodasz w przygotowaniu. Dźwięk będzie w słuchawkach."), true);
 
         g.setColour (I::textDim()); g.setFont (juce::Font (zs::type::small));
-        g.drawFittedText (withPrompter ? (musicMode ? PL ("Dalej: mikrofon i tekst. Muzyka zagra po Nagraj.")
-                                                    : PL ("Dalej: mikrofon i tekst do promptera."))
-                                       : (musicMode ? PL ("Dalej: mikrofon, potem nagranie bez tekstu. Muzyka zagra po Nagraj.")
-                                                    : PL ("Dalej: mikrofon, potem od razu nagranie bez tekstu.")),
+        g.drawFittedText (withPrompter ? (musicMode ? PL ("W przygotowaniu dodasz tekst i plik z muzyką.")
+                                                    : PL ("W przygotowaniu dodasz tekst do promptera."))
+                                       : (musicMode ? PL ("W przygotowaniu dodasz plik z muzyką.")
+                                                    : PL ("Po Starcie przejdziesz do krótkiego przygotowania.")),
                           L.startHint, juce::Justification::centredLeft, 2);
 
         if (equipment.isNotEmpty())
@@ -161,9 +156,13 @@ public:
             g.setColour (equipmentChecked ? I::green() : I::yellow());
             g.fillEllipse (e.removeFromLeft (10).withSizeKeepingCentre (8, 8).toFloat());
             e.removeFromLeft (8);
+            e.removeFromRight (compactEquipmentWidth() + 10);
             g.setColour (I::textNext()); g.setFont (juce::Font (zs::type::small));
             g.drawText (equipment, e, juce::Justification::centredLeft, true);
+            equipmentButton.setVisible (true);
+            equipmentButton.setButtonText (equipmentChecked ? PL ("Sprawdź ponownie") : PL ("Sprawdź sprzęt"));
         }
+        else equipmentButton.setVisible (true);
 
         // ---- ostatnie nagrania -------------------------------------------
         zs::ScreenFrame::paintPanel (g, L.right);
@@ -192,6 +191,9 @@ public:
         nameInput.setBounds (L.name);
         startButton.setBounds (L.start);
         otherButton.setBounds (L.other);
+        auto equipmentBounds = L.equipment;
+        equipmentBounds.removeFromRight (compactEquipmentWidth());
+        equipmentButton.setBounds (equipmentBounds.withSizeKeepingCentre (compactEquipmentWidth(), 32));
     }
 
     void mouseMove (const juce::MouseEvent& e) override
@@ -212,8 +214,8 @@ public:
         if (L.withoutText.contains (e.getPosition())) { withPrompter = false; repaint(); return; }
         if (L.musicCard.contains (e.getPosition()))
         {
-            if (music.existsAsFile() && ! musicMode) { musicMode = true; repaint(); }
-            else if (onChooseMusic) onChooseMusic();
+            musicMode = true;
+            repaint();
             return;
         }
         const int r = rowAt (e.getPosition());
@@ -238,12 +240,13 @@ private:
     zs::StepBar flow;
     std::vector<Item> recent;
     int hoverRow = -1;
-    juce::File music;
-    double musicSec = 0.0;
+    juce::TextButton equipmentButton;
     bool musicMode = false;
     bool withPrompter = true;    ///< Adrian 25.10: wybor na starcie, czy z tekstem
     juce::String equipment;
     bool equipmentChecked = false;
+
+    int compactEquipmentWidth() const { return juce::jmin (150, juce::jmax (120, getWidth() / 8)); }
 
     Layout layout() const
     {
@@ -263,7 +266,7 @@ private:
         L.nameLabel = a.removeFromTop (compact ? 20 : 24); a.removeFromTop (compact ? 4 : 6);
         L.name = a.removeFromTop (compact ? 44 : 52); a.removeFromTop (compact ? 10 : 18);
         L.kindLabel = a.removeFromTop (compact ? 20 : 24); a.removeFromTop (compact ? 4 : 6);
-        L.equipment = a.removeFromBottom (compact ? 20 : 24);
+        L.equipment = a.removeFromBottom (compact ? 38 : 42);
         a.removeFromBottom (compact ? 8 : 12);
         const int cardMin = compact ? 112 : 112;
         const int cardMax = compact ? 124 : 170;

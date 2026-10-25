@@ -65,6 +65,7 @@ countries: pl
             if (mode.endsWith ("-fhd"))   { preview.setSize (1920, 1080); mode = mode.dropLastCharacters (4); }
             if(mode=="settings") preview.previewSettings();
             if(mode=="start") preview.previewPreparation();
+            if(mode=="prepare-music") preview.previewPreparation(true, true);
             if(mode=="prompter")preview.previewPrompter();
             if(mode=="small") preview.setSize(960,640);
             if(mode=="wizard") preview.previewWizard();
