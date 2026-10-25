@@ -123,6 +123,7 @@ public:
     /** Sygnal jeszcze nieoceniony: szara lampka "SLUCHAM", nie zielone "MOW"
         (audyt 14.10: zielony ma znaczyc "dobrze", a nie "czekam"). */
     void setWaiting(bool value) { if (waiting != value) { waiting = value; repaint(); } }
+    void setCompact (bool value) { if (compact != value) { compact = value; repaint(); } }
     void setState (int severity, const juce::String& msg, bool dimmed = false)
     {
         state = severity;
@@ -135,9 +136,10 @@ public:
     {
         auto r = getLocalBounds().reduced (8);
         // specyfikacja E: lampka do 132 px, poswiata tylko, gdy cos mowi
-        const int d = juce::jmax (0, juce::jmin (132, r.getWidth() - 40, r.getHeight() - 70));
+        const int d = compact ? juce::jmax (0, juce::jmin (56, r.getWidth() - 24, r.getHeight() - 10))
+                              : juce::jmax (0, juce::jmin (132, r.getWidth() - 40, r.getHeight() - 70));
         // lampka i zdanie pod nia razem, na srodku miejsca (zdanie nie odjezdza na dol)
-        const int block = d + 10 + 18 + 48;
+        const int block = compact ? d : d + 10 + 18 + 48;
         const int top = r.getY() + juce::jmax (0, (r.getHeight() - block) / 2);
         auto circle = juce::Rectangle<int> (d, d).withCentre ({ r.getCentreX(), top + 5 + d / 2 });
 
@@ -174,19 +176,21 @@ public:
         g.fillEllipse (cf);
 
         g.setColour (idle ? zs::Ink::textNext() : juce::Colour (0xff06140c));
-        g.setFont (juce::Font (juce::jmax (14.0f, d * (recording && ! listening ? 0.22f : 0.15f)), juce::Font::bold));
+        g.setFont (juce::Font (compact ? 10.5f : juce::jmax (14.0f, d * (recording && ! listening ? 0.22f : 0.15f)), juce::Font::bold));
         g.drawText (label, circle, juce::Justification::centred);
 
         g.setColour (zs::Ink::textNext());
         g.setFont (juce::Font (zs::type::body));
-        g.drawFittedText (message,
-                          juce::Rectangle<int> (r.getX(), circle.getBottom() + 18, r.getWidth(), 48).reduced (4, 0),
-                          juce::Justification::centredTop, 2);
+        if (! compact)
+            g.drawFittedText (message,
+                              juce::Rectangle<int> (r.getX(), circle.getBottom() + 18, r.getWidth(), 48).reduced (4, 0),
+                              juce::Justification::centredTop, 2);
     }
 
 private:
     bool recording=false;
     bool waiting=false;
+    bool compact=false;
     int state = 0;
     bool dim = false;
     juce::String message = PL ("Naciśnij Nagraj, kiedy będziesz gotowy.");
@@ -692,6 +696,7 @@ public:
         {
             // jeden zegar, lampka, miernik — przyciski sa w transporcie promptera
             const auto P = prompterSide();
+            lamp.setCompact (! P.musicCap.isEmpty());
             lamp.setBounds (P.lamp);
             segMeter.setBounds (P.meter);
             for (auto* c : std::initializer_list<juce::Component*> { &recButton, &repeatButton, &meter, &status, &hints })
@@ -746,6 +751,17 @@ public:
         resized();
     }
 
+    void previewBacking (bool pause)
+    {
+        previewBackingEnabled = true;
+        previewBackingName = PL ("Nocne_swiatla_demo");
+        previewBackingDuration = 220.0;
+        previewBackingPosition = 72.0;
+        if (pause && prompter != nullptr) prompter->spacePressed();
+        resized();
+        repaint();
+    }
+
     /** --preview-ui ... prompter-znaczki: znaczki przy wersach i odliczanie po R. */
     void previewMarks() { if (prompter != nullptr) prompter->previewMarks(); }
     void previewAim()   { if (prompter != nullptr) prompter->previewAimScreen(); }
@@ -795,7 +811,8 @@ private:
 
     /** Prawy panel w nagraniu z prompterem (przeglad 24.10): jeden zegar w
         okienku ze stanem, lampka, miernik segmentowy, postep w tekscie. */
-    struct PrompterSide { juce::Rectangle<int> nameCap, name, clockCap, clock, limit, lamp, meterCap, meter, textCap, text, bar; };
+    struct PrompterSide { juce::Rectangle<int> nameCap, name, clockCap, clock, limit,
+        musicCap, musicName, musicPosition, musicBar, lamp, meterCap, meter, textCap, text, bar; };
     PrompterSide prompterSide() const
     {
         PrompterSide L;
@@ -805,6 +822,13 @@ private:
         L.clockCap = s.removeFromTop (18); s.removeFromTop (6);
         L.clock = s.removeFromTop (64);    s.removeFromTop (4);
         L.limit = s.removeFromTop (18);    s.removeFromTop (4);
+        if (previewBackingEnabled || recorder.hasBacking())
+        {
+            L.musicCap = s.removeFromTop (16); s.removeFromTop (3);
+            L.musicName = s.removeFromTop (20); s.removeFromTop (2);
+            L.musicPosition = s.removeFromTop (18); s.removeFromTop (4);
+            L.musicBar = s.removeFromTop (4); s.removeFromTop (10);
+        }
         L.bar = s.removeFromBottom (6);    s.removeFromBottom (6);
         L.text = s.removeFromBottom (20);
         L.textCap = s.removeFromBottom (18); s.removeFromBottom (18);
@@ -863,6 +887,28 @@ private:
             g.setColour (I::yellow()); g.setFont (juce::Font (zs::type::small));
             g.drawText (PL ("Zostało ") + juce::String (zs::ui::session::minutesLeft (t)) + PL (" min do końca sesji"),
                         L.limit, juce::Justification::centredLeft, true);
+        }
+
+        if (! L.musicCap.isEmpty())
+        {
+            caption (PL ("MUZYKA"), L.musicCap);
+            const auto title = previewBackingEnabled ? previewBackingName : backingFile.getFileNameWithoutExtension();
+            g.setColour (I::textNow()); g.setFont (juce::Font (zs::type::small, juce::Font::bold));
+            g.drawFittedText (title, L.musicName, juce::Justification::centredLeft, 1);
+            const double duration = previewBackingEnabled ? previewBackingDuration : recorder.backingSeconds();
+            const double rate = recorder.currentSampleRate();
+            const double samplePosition = previewBackingEnabled ? previewBackingPosition
+                : rate > 0.0 ? (double) recorder.backingIndexNow() / rate : 0.0;
+            const double position = juce::jlimit (0.0, duration, samplePosition);
+            const bool ended = duration > 0.0 && samplePosition >= duration;
+            const juce::String value = ended ? PL ("muzyka się skończyła")
+                : pl::hhmmss (position) + PL (" / ") + pl::hhmmss (duration);
+            g.setColour (paused ? I::yellow() : I::textNext());
+            g.setFont (juce::Font (zs::type::small));
+            g.drawFittedText (value, L.musicPosition, juce::Justification::centredLeft, 1);
+            g.setColour (I::edge()); g.fillRoundedRectangle (L.musicBar.toFloat(), 2.0f);
+            g.setColour (paused ? I::yellow() : I::accent());
+            g.fillRoundedRectangle (L.musicBar.toFloat().withWidth (L.musicBar.getWidth() * (float) (duration > 0.0 ? position / duration : 0.0)), 2.0f);
         }
 
         caption (PL ("POZIOM"), L.meterCap);
@@ -2006,6 +2052,9 @@ private:
     bool inWizard = true, wizardStarted = false;
     std::unique_ptr<StartComponent> startScreen;
     juce::File backingFile;               ///< podklad muzyczny projektu (pusty = sam glos)
+    bool previewBackingEnabled = false;
+    juce::String previewBackingName;
+    double previewBackingDuration = 0.0, previewBackingPosition = 0.0;
     juce::String loadedBackingKey;        ///< sciezka@czestotliwosc tego, co siedzi w Recorderze
     bool inStart = false, startAfterWizard = false;
     bool inReview = false, reviewCameFromPrompter = false;
