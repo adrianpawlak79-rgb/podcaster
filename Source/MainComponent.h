@@ -414,11 +414,16 @@ public:
         hints.setInterceptsMouseClicks (false, false);
         addAndMakeVisible (hints);
 
-        flow.setSteps ({ PL ("Przygotowanie"), PL ("Nagranie"), PL ("Odsłuch i montaż"), PL ("Miks"), PL ("Gotowe") });
+        flow.setSteps ({ PL ("Ekran startowy"), PL ("Przygotowanie"), PL ("Nagranie"),
+                         PL ("Odsłuch i montaż"), PL ("Miks"), PL ("Gotowe") });
+        flow.setTileMode();
         flow.canClickStep = [this] (int step)
-        { return step == 0 && ! recorder.isRecording() && ! preparation && ! inWizard && ! inReview; };
+        { return (step == 0 || step == 1) && ! recorder.isRecording() && ! inWizard && ! inReview; };
         flow.onStepClick = [this] (int step)
-        { if (step == 0 && preparationButton.isVisible()) preparationButton.onClick(); };
+        {
+            if (step == 0) showStart (true);
+            else if (step == 1 && preparationButton.isVisible()) preparationButton.onClick();
+        };
         addAndMakeVisible (flow);
 
         setWantsKeyboardFocus (true);
@@ -611,7 +616,7 @@ public:
         prompter=std::make_unique<PrompterComponent>(recorder,settings);
         prompter->onClose=[this]{showPrompter(false);};
         prompter->setSpeech(&speech);
-        prompter->onStopRequest=[this]{ if(recorder.isRecording()) toggleRecord(); };
+        prompter->onStopRequest=[this]{ if(recorder.isRecording()) toggleRecord(); else if (correctionMode) cancelReplacement(); };
         prompter->onStartStop=[this]{ startStop(); };
         prompter->onRetake=[this]{ logic.afterCut(); };
         addAndMakeVisible(*prompter);
@@ -692,7 +697,7 @@ public:
         refreshHomeVisibility();
         settingsButton.setBounds (getWidth() - 196, 14, 174, 36);
         // zakladki krokow w naglowku: miejsce do przyciskow po prawej (1 albo 2)
-        flow.setBounds (zs::ScreenFrame::stepsArea (getLocalBounds(), preparationButton.isVisible() ? 394 : 210));
+        flow.setBounds (zs::ScreenFrame::stepsArea (getLocalBounds()));
         if (settingsOpen) { layoutHardwareSettings(); return; }
         if (preparation) { layoutPreparation(); return; }
         preparationButton.setBounds (getWidth() - 380, 14, 174, 36);
@@ -821,6 +826,34 @@ public:
     void previewMarks() { if (prompter != nullptr) prompter->previewMarks(); }
     void previewAim()   { if (prompter != nullptr) prompter->previewAimScreen(); }
     void previewLive()  { if (prompter != nullptr) prompter->previewLiveScreen(); }
+    void previewReplacementRecording()
+    {
+        previewPrompter();
+        std::vector<float> audio ((size_t) (18.0 * 48000.0));
+        uint32_t seed = 0x51a7u;
+        for (size_t i = 0; i < audio.size(); ++i)
+        {
+            seed = seed * 1664525u + 1013904223u;
+            const float noise = (float) ((int) (seed >> 9) - (1 << 22)) / (float) (1 << 22);
+            const double phase = std::fmod ((double) i / 48000.0, 2.7);
+            const float env = (phase < 1.7 ? 0.16f : 0.025f) * (0.55f + 0.45f * (float) std::sin ((double) i * 0.00017));
+            audio[i] = noise * env;
+        }
+        prompter->configureReplacement (std::move (audio), 48000.0, 8.0, 11.0, 4);
+    }
+    void previewReplacementSelection (const juce::File& wav)
+    {
+        if (! wav.existsAsFile()) return;
+        openReview (wav, true, true);
+        if (review != nullptr) { review->setEditMode (true); review->previewReplacementSelection(); }
+    }
+    void previewReplacementAfter (const juce::File& wav)
+    {
+        if (! wav.existsAsFile()) return;
+        openReview (wav, true, true);
+        if (review != nullptr)
+        { review->setEditMode (true); review->previewReplacementSelection(); review->showReplacementSeams (8.0, 11.0); }
+    }
 
     void previewCuts(const juce::File& wav) {
         if(!wav.existsAsFile()) return;
@@ -1029,7 +1062,7 @@ private:
         prompterButton.setVisible(idleHome && !settingsOpen);
         otherTextButton.setVisible(idleHome && !settingsOpen && settings.lastScript().existsAsFile());
         flow.setVisible(!inWizard && !inReview);
-        flow.setCurrent(preparation || settingsOpen ? 0 : 1);
+        flow.setCurrent (inStart ? 0 : preparation || settingsOpen ? 1 : 2);
         const bool prepare = idleHome && preparation;
         nameInput.setVisible(prepare && !settingsOpen); scriptInput.setVisible(prepare && !detailsOpen && !settingsOpen);
         prepareButton.setVisible(prepare && !settingsOpen);
@@ -1303,13 +1336,19 @@ private:
         // Nagraj jest w transporcie pod tekstem)
         const bool onRecordScreen = recButton.isShowing() || (inPrompter && ! inReview && ! inWizard && ! preparation && ! settingsOpen);
         if (! recorder.isRecording() && ! onRecordScreen) return false;
-        if (! recorder.isRecording() && ! recButton.isEnabled()) return false;
+        if (! recorder.isRecording() && ! correctionMode && ! recButton.isEnabled()) return false;
         toggleRecord();
         return true;
     }
 
     void toggleRecord()
     {
+        if (correctionMode)
+        {
+            if (recorder.isRecording()) finishReplacement();
+            else startReplacement();
+            return;
+        }
         if (recorder.isRecording())
         {
             const auto justRecorded = recorder.currentFile();
@@ -1320,6 +1359,143 @@ private:
 
         preparation = false;
         startRecording();
+    }
+
+    void beginReplacement (double from, double to, const std::vector<float>& audio, double rate)
+    {
+        if (review == nullptr || to <= from || rate <= 0.0) return;
+        ensurePrompter();
+        if (review->hasUnsavedEdits())
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, PL ("Zapisz montaż"),
+                PL ("Najpierw zapisz obecne zmiany w montażu. Potem zaznacz fragment i nagraj poprawkę."));
+            return;
+        }
+        correctionSource = review->sourceFile();
+        correctionFrom = from; correctionTo = to;
+        correctionFixedLength = zs::BackingTrack::musicFor (correctionSource).existsAsFile();
+        if (correctionSource == juce::File() || ! correctionSource.existsAsFile()) return;
+
+        const auto scriptFile = correctionSource.getSiblingFile (correctionSource.getFileNameWithoutExtension() + ".tekst.txt");
+        auto script = scriptFile.existsAsFile() ? scriptFile.loadFileAsString()
+                                                : (reviewCameFromPrompter ? prompter->sourceTextUtf8() : juce::String());
+        if (script.trim().isEmpty())
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::InfoIcon, PL ("Brak tekstu"),
+                PL ("Nie mam tekstu przypisanego do tego nagrania. Poprawka wymaga właściwego tekstu; oryginał pozostaje bez zmian."));
+            return;
+        }
+        int firstWord = 0;
+        const auto marksFile = correctionSource.getSiblingFile (correctionSource.getFileNameWithoutExtension() + ".wersy.txt");
+        if (marksFile.existsAsFile())
+        {
+            const auto marks = tw::LineLog::parse (marksFile.loadFileAsString().toStdString());
+            double distance = std::numeric_limits<double>::max();
+            for (const auto& mark : marks)
+                if (std::abs (mark.sec - from) < distance) { distance = std::abs (mark.sec - from); firstWord = mark.firstWord; }
+        }
+        correctionMode = true; correctionWaitingStart = false;
+        prompter->load (script);
+        showReview (false); showPrompter (true);
+        prompter->configureReplacement (audio, rate, from, to, firstWord);
+        append (PL ("--- poprawka fragmentu ") + juce::String (from, 2) + PL ("–") + juce::String (to, 2) + PL (" s"));
+    }
+
+    void startReplacement()
+    {
+        if (! correctionMode || correctionWaitingStart || recorder.isRecording() || prompter == nullptr) return;
+        if (! noDevice)
+        {
+            auto* dev = deviceManager.getCurrentAudioDevice();
+            if (dev == nullptr || dev->getActiveInputChannels().isZero())
+            { juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, PL ("Nie ma mikrofonu"), PL ("Podłącz mikrofon, a potem spróbuj ponownie.")); return; }
+        }
+        if (correctionFixedLength)
+        {
+            backingFile = zs::BackingTrack::musicFor (correctionSource);
+            if (! prepareBacking() || ! recorder.hasBacking())
+            { juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, PL ("Nie mogę odtworzyć podkładu"), PL ("Poprawka nie została rozpoczęta. Oryginalne nagranie pozostaje bez zmian.")); return; }
+        }
+        if (correctionFixedLength)
+        {
+            const auto err = recorder.start (sessionFolder, recordingName() + PL (" poprawka"));
+            if (err.isNotEmpty()) { append (PL ("--- nie udało się rozpocząć poprawki: ") + err); return; }
+            prompter->startReplacementMusicCue();
+            correctionWaitingStart = false;
+        }
+        else
+        {
+            if (recorder.hasBacking()) recorder.setBacking ({}, {});
+            prompter->startReplacementPreRoll();
+            correctionWaitingStart = true;
+        }
+        repaint();
+    }
+
+    void finishReplacement()
+    {
+        if (! correctionMode || ! recorder.isRecording()) return;
+        const auto fresh = recorder.currentFile();
+        recorder.stop(); correctionWaitingStart = false;
+        if (prompter != nullptr)
+        {
+            tw::LineLog log; log.begin();
+            for (const auto& mark : prompter->replacementMarks()) log.restart (mark, mark.source);
+            const auto text = juce::String::fromUTF8 (log.toText().c_str());
+            fresh.getSiblingFile (fresh.getFileNameWithoutExtension() + ".wersy.txt").replaceWithText (text, false, false, "\n");
+            recorder.playPreRoll ({});
+        }
+        const auto result = zs::replaceRecordedRange (correctionSource, fresh, correctionFrom, correctionTo, correctionFixedLength);
+        correctionMode = false;
+        if (! result.applied)
+        {
+            if (prompter != nullptr) prompter->clearReplacement();
+            showPrompter (false); openReview (correctionSource, true, true);
+            if (review != nullptr) review->setEditMode (true);
+            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, PL ("Nie podmieniono fragmentu"),
+                result.error + PL (". Oryginalne nagranie pozostało bez zmian."));
+            return;
+        }
+        correctionUndo = result.rawCopy;
+        append (PL ("--- podmieniono fragment; poprzednia wersja w folderze surowe"));
+        if (prompter != nullptr) prompter->clearReplacement();
+        showPrompter (false); openReview (correctionSource, true, true);
+        if (review != nullptr)
+        {
+            review->setEditMode (true);
+            review->setReplacementUndoAvailable (true);
+            const double newLength = correctionTo - correctionFrom - result.removedSec;
+            review->showReplacementSeams (correctionFrom, correctionFrom + newLength);
+        }
+    }
+
+    void cancelReplacement()
+    {
+        if (recorder.isRecording()) { recorder.stop(); recorder.playPreRoll ({}); }
+        correctionWaitingStart = false; correctionMode = false;
+        if (prompter != nullptr) prompter->clearReplacement();
+        showPrompter (false); openReview (correctionSource, true, true);
+        if (review != nullptr) review->setEditMode (true);
+    }
+
+    void undoReplacement()
+    {
+        if (correctionUndo == juce::File() || ! correctionUndo.existsAsFile() || ! correctionSource.existsAsFile()) return;
+        const auto temp = correctionSource.getSiblingFile (correctionSource.getFileNameWithoutExtension() + ".cofnij.tmp.wav");
+        temp.deleteFile();
+        if (! correctionUndo.copyFileTo (temp))
+        { temp.deleteFile(); juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, PL ("Nie udało się cofnąć"), PL ("Kopia poprzedniego nagrania nadal jest w folderze surowe.")); return; }
+        correctionSource.deleteFile();
+        if (! temp.moveFileTo (correctionSource))
+        { correctionUndo.copyFileTo (correctionSource); temp.deleteFile(); juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, PL ("Nie udało się cofnąć"), PL ("Kopia poprzedniego nagrania nadal jest w folderze surowe.")); return; }
+        for (const auto* suffix : { ".wersy.txt", ".ciecia.tsv", ".podklad.txt", ".tekst.txt" })
+        {
+            const auto archived = correctionUndo.getSiblingFile (correctionUndo.getFileNameWithoutExtension() + suffix);
+            const auto target = correctionSource.getSiblingFile (correctionSource.getFileNameWithoutExtension() + suffix);
+            if (archived.existsAsFile()) archived.copyFileTo (target); else target.deleteFile();
+        }
+        correctionUndo = juce::File(); openReview (correctionSource, true, true);
+        if (review != nullptr) review->setEditMode (true);
     }
 
     /** Po zatrzymaniu — przez czlowieka albo przez urzadzenie: wyciecie po R,
@@ -1335,6 +1511,9 @@ private:
             // przeczyta plik (PunchFile.h). Surowe nagranie idzie do "surowe".
             if (prompter != nullptr)
             {
+                if (prompter->hasText())
+                    justRecorded.getSiblingFile (justRecorded.getFileNameWithoutExtension() + ".tekst.txt")
+                        .replaceWithText (prompter->sourceTextUtf8(), false, false, "\n");
                 const auto punched = prompter->finishTake (justRecorded);
                 if (punched.applied)
                 {
@@ -1514,6 +1693,30 @@ private:
 
     void timerCallback() override
     {
+        if (correctionMode && recorder.takeStoppedByDevice())
+        {
+            recorder.stop(); correctionMode = false; correctionWaitingStart = false;
+            if (prompter != nullptr) prompter->clearReplacement();
+            showPrompter (false); openReview (correctionSource, true, true);
+            if (review != nullptr) review->setEditMode (true);
+            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, PL ("Poprawka przerwana"), PL ("Urządzenie dźwiękowe przestało działać. Poprzednie nagranie pozostało bez zmian."));
+            return;
+        }
+        if (correctionMode && correctionWaitingStart && prompter != nullptr && prompter->replacementCountdownElapsed())
+        {
+            correctionWaitingStart = false; recorder.playPreRoll ({});
+            const auto err = recorder.start (sessionFolder, recordingName() + PL (" poprawka"));
+            if (err.isNotEmpty())
+            {
+                append (PL ("--- nie udało się rozpocząć poprawki: ") + err);
+                cancelReplacement(); return;
+            }
+        }
+        if (correctionMode && correctionFixedLength && recorder.isRecording() && ! recorder.isPaused()
+            && ! recorder.cueRunning()
+            && recorder.recordedSeconds() >= correctionTo - correctionFrom)
+        { finishReplacement(); return; }
+
         // "Usun wzorzec" chodzi razem z ekranem Mikrofon i sprzet (jak "Folder
         // sesji"), ale tylko gdy wzorzec jest
         {
@@ -1715,6 +1918,9 @@ private:
     juce::String recoveredLine;           ///< ostatni czytany wers (dziennik nagrania)
     int recoveredProposals = 0;           ///< miejsca po R czekajace w montazu
     Recorder recorder;
+    bool correctionMode = false, correctionWaitingStart = false, correctionFixedLength = false;
+    double correctionFrom = 0.0, correctionTo = 0.0;
+    juce::File correctionSource, correctionUndo;
 
     /* Rozpoznawanie mowy dla promptera. Model wczytuje sie w tle od startu
        programu (1-2 s), zeby nie czekac na niego przy pierwszym nagraniu.
@@ -1973,9 +2179,9 @@ private:
         if (prompter == nullptr)
         {
             prompter = std::make_unique<PrompterComponent> (recorder, settings);
-            prompter->onClose = [this] { showPrompter (false); };
+            prompter->onClose = [this] { if (correctionMode) cancelReplacement(); else showPrompter (false); };
             prompter->setSpeech (&speech);
-            prompter->onStopRequest = [this] { if (recorder.isRecording()) toggleRecord(); };
+            prompter->onStopRequest = [this] { if (recorder.isRecording()) toggleRecord(); else if (correctionMode) cancelReplacement(); };
             prompter->onStartStop = [this] { startStop(); };
             addChildComponent (*prompter);
         }
@@ -2074,6 +2280,9 @@ private:
         {
             review = std::make_unique<ReviewComponent> (recorder);
             review->onClose = [this] { zs::trace ("Gotowe: nowe podejscie"); closeReview(); zs::trace ("Gotowe: z powrotem na nagraniu"); };
+            review->onReplaceSelection = [this] (double from, double to, const std::vector<float>& audio, double rate)
+            { beginReplacement (from, to, audio, rate); };
+            review->onUndoReplacement = [this] { undoReplacement(); };
             // "Nowy projekt" z ekranu Gotowe (Adrian 25.10): porzucic projekt i zaczac inny
             review->onNewProject = [this]
             {
@@ -2089,6 +2298,7 @@ private:
                 closeReview();
                 if (preparationButton.onClick) preparationButton.onClick();
             };
+            review->onGoToStart = [this] { showStart (true); };
             review->onOpenSettings = [this] {
                 settingsReturnToReview = true;
                 showReview (false);

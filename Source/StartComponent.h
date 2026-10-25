@@ -23,6 +23,7 @@
 #include "Recorder.h"
 #include "Look.h"
 #include "ScreenFrame.h"
+#include "StepBar.h"
 
 class StartComponent : public juce::Component
 {
@@ -54,6 +55,12 @@ public:
         otherButton.setButtonText (PL ("Otwórz inny plik…"));
         otherButton.onClick = [this] { if (onOpenOther) onOpenOther(); };
         addAndMakeVisible (otherButton);
+
+        flow.setSteps ({ PL ("Ekran startowy"), PL ("Przygotowanie"), PL ("Nagranie"),
+                         PL ("Odsłuch i montaż"), PL ("Miks"), PL ("Gotowe") });
+        flow.setTileMode();
+        flow.setCurrent (0);
+        addAndMakeVisible (flow);
     }
 
     /** Wybrana muzyka (pusty File = sam glos). sec: dlugosc do pokazania. */
@@ -121,9 +128,10 @@ public:
         // ---- nowy projekt --------------------------------------------------
         zs::ScreenFrame::paintPanel (g, L.left);
         auto a = L.left.reduced (pad, pad);
+        const bool compact = getHeight() < 700;
         caption (g, PL ("NOWY PROJEKT"), a.removeFromTop (18));
         g.setColour (I::textNow()); g.setFont (juce::Font (zs::type::title, juce::Font::bold));
-        g.drawText (PL ("Co dziś nagrywamy?"), a.removeFromTop (44), juce::Justification::centredLeft);
+        g.drawText (PL ("Co dziś nagrywamy?"), a.removeFromTop (compact ? 36 : 44), juce::Justification::centredLeft);
         g.setColour (I::textNext()); g.setFont (juce::Font (zs::type::small));
         g.drawText (PL ("Nazwa"), L.nameLabel, juce::Justification::bottomLeft);
         g.drawText (PL ("Rodzaj nagrania"), L.kindLabel, juce::Justification::bottomLeft);
@@ -179,6 +187,7 @@ public:
 
     void resized() override
     {
+        flow.setBounds (zs::ScreenFrame::stepsArea (getLocalBounds()));
         const auto L = layout();
         nameInput.setBounds (L.name);
         startButton.setBounds (L.start);
@@ -226,6 +235,7 @@ private:
 
     juce::TextEditor nameInput;
     juce::TextButton startButton, otherButton;
+    zs::StepBar flow;
     std::vector<Item> recent;
     int hoverRow = -1;
     juce::File music;
@@ -247,27 +257,32 @@ private:
         c.removeFromRight (zs::ui::frame::gap + 4);
         L.left = c;
 
+        const bool compact = getHeight() < 700;
         auto a = L.left.reduced (pad, pad);
-        a.removeFromTop (18 + 44 + 10);
-        L.nameLabel = a.removeFromTop (24);  a.removeFromTop (6);
-        L.name = a.removeFromTop (52);       a.removeFromTop (18);
-        L.kindLabel = a.removeFromTop (24);  a.removeFromTop (6);
-        L.equipment = a.removeFromBottom (24);
-        a.removeFromBottom (12);
-        auto cards = a.removeFromTop (juce::jlimit (112, 170, a.getHeight() - 52 - 28 - 52));
+        a.removeFromTop (compact ? 18 + 36 + 6 : 18 + 44 + 10);
+        L.nameLabel = a.removeFromTop (compact ? 20 : 24); a.removeFromTop (compact ? 4 : 6);
+        L.name = a.removeFromTop (compact ? 44 : 52); a.removeFromTop (compact ? 10 : 18);
+        L.kindLabel = a.removeFromTop (compact ? 20 : 24); a.removeFromTop (compact ? 4 : 6);
+        L.equipment = a.removeFromBottom (compact ? 20 : 24);
+        a.removeFromBottom (compact ? 8 : 12);
+        const int cardMin = compact ? 112 : 112;
+        const int cardMax = compact ? 124 : 170;
+        const int cardReserve = compact ? 34 + 8 + 44 + 10 : 52 + 28 + 52;
+        auto cards = a.removeFromTop (juce::jlimit (cardMin, cardMax, a.getHeight() - cardReserve));
         L.voiceCard = cards.removeFromLeft ((cards.getWidth() - 14) / 2);
         cards.removeFromLeft (14);
         L.musicCard = cards;
         // z prompterem / bez: dwa przelaczniki w jednym rzedzie pod kartami
-        a.removeFromTop (14);
-        auto textRow = a.removeFromTop (38);
+        a.removeFromTop (compact ? 8 : 14);
+        auto textRow = a.removeFromTop (compact ? 34 : 38);
         L.textLabel = textRow.removeFromLeft (52);
         const int w = juce::jmin (180, (textRow.getWidth() - 8) / 2);
         L.withText = textRow.removeFromLeft (w);
         textRow.removeFromLeft (8);
         L.withoutText = textRow.removeFromLeft (w);
-        a.removeFromTop (juce::jmin (24, juce::jmax (10, a.getHeight() - 52)));
-        auto bottom = a.removeFromTop (52);
+        a.removeFromTop (compact ? juce::jmin (10, juce::jmax (6, a.getHeight() - 44))
+                                 : juce::jmin (24, juce::jmax (10, a.getHeight() - 52)));
+        auto bottom = a.removeFromTop (compact ? 44 : 52);
         L.start = bottom.removeFromLeft (220);
         bottom.removeFromLeft (16);
         L.startHint = bottom;

@@ -66,6 +66,7 @@ TESTY=(
   "tor-test"
   "profil-test /tmp/mowa.wav"
   "podklad-montaz-test"
+  "podmiana-fragmentu-test"
   "podklad-miks-test"
 )
 

@@ -172,7 +172,7 @@ namespace frame
     // tekst promptera ma więcej wysokości.
     // 24.10 (kierunek D): kroki to zakladki w naglowku, lewej kolumny nie ma;
     // tresc i prawy panel odsuniete od krawedzi o pad, miedzy nimi gap.
-    constexpr int header = 64, steps = 0, footer = 42;
+    constexpr int topBar = 64, stepsRow = 52, header = topBar + stepsRow, steps = 0, footer = 42;
     constexpr int margin = 16, sidePadding = 22, pad = 12, gap = 10;
     inline int navWidth (int) { return 0; }
     inline int sideWidth (int width) { return std::clamp (width / 4, 260, 316); }

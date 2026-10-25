@@ -15,6 +15,7 @@ public:
 
     StepBar() { setMouseClickGrabsKeyboardFocus (false); }
     void setSteps (const juce::StringArray& names) { steps = names; repaint(); }
+    void setTileMode (bool enabled = true) { tileMode = enabled; repaint(); }
     void setCurrent (int index, bool everythingDone = false)
     {
         if (index == current && everythingDone == allDone) return;
@@ -50,7 +51,111 @@ public:
         if (steps.isEmpty()) return;
         if (getHeight() > getWidth()) { paintVertical (g); return; }
 
-        paintTabs (g);
+        if (tileMode) paintTiles (g); else paintTabs (g);
+    }
+
+    /** Workflow principal: equal-width destinations, instead of numbered
+        circles. The six labels stay readable because the tiles use their own
+        full-width row below the product title. */
+    void paintTiles (juce::Graphics& g)
+    {
+        const int n = steps.size();
+        if (n <= 0) return;
+        constexpr int gap = 8;
+        const int width = juce::jmax (0, getWidth() - gap * (n - 1)) / n;
+        const auto font = juce::Font (type::small, juce::Font::bold);
+        const float h = (float) getHeight();
+        stepBounds.clearQuick();
+
+        for (int i = 0; i < n; ++i)
+        {
+            const auto state = ui::stepState (i, current, allDone);
+            const bool active = state == ui::StepState::Current;
+            const bool done = state == ui::StepState::Done;
+            auto tile = juce::Rectangle<float> ((float) (i * (width + gap)), 0.0f,
+                                                (float) (i == n - 1 ? getWidth() - i * (width + gap) : width), h);
+            const bool hot = hovered == i && isClickable (i);
+
+            g.setColour (active ? Ink::accent().withAlpha (0.13f)
+                                : hot ? Ink::raised().brighter (0.12f) : Ink::raised().withAlpha (0.48f));
+            g.fillRoundedRectangle (tile, 6.0f);
+            g.setColour (active ? Ink::accent().withAlpha (0.82f)
+                                : hot ? Ink::edge().brighter (0.32f) : Ink::edge().withAlpha (0.78f));
+            g.drawRoundedRectangle (tile.reduced (0.5f), 6.0f, active ? 1.4f : 1.0f);
+
+            const auto icon = juce::Rectangle<float> (tile.getX() + 12.0f, tile.getCentreY() - 9.0f, 18.0f, 18.0f);
+            const auto ink = active ? Ink::accent() : done ? Ink::textNext() : Ink::textDim();
+            drawTileIcon (g, i, icon, ink);
+
+            const auto label = tile.withTrimmedLeft (38.0f).withTrimmedRight (8.0f).toNearestInt();
+            g.setColour (active ? Ink::textNow() : done ? Ink::textNext() : Ink::textDim());
+            g.setFont (font);
+            g.drawFittedText (steps[i], label, juce::Justification::centredLeft, 2, 0.92f);
+
+            if (active)
+            {
+                g.setColour (Ink::accent());
+                g.fillRoundedRectangle (tile.withWidth (2.0f).reduced (0.0f, 8.0f), 1.0f);
+            }
+            stepBounds.add (tile);
+        }
+    }
+
+    static void drawTileIcon (juce::Graphics& g, int index, juce::Rectangle<float> r, juce::Colour colour)
+    {
+        g.setColour (colour);
+        juce::Path p;
+        const auto c = r.getCentre();
+        switch (index)
+        {
+            case 0: // start / home
+                p.startNewSubPath (r.getX() + 1.0f, c.y - 1.0f); p.lineTo (c.x, r.getY() + 1.0f);
+                p.lineTo (r.getRight() - 1.0f, c.y - 1.0f);
+                p.startNewSubPath (r.getX() + 4.0f, c.y - 2.0f); p.lineTo (r.getX() + 4.0f, r.getBottom() - 1.0f);
+                p.lineTo (r.getRight() - 4.0f, r.getBottom() - 1.0f); p.lineTo (r.getRight() - 4.0f, c.y - 2.0f);
+                g.strokePath (p, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                g.drawRoundedRectangle (c.x - 2.0f, c.y + 2.0f, 4.0f, 6.0f, 1.0f, 1.4f);
+                break;
+            case 1: // preparation / checklist
+                g.drawRoundedRectangle (r.reduced (2.0f), 2.0f, 1.4f);
+                for (int k = 0; k < 3; ++k)
+                {
+                    const float y = r.getY() + 5.0f + k * 5.0f;
+                    g.drawLine (r.getX() + 5.0f, y, r.getX() + 7.0f, y + 1.5f, 1.2f);
+                    g.drawLine (r.getX() + 7.0f, y + 1.5f, r.getX() + 9.0f, y - 1.0f, 1.2f);
+                    g.drawLine (r.getX() + 11.0f, y, r.getRight() - 4.0f, y, 1.2f);
+                }
+                break;
+            case 2: // recording / waveform
+                for (int k = 0; k < 5; ++k)
+                {
+                    const float x = r.getX() + 3.0f + k * 3.0f;
+                    const float half = (k == 2 ? 7.0f : k == 1 || k == 3 ? 5.0f : 3.0f);
+                    g.drawLine (x, c.y - half, x, c.y + half, 1.7f);
+                }
+                break;
+            case 3: // review / headphones
+                p.addCentredArc (c.x, c.y + 1.0f, 6.0f, 7.0f, 0.0f, 3.14f, 6.28f, true);
+                g.strokePath (p, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                g.drawRoundedRectangle (r.getX() + 1.0f, c.y - 1.0f, 4.0f, 7.0f, 1.5f, 1.5f);
+                g.drawRoundedRectangle (r.getRight() - 5.0f, c.y - 1.0f, 4.0f, 7.0f, 1.5f, 1.5f);
+                break;
+            case 4: // mix / three faders
+                for (int k = 0; k < 3; ++k)
+                {
+                    const float x = r.getX() + 4.0f + k * 5.0f;
+                    g.drawLine (x, r.getY() + 2.0f, x, r.getBottom() - 2.0f, 1.3f);
+                    g.setColour (Ink::panel()); g.fillRoundedRectangle (x - 2.0f, r.getY() + 4.0f + (k % 2) * 5.0f, 4.0f, 4.0f, 1.0f);
+                    g.setColour (colour); g.drawRoundedRectangle (x - 2.0f, r.getY() + 4.0f + (k % 2) * 5.0f, 4.0f, 4.0f, 1.0f, 1.1f);
+                }
+                break;
+            default: // ready / check
+                p.startNewSubPath (r.getX() + 3.0f, c.y);
+                p.lineTo (c.x - 1.0f, r.getBottom() - 3.0f);
+                p.lineTo (r.getRight() - 2.0f, r.getY() + 3.0f);
+                g.strokePath (p, juce::PathStrokeType (1.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                break;
+        }
     }
 
     /** Zakladki (kierunek D, 24.10): plytka z ramka, w niej kroki — biezacy
@@ -207,6 +312,7 @@ private:
     int current = 0;
     int hovered = -1;
     bool allDone = false;
+    bool tileMode = false;
 };
 
 } // namespace zs

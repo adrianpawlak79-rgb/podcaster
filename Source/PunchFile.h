@@ -25,6 +25,7 @@
 #include "DSP/PrompterLines.h"
 #include "DSP/TakeJournal.h"
 #include "DSP/BackingEdit.h"
+#include "DSP/ReplaceRange.h"
 #include "DSP/EditedView.h"
 #include "ReadMono.h"
 
@@ -218,6 +219,109 @@ inline PunchResult applyCutList (const juce::File& wav, const std::vector<tw::Cu
         const auto listNow = cutListFile (wav);
         listNow.moveFileTo (res.rawCopy.getSiblingFile (res.rawCopy.getFileNameWithoutExtension() + ".ciecia.tsv"));
     }
+    return res;
+}
+
+/** Replace one recorded interval with a separate take. The old full take and
+    its timing sidecars are copied to "surowe" before the new WAV is installed. */
+inline PunchResult replaceRecordedRange (const juce::File& wav, const juce::File& correction,
+                                         double from, double to, bool fixedLength)
+{
+    PunchResult res;
+    LoadedTake original, fresh;
+    if (! loadTake (wav, original, res.error) || ! loadTake (correction, fresh, res.error)) return res;
+    if (std::abs (original.sr - fresh.sr) > 0.1 || original.channels != fresh.channels)
+    { res.error = "poprawka ma inne parametry dźwięku niż nagranie"; return res; }
+
+    const auto replacementSamples = fixedLength
+        ? (size_t) std::llround ((to - from) * original.sr) : fresh.mono.size();
+    if (replacementSamples == 0 || fresh.mono.size() < replacementSamples
+        || (original.channels > 1 && fresh.buf.getNumSamples() < (int) replacementSamples))
+    { res.error = "poprawka jest krótsza niż zaznaczony fragment"; return res; }
+
+    const auto replace = [&] (const std::vector<float>& a, const std::vector<float>& b,
+                              std::vector<float>& out)
+    { return tw::ReplaceRange::render (a, b, original.sr, from, to, fixedLength, out); };
+    std::vector<std::vector<float>> rendered ((size_t) original.channels);
+    if (original.channels == 1)
+    {
+        std::vector<float> correctionMono (fresh.mono.begin(), fresh.mono.begin() + (long) replacementSamples);
+        if (! replace (original.mono, correctionMono, rendered[0]))
+        { res.error = "nie można podmienić zaznaczonego fragmentu"; return res; }
+    }
+    else
+    {
+        for (int ch = 0; ch < original.channels; ++ch)
+        {
+            const auto n = (size_t) original.buf.getNumSamples();
+            const auto m = replacementSamples;
+            std::vector<float> a (original.buf.getReadPointer (ch), original.buf.getReadPointer (ch) + n);
+            std::vector<float> b (fresh.buf.getReadPointer (ch), fresh.buf.getReadPointer (ch) + m);
+            if (! replace (a, b, rendered[(size_t) ch]))
+            { res.error = "nie można podmienić zaznaczonego fragmentu"; return res; }
+        }
+    }
+
+    const auto temp = wav.getSiblingFile (wav.getFileNameWithoutExtension() + ".podmiana.tmp.wav");
+    temp.deleteFile();
+    juce::WavAudioFormat format;
+    {
+        std::unique_ptr<juce::FileOutputStream> out (temp.createOutputStream());
+        if (out == nullptr) { res.error = "nie mogę zapisać podmienionego nagrania"; return res; }
+        std::unique_ptr<juce::AudioFormatWriter> writer (format.createWriterFor (
+            out.get(), original.sr, (unsigned) original.channels, original.bits, {}, 0));
+        if (writer == nullptr) { res.error = "nie mogę zapisać podmienionego nagrania"; temp.deleteFile(); return res; }
+        out.release();
+        std::vector<const float*> ptr;
+        for (auto& ch : rendered) ptr.push_back (ch.data());
+        if (! writer->writeFromFloatArrays (ptr.data(), original.channels, (int) rendered[0].size()))
+        { writer.reset(); temp.deleteFile(); res.error = "nie mogę zapisać podmienionego nagrania"; return res; }
+    }
+
+    const auto rawDir = wav.getParentDirectory().getChildFile ("surowe");
+    if (! rawDir.createDirectory()) { temp.deleteFile(); res.error = "nie mogę utworzyć folderu surowe"; return res; }
+    res.rawCopy = rawDir.getNonexistentChildFile (wav.getFileNameWithoutExtension(), ".wav", false);
+    if (! wav.copyFileTo (res.rawCopy)) { temp.deleteFile(); res.error = "nie mogę zachować poprzedniego nagrania"; return res; }
+    for (const auto& suffix : { ".wersy.txt", ".ciecia.tsv", ".podklad.txt", ".tekst.txt" })
+    {
+        const auto side = wav.getSiblingFile (wav.getFileNameWithoutExtension() + suffix);
+        if (side.existsAsFile() && ! side.copyFileTo (res.rawCopy.getSiblingFile (res.rawCopy.getFileNameWithoutExtension() + suffix)))
+        {
+            res.rawCopy.deleteFile();
+            for (const auto& cleanup : { ".wersy.txt", ".ciecia.tsv", ".podklad.txt", ".tekst.txt" })
+                res.rawCopy.getSiblingFile (res.rawCopy.getFileNameWithoutExtension() + cleanup).deleteFile();
+            temp.deleteFile(); res.error = "nie mogę zachować plików pomocniczych poprzedniego nagrania"; return res;
+        }
+    }
+    wav.deleteFile();
+    if (! temp.moveFileTo (wav))
+    { res.rawCopy.copyFileTo (wav); temp.deleteFile(); res.error = "nie mogę podmienić nagrania na dysku"; return res; }
+
+    const auto oldLogFile = res.rawCopy.getSiblingFile (res.rawCopy.getFileNameWithoutExtension() + ".wersy.txt");
+    const auto newLogFile = correction.getSiblingFile (correction.getFileNameWithoutExtension() + ".wersy.txt");
+    if (oldLogFile.existsAsFile() || newLogFile.existsAsFile())
+    {
+        const auto oldMarks = oldLogFile.existsAsFile()
+            ? tw::LineLog::parse (oldLogFile.loadFileAsString().toStdString()) : std::vector<tw::LineMark> {};
+        const auto newMarks = newLogFile.existsAsFile()
+            ? tw::LineLog::parse (newLogFile.loadFileAsString().toStdString()) : std::vector<tw::LineMark> {};
+        const auto merged = tw::ReplaceRange::remapMarks (oldMarks, newMarks, from, to,
+                                                           (double) replacementSamples / fresh.sr);
+        tw::LineLog log; log.begin();
+        for (const auto& mark : merged) log.restart (mark, mark.source);
+        if (! wav.getSiblingFile (wav.getFileNameWithoutExtension() + ".wersy.txt")
+                  .replaceWithText (juce::String::fromUTF8 (log.toText().c_str()), false, false, "\n"))
+        {
+            const auto restore = wav.getSiblingFile (wav.getFileNameWithoutExtension() + ".restore.tmp.wav");
+            if (res.rawCopy.copyFileTo (restore)) { wav.deleteFile(); restore.moveFileTo (wav); }
+            res.error = "nie mogę zapisać nowych czasów wersów; przywróciłem poprzednie nagranie";
+            res.applied = false;
+            return res;
+        }
+    }
+    cutListFile (wav).deleteFile();
+    res.applied = true;
+    res.removedSec = to - from - (double) replacementSamples / fresh.sr;
     return res;
 }
 
