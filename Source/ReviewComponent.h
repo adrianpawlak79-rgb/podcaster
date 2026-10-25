@@ -253,7 +253,7 @@ public:
             repaint();
         };
         chainPort.setViewedComponent (&chainView, false);
-        chainPort.setScrollBarsShown (true, true);
+        chainPort.setScrollBarsShown (true, false);
         addChildComponent (chainPort);
         nextButton.setButtonText(PL("Następne miejsce")); zs::Look::setKey(nextButton,"N");
         nextButton.onClick=[this] { nextTrouble(); };
@@ -934,7 +934,8 @@ public:
             const int h = juce::jmin (main.getHeight(), need);
             chainPort.setVisible (true);
             chainPort.setBounds (main.removeFromTop (h));
-            const int contentW = juce::jmax (main.getWidth(), 9 * 190 + 8 * 8);
+            // bez paska w bok: kafle w dwoch wierszach na szerokosc ekranu (Adrian 25.10)
+            const int contentW = main.getWidth() - (need > h ? chainPort.getScrollBarThickness() + 4 : 0);
             chainView.setSize (contentW, chainView.heightFor (contentW));
             main.removeFromTop (8);
         }
@@ -1363,6 +1364,9 @@ private:
             selection.setText((withMusic ? PL("Do wyciszenia: ") : PL("Do wycięcia: "))+plr::clock(cutFrom)+PL("–")+plr::clock(cutTo)+" ("+juce::String(cutTo-cutFrom,1)+PL(" s) — Delete albo „")+cutButton.getButtonText()+PL("”."),juce::dontSendNotification);
         else
             selection.setText(PL("Cięcie: ")+(cutFrom>=0?juce::String(cutFrom,2)+" s":"—")+"  →  "+(cutTo>=0?juce::String(cutTo,2)+" s":"—"),juce::dontSendNotification);
+        // przycisk ciecia za zaznaczeniem: po pierwszym cieciu nic innego go nie
+        // odswiezalo i drugie zaznaczenie zostawalo z szarym przyciskiem (Adrian 25.10)
+        if (editMode) updateMontageButtons();
         repaint();
     }
     /** Zmiana w montazu (wyciecie, cofniecie, przyciecie): nowa kopia surowego
@@ -1396,6 +1400,7 @@ private:
                 words.clear();saved=juce::File();savedMp3=juce::File();note=PL("Montaż zmienia kopię w pamięci; oryginał zostaje na dysku.");
                 setRawMaterial();
                 assessment.setText (montageSummary(), false);
+                updateMontageButtons();
                 resized();repaint();
                 if(then) then();
             });
@@ -1442,7 +1447,7 @@ private:
     }
     //==========================================================================
     /** Rosnie z oknem — liczby i uzasadnienie w zs::ui::review (UiRules.h). */
-    int waveHeight() const { if(!cutPanel.empty() && editMode) return 80; const int h=juce::jmax(zs::ui::review::waveMin,zs::ui::review::waveHeight(getHeight())-juce::jmax(0,headH()-78)); return editMode ? juce::jmax(120,h-(middleMode?72:16)) : detailsMode ? juce::jmin(h,getHeight()<720?56:96) : hasMusic() && getHeight()<720 ? h-44 : h; }   // wiersz MUZYKA w malym oknie
+    int waveHeight() const { if(!cutPanel.empty() && editMode) return 80; const int h=juce::jmax(zs::ui::review::waveMin,zs::ui::review::waveHeight(getHeight())-juce::jmax(0,headH()-78)); return editMode ? juce::jmax(120,h-(middleMode?72:16)) : detailsMode ? juce::jmin(h,getHeight()<720?56:64) : hasMusic() && getHeight()<720 ? h-44 : h; }   // wiersz MUZYKA w malym oknie
 
     /** Podtytul ekranu: montaz (z decyzjami po R albo bez) albo miks. */
     juce::String subtitle() const
