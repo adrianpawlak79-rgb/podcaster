@@ -942,7 +942,7 @@ public:
         words.setVisible (detailsMode && main.getHeight() >= 48);
         words.setBounds (main);
         detailsToggle.setEnabled(true);
-        if (detailsMode) detailsToggle.setButtonText (getWidth() < 1100 ? PL ("Ukryj zaawansowane") : PL("Ukryj ustawienia zaawansowane"));
+        if (detailsMode) detailsToggle.setButtonText (getWidth() < 1100 ? PL ("Ukryj zaawansowane") : PL("Ukryj zaawansowane"));
 
         auto side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24);
         side.removeFromTop (32 + 84 + 8);
