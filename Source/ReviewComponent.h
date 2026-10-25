@@ -60,6 +60,36 @@
 #include <memory>
 #include <thread>
 
+class MixStyleCard : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    std::function<void()> onClick;
+    void setText (juce::String title, juce::String description)
+    { heading = std::move (title); detail = std::move (description); repaint(); }
+    void setSelected (bool s) { selected = s; repaint(); }
+    void mouseUp (const juce::MouseEvent& e) override
+    { if (e.mouseWasClicked() && isEnabled() && onClick) onClick(); }
+    void paint (juce::Graphics& g) override
+    {
+        using I = zs::Ink;
+        auto r = getLocalBounds().toFloat();
+        if (isMouseOver() && isEnabled()) r = r.reduced (0.5f);
+        if (! selected && isEnabled()) zs::Depth::shadow (g, r, 8.0f, 5.0f, 0.25f, 2.0f);
+        g.setColour (selected ? I::panel().brighter (0.08f) : I::panel());
+        g.fillRoundedRectangle (r, 8.0f);
+        g.setColour (selected ? I::accent() : I::edge());
+        g.drawRoundedRectangle (r.reduced (0.5f), 8.0f, selected ? 2.0f : 1.0f);
+        auto copy = getLocalBounds().reduced (12, 8);
+        g.setColour (I::textNow()); g.setFont (juce::Font (zs::type::small, juce::Font::bold));
+        g.drawText (heading, copy.removeFromTop (24), juce::Justification::centredLeft, true);
+        g.setColour (I::textNext()); g.setFont (juce::Font (zs::type::small));
+        g.drawFittedText (detail, copy, juce::Justification::topLeft, 2);
+    }
+private:
+    juce::String heading, detail;
+    bool selected = false;
+};
+
 //==============================================================================
 namespace plr
 {
@@ -133,12 +163,15 @@ public:
         for (int i = 0; i < 3; ++i)
         {
             const auto st = static_cast<mix::Decide::Style> (i);
-            styleButtons[i].setButtonText (PL (mix::Decide::styleName (st)));
-            styleButtons[i].onClick = [this, st] { chooseStyle (st); };
-            styleButtons[i].setTooltip (st == mix::Decide::Style::Delikatny ? PL ("Naturalnie: głos prawie bez zmian, tylko równiejszy")
+            styleCards[i].setText (PL (mix::Decide::styleName (st)),
+                st == mix::Decide::Style::Delikatny ? PL ("Naturalny głos, tylko lekko wyrównany.")
+              : st == mix::Decide::Style::Mocny ? PL ("Gęściej i wyraźniej, jak w radiu.")
+                                                : PL ("Równe, bliskie brzmienie do podcastu."));
+            styleCards[i].onClick = [this, st] { chooseStyle (st); };
+            styleCards[i].setTooltip (st == mix::Decide::Style::Delikatny ? PL ("Naturalnie: głos prawie bez zmian, tylko równiejszy")
                                       : st == mix::Decide::Style::Mocny    ? PL ("Radiowo: gęściej i bliżej")
                                                                            : PL ("Wyrównany: jak w dobrym podcaście"));
-            addAndMakeVisible (styleButtons[i]);
+            addAndMakeVisible (styleCards[i]);
         }
         updateStyleButtons();
 
@@ -207,7 +240,7 @@ public:
 
         editToggle.setButtonText(PL("← Wróć do montażu"));
         editToggle.onClick=[this] { setEditMode (true); };
-        detailsToggle.setButtonText(PL("Szczegóły miksu"));
+        detailsToggle.setButtonText(PL("Zaawansowane ustawienia"));
         detailsToggle.onClick=[this] { detailsMode=!detailsMode;resized();repaint(); };
         // Tor miksu: kazda zmiana to miks od nowa w tle, jak zmiana brzmienia.
         chainView.onChange = [this] (const mix::Tweaks& t)
@@ -220,7 +253,7 @@ public:
             repaint();
         };
         chainPort.setViewedComponent (&chainView, false);
-        chainPort.setScrollBarsShown (true, false);
+        chainPort.setScrollBarsShown (true, true);
         addChildComponent (chainPort);
         nextButton.setButtonText(PL("Następne miejsce")); zs::Look::setKey(nextButton,"N");
         nextButton.onClick=[this] { nextTrouble(); };
@@ -835,7 +868,7 @@ public:
         jobShield.setBounds (getLocalBounds()); jobShield.toFront (false);
         cutPanel.setVisible(!doneMode && editMode && !cutPanel.empty());   // decyzje po R: w montazu
         chainPort.setVisible (false);                           // tylko w szczegolach miksu
-        for (auto& b : styleButtons) b.setVisible (false);      // tylko w zwyklym widoku oceny
+        for (auto& b : styleCards) b.setVisible (false);
         for (auto& b : musicLevel) b.setVisible (false);
         duckButton.setVisible (false);
         for (auto* b : { &zoomIn, &zoomOut, &zoomAllButton }) b->setVisible (false);   // tylko w montazu
@@ -860,32 +893,40 @@ public:
         // Style obok przed/po, gdy sie mieszcza (3 x 96 px); w malym oknie w osobnym
         // wierszu — inaczej przy 960 px byly to puste kafelki po 19 px (przeglad 14.10, nr 4).
         const int styleW = 3 * 104 + 2 * 6, abMin = 200;
-        const bool styleInRow = row.getWidth() >= abMin + 16 + styleW;
+        const bool styleInRow = getWidth() >= 1240 && row.getWidth() >= abMin + 16 + styleW;
         abButton.setBounds (row.removeFromLeft (juce::jmin (240, styleInRow ? row.getWidth() - 16 - styleW : row.getWidth())));
         if (styleInRow) row.removeFromLeft (16);
-        else { main.removeFromTop (8); row = main.removeFromTop (L::buttons); }
+        else { main.removeFromTop (6); row = main.removeFromTop (L::buttons); }
         {
-            const int w = juce::jlimit (0, 124, (row.getWidth() - 2 * 6) / 3);
-            for (auto& b : styleButtons) { b.setVisible (true); b.setBounds (row.removeFromLeft (w)); row.removeFromLeft (6); }
+            const int w = juce::jmax (0, (row.getWidth() - 2 * 6) / 3);
+            for (int i = 0; i < 3; ++i)
+            {
+                auto card = row.removeFromLeft (w); row.removeFromLeft (6);
+                styleCards[i].setVisible (true);
+                styleCards[i].setBounds (card.withHeight (getHeight() < 720 ? 64 : 70));
+            }
+            main.removeFromTop ((getHeight() < 720 ? 64 : 70) - L::buttons);
         }
         if (hasMusic())
         {
-            // wiersz podkladu: "MUZYKA" + trzy poziomy + sciszanie pod glosem
-            main.removeFromTop (8);
+            main.removeFromTop (getHeight() < 720 ? 4 : 8);
             auto mrow = main.removeFromTop (L::buttons);
             musicLabelArea = mrow.removeFromLeft (70);
-            const int w = juce::jlimit (0, 104, (mrow.getWidth() - 200) / 3);
+            const int w = juce::jlimit (0, 104, (mrow.getWidth() - 220) / 3);
             for (auto& b : musicLevel) { b.setVisible (true); b.setBounds (mrow.removeFromLeft (w)); mrow.removeFromLeft (6); }
             mrow.removeFromLeft (10);
             duckButton.setVisible (true);
-            duckButton.setBounds (mrow.removeFromLeft (juce::jmin (200, mrow.getWidth())));
+            duckButton.setBounds (mrow.removeFromLeft (juce::jmin (190, mrow.getWidth())));
+            main.removeFromTop (4);
         }
-        main.removeFromTop (8);
-        auto tools = main.removeFromTop (L::tools);
-        detailsToggle.setBounds (tools.removeFromLeft (172));
-        folderButton.setBounds (tools.removeFromRight (172)); folderButton.setVisible (true);
+        main.removeFromTop (getHeight() < 720 ? 4 : 8);
+        auto tools = main.removeFromBottom (getHeight() < 720 ? 30 : L::tools);
+        const int toolW = juce::jmin (220, tools.getWidth() / 2);
+        detailsToggle.setButtonText (getWidth() < 1100 ? PL ("Zaawansowane…") : PL ("Zaawansowane ustawienia"));
+        detailsToggle.setBounds (tools.removeFromLeft (toolW));
+        folderButton.setBounds (tools.removeFromRight (juce::jmin (172, tools.getWidth()))); folderButton.setVisible (true);
         tools.removeFromLeft (12); tools.removeFromRight (12); feedbackArea = tools;
-        main.removeFromTop (8);
+        main.removeFromTop (getHeight() < 720 ? 4 : 8);
         if (detailsMode)
         {
             // w malym oknie tor sie przewija; tekst pod nim znika, gdy brak miejsca
@@ -893,15 +934,15 @@ public:
             const int h = juce::jmin (main.getHeight(), need);
             chainPort.setVisible (true);
             chainPort.setBounds (main.removeFromTop (h));
-            const int w = main.getWidth() - (need > h ? chainPort.getScrollBarThickness() + 4 : 0);
-            chainView.setSize (w, chainView.heightFor (w));
+            const int contentW = juce::jmax (main.getWidth(), 9 * 190 + 8 * 8);
+            chainView.setSize (contentW, chainView.heightFor (contentW));
             main.removeFromTop (8);
         }
         summaryArea = main;
         words.setVisible (detailsMode && main.getHeight() >= 48);
         words.setBounds (main);
         detailsToggle.setEnabled(true);
-        detailsToggle.setButtonText (detailsMode ? PL("Ukryj szczegóły") : PL("Szczegóły miksu"));
+        if (detailsMode) detailsToggle.setButtonText (getWidth() < 1100 ? PL ("Ukryj zaawansowane") : PL("Ukryj ustawienia zaawansowane"));
 
         auto side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24);
         side.removeFromTop (32 + 84 + 8);
@@ -940,14 +981,11 @@ public:
             g.drawText (PL("MUZYKA"), musicLabelArea, juce::Justification::centredLeft);
         }
         auto summary = summaryArea;
-        if (!detailsMode && review.stage() == zs::TakeReview::Stage::Ready)
-            summary.removeFromTop (zs::ScreenFrame::wrapped (g, PL("Miks został dobrany automatycznie. Posłuchaj, zanim zapiszesz — po prawej, co zrobił i dlaczego."),
-                                                             summary, juce::Font (zs::type::small), Ink::textNext()) + 6);
         // sama nazwa pliku — pelna sciezka zajmowala dwa wiersze; folder otwiera "Pokaz w folderze"
-        if (!detailsMode && file != juce::File())
+        if (!detailsMode && file != juce::File() && summary.getHeight() > 130)
             zs::ScreenFrame::wrapped (g, PL("Nagranie: ") + file.getFileName()
                                         + (saved.existsAsFile() ? PL("   ·   Miks: ") + saved.getFileName() : juce::String()),
-                                      summary, juce::Font (zs::type::small), Ink::textDim());
+                                      summary.removeFromBottom (20), juce::Font (zs::type::small), Ink::textDim());
     }
 
 private:
@@ -1316,7 +1354,7 @@ private:
     void updateStyleButtons()
     {
         for (int i = 0; i < 3; ++i)
-            zs::Look::setSelected (styleButtons[i], static_cast<mix::Decide::Style> (i) == wish.style);
+            styleCards[i].setSelected (static_cast<mix::Decide::Style> (i) == wish.style);
     }
     void updateSelection() {
         if(cutFrom>=0 && cutTo>cutFrom)
@@ -2119,7 +2157,7 @@ private:
     bool wasPlaying = false;
 
     juce::TextButton playButton, abButton, saveButton, backButton;
-    juce::TextButton styleButtons[3];
+    MixStyleCard styleCards[3];
     bool styleNote = false;                 ///< note to "Miks ... liczy się…" z chooseStyle
     int takeVersion = 0, mixedVersion = -1; ///< ktora wersja montazu jest zmiksowana...
     int loadedVersion = 0, savedVersion = -1; ///< ...wczytana z dysku i zapisana jako miks (hasUnsavedEdits)
