@@ -110,9 +110,13 @@ struct ScreenFrame
         return main;
     }
 
+    /** hintsUnderMain: podpowiedz klawiszy po lewej, pod glowna kolumna (pod
+        przyciskami, ktore uruchamia), bez nazwy w stopce — nazwa stoi wtedy w
+        prawym panelu ekranu (Adrian 25.10, ekran nagrania). */
     static void paint (juce::Graphics& g, juce::Rectangle<int> bounds,
-                       const juce::String& name, const juce::String& hint)
+                       const juce::String& name, const juce::String& hint, bool hintsUnderMain = false)
     {
+        const auto main = mainArea (bounds);
         auto header = bounds.removeFromTop (ui::frame::header);
         g.setColour (Ink::bar());
         g.fillRect (header);
@@ -147,6 +151,13 @@ struct ScreenFrame
 
         g.setFont (juce::Font (type::small)); g.setColour (Ink::textDim());
         auto foot = footer.reduced (22, 0);
+        if (hintsUnderMain)
+        {
+            const auto under = foot.withX (main.getX()).withRight (main.getRight());
+            g.setColour (Ink::textNext());
+            g.drawText (fitHints (hint, juce::Font (type::small), under.getWidth()), under, juce::Justification::centredLeft);
+            return;
+        }
         // Nazwa tyle, ile potrzebuje (najwyzej 1/3), reszta dla podpowiedzi —
         // w waskim oknie stala polowa ucinala "Esc — wroc" (19.10, 1000 px).
         const int nameW = juce::jmin (foot.getWidth() / 3, juce::Font (type::small).getStringWidth (name) + 24);
