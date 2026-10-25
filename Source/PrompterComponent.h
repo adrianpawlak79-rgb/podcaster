@@ -1419,7 +1419,32 @@ public:
         zs::journalFile (wav).deleteFile();
         journalText.clear(); journalAtMs = 0;
         regrade();                // znaczki z pelnego nagrania, zanim zapis wersow sie wyczysci
-        if (lineLog.marks().empty() || wav == juce::File()) return res;
+        if (wav == juce::File()) return res;
+
+        // Z podkladem: wycinamy dokladnie to, od czego liczyl sie rozbieg muzyki
+        // (removedSpans), zawsze i bez listy do decyzji — inaczej glos po cieciu
+        // wypadlby obok bitu (BackingEdit.h).
+        if (recorder.hasBacking())
+        {
+            auto marks = lineLog.marks();
+            res = zs::applyBackingCuts (wav, removedSpans, &marks);
+            if (! marks.empty())
+            {
+                tw::LineLog out;
+                out.begin();
+                for (const auto& m : marks) out.restart (m, m.source);
+                juce::String text = juce::String::fromUTF8 (out.toText().c_str());
+                if (res.applied)
+                    text = "# nagranie z podkladem: wyciete dokladnie miejsca wznowien (" + juce::String (res.cuts)
+                         + ", razem " + juce::String (res.removedSec, 1) + " s); surowe: " + res.rawCopy.getFileName()
+                         + " w folderze surowe\n" + text;
+                wav.getSiblingFile (wav.getFileNameWithoutExtension() + ".wersy.txt")
+                   .replaceWithText (text, false, false, "\n");
+            }
+            lineLog.begin();
+            return res;
+        }
+        if (lineLog.marks().empty()) return res;
 
         auto marks = lineLog.marks();
         res = zs::applyPunch (wav, marks, heardWords, settings.punchAutoCut(),

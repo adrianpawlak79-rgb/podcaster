@@ -156,6 +156,34 @@ int main()
     plain[0].source = plain[1].source = tw::LineSource::Words;
     ok (! zs::applyPunch (wav, plain, heard).applied, "bez R plik zostaje, jak byl");
 
+    // ---- nagranie do podkladu (25.10): wyciete dokladnie odcinki z wznowien,
+    // probka w probke, bez szukania ciszy i bez listy do decyzji
+    {
+        const auto bw = dir.getChildFile ("sesja_podklad.wav");
+        std::vector<float> ramp ((size_t) (sr * 6));
+        for (size_t i = 0; i < ramp.size(); ++i) ramp[i] = (float) i / (float) ramp.size();
+        {
+            juce::WavAudioFormat f;
+            std::unique_ptr<juce::AudioFormatWriter> w (f.createWriterFor (bw.createOutputStream().release(), sr, 1, 32, {}, 0));
+            const float* p[1] = { ramp.data() };
+            w->writeFromFloatArrays (p, 1, (int) ramp.size());
+        }
+        auto bm = std::vector<tw::LineMark> { marks[0] };
+        bm[0].sec = 4.5;
+        const auto r = zs::applyBackingCuts (bw, { { 1.0, 2.0 }, { 3.0, 4.0 }, { 3.5, 4.25 } }, &bm);
+        zs::LoadedTake t; juce::String err;
+        const bool loaded = zs::loadTake (bw, t, err);
+        const size_t after = (size_t) std::llround (2.0 * sr) + 960;   // 2,0 s = editedTime (4,25), +20 ms za przenikaniem
+        ok (r.applied && loaded && t.mono.size() == ramp.size() - (size_t) (2.25 * sr),
+            "podklad: plik krotszy dokladnie o sume odcinkow (2,25 s)");
+        ok (loaded && after < t.mono.size()
+                && std::abs (t.mono[after] - ramp[(size_t) std::llround (4.25 * sr) + 960]) < 1e-6f,
+            "podklad: glos po wznowieniu na editedTime, co do probki");
+        ok (std::abs (bm[0].sec - 2.25) < 1e-9, "podklad: zapis wersow przeliczony na czysty plik");
+        ok (r.rawCopy.existsAsFile() && r.rawCopy.getParentDirectory().getFileName() == "surowe", "podklad: surowe w 'surowe'");
+        ok (! zs::applyBackingCuts (bw, {}, nullptr).applied, "podklad bez wznowien od linii: plik nietkniety");
+    }
+
     dir.deleteRecursively();
     std::cout << "\n" << (errors == 0 ? "wszystko przeszlo" : "SA BLEDY") << " (" << checks << " sprawdzen)\n\n";
     return errors;

@@ -24,6 +24,8 @@
 #include "DSP/CutList.h"
 #include "DSP/PrompterLines.h"
 #include "DSP/TakeJournal.h"
+#include "DSP/BackingEdit.h"
+#include "DSP/EditedView.h"
 #include "ReadMono.h"
 
 namespace zs
@@ -77,9 +79,11 @@ inline bool loadTake (const juce::File& wav, LoadedTake& t, juce::String& error)
 
 /** Wyciecie podanych kawalkow z pliku: czysty na miejsce nagrania, surowe do
     podfolderu "surowe" (kolejnosc kroków — opis na gorze pliku). marks, gdy
-    podane, zostaja przeliczone na czas czystego pliku. */
+    podane, zostaja przeliczone na czas czystego pliku.
+    exact: nagranie do podkladu — wycinamy dokladnie plan, probka w probke
+    (BackingEdit::renderExact), zeby glos zostal tam, gdzie gral rozbieg. */
 inline PunchResult cutFile (const juce::File& wav, const LoadedTake& t, const std::vector<tw::Removal>& plan,
-                            std::vector<tw::LineMark>* marks)
+                            std::vector<tw::LineMark>* marks, bool exact = false)
 {
     PunchResult res;
     if (plan.empty()) return res;
@@ -88,14 +92,20 @@ inline PunchResult cutFile (const juce::File& wav, const LoadedTake& t, const st
     const double sr = t.sr;
 
     // ---- czysty dzwiek, kanal po kanale (mono: prosto z t.mono, bez kopii)
+    tw::EditedView::Spans spans;
+    for (const auto& p : plan) spans.push_back ({ p.from, p.to });
+    const auto render = [&] (const std::vector<float>& in)
+    {
+        return exact ? tw::BackingEdit::renderExact (in, sr, spans) : punch.render (in, sr, plan);
+    };
     std::vector<std::vector<float>> clean ((size_t) ch);
-    if (ch == 1) clean[0] = punch.render (t.mono, sr, plan);
+    if (ch == 1) clean[0] = render (t.mono);
     else
         for (int c = 0; c < ch; ++c)
         {
             const int len = t.buf.getNumSamples();
             std::vector<float> in (t.buf.getReadPointer (c), t.buf.getReadPointer (c) + len);
-            clean[(size_t) c] = punch.render (in, sr, plan);
+            clean[(size_t) c] = render (in);
         }
 
     // ---- 3. tymczasowy
@@ -141,7 +151,7 @@ inline PunchResult cutFile (const juce::File& wav, const LoadedTake& t, const st
         res.rawCopy.getSiblingFile (res.rawCopy.getFileNameWithoutExtension() + ".wersy.txt")
             .replaceWithText (juce::String::fromUTF8 (rawLog.toText().c_str()), false, false, "\n");
 
-        for (auto& m : *marks) m.sec = punch.remap (m.sec, plan);
+        for (auto& m : *marks) m.sec = exact ? tw::EditedView::editedTime (m.sec, spans) : punch.remap (m.sec, plan);
     }
 
     for (const auto& sm : punch.seams (t.mono, sr, plan))
@@ -152,6 +162,27 @@ inline PunchResult cutFile (const juce::File& wav, const LoadedTake& t, const st
     res.cuts = (int) plan.size();
     for (const auto& p : plan) res.removedSec += p.to - p.from;
     return res;
+}
+
+/** Nagranie do podkladu (25.10): wycinamy dokladnie odcinki, od ktorych
+    liczyl sie rozbieg muzyki przy wznowieniach (PrompterComponent::removedSpans),
+    zawsze — bez szukania innej ciszy i bez listy do decyzji. Gdyby ktores
+    zostalo, glos po nim wypadlby za pozno wzgledem muzyki. */
+inline PunchResult applyBackingCuts (const juce::File& wav, const tw::EditedView::Spans& removed,
+                                     std::vector<tw::LineMark>* marks)
+{
+    PunchResult res;
+    if (! wav.existsAsFile()) return res;
+    std::vector<tw::Removal> plan;
+    for (const auto& s : tw::BackingEdit::exactCuts (removed))
+    {
+        tw::Removal r; r.from = s.first; r.to = s.second; r.byHand = true;
+        plan.push_back (r);
+    }
+    if (plan.empty()) return res;
+    LoadedTake t;
+    if (! loadTake (wav, t, res.error)) return res;
+    return cutFile (wav, t, plan, marks, true);
 }
 
 /** Lista ciec obok nagrania (DSP/CutList.h): sesja_<data>.ciecia.tsv. */
