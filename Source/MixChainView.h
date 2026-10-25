@@ -76,9 +76,8 @@ public:
     /** Wysokosc potrzebna przy danej szerokosci. */
     int heightFor (int width) const
     {
-        const int cols = columnsFor (width);
-        const int rows = (mix::stageCount + cols - 1) / cols;
-        return header + rows * tileH + (rows - 1) * gap;
+        juce::ignoreUnused (width);
+        return header + tileH;
     }
 
     void resized() override
@@ -92,7 +91,7 @@ public:
             auto in = tile.reduced (10, 8);
             auto top = in.removeFromTop (22);
             tiles[(size_t) i].power.setBounds (top.removeFromRight (36).withSizeKeepingCentre (34, 18));
-            in.removeFromTop (18);
+            in.removeFromTop (20 + 4 + helpHeight);
             tiles[(size_t) i].amount.setBounds (in.removeFromTop (22).reduced (14, 0));
         }
     }
@@ -102,7 +101,7 @@ public:
         using I = zs::Ink;
         auto head = getLocalBounds().removeFromTop (header);
         g.setColour (I::textDim()); g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
-        g.drawText (PL ("TOR MIKSU — dźwięk idzie od lewej do prawej"), head.withTrimmedRight (130),
+        g.drawText (PL ("ZAawansowane ustawienia · dźwięk idzie od lewej do prawej"), head.withTrimmedRight (130),
                     juce::Justification::centredLeft, true);
 
         for (int i = 0; i < mix::stageCount; ++i)
@@ -127,12 +126,17 @@ public:
             g.setFont (juce::Font (zs::type::small, juce::Font::bold));
             g.drawText (PL (mix::stageName (s)), top, juce::Justification::centredLeft, true);
 
-            auto valueRow = in.removeFromTop (18);
+            auto valueRow = in.removeFromTop (20);
             g.setFont (juce::Font (zs::type::tiny));
             g.setColour (on ? I::textNext() : I::textDim());
             g.drawText (! known ? juce::String() : on ? PL (mix::stageValue (mixedParams, s).c_str())
                                  : used (i) ? PL ("wyłączone") : PL ("nie w tym brzmieniu"),
                         valueRow, juce::Justification::centredLeft, true);
+
+            auto help = in.removeFromTop (helpHeight);
+            g.setFont (juce::Font (zs::type::tiny));
+            g.setColour (I::textNext());
+            g.drawFittedText (PL (mix::stageHelp (s)), help, juce::Justification::topLeft, 2);
 
             if (on)
             {
@@ -167,7 +171,7 @@ private:
     };
     struct Tile { Power power; juce::Slider amount; };
 
-    static constexpr int header = 34, tileH = 84, gap = 8, minTileW = 168;
+    static constexpr int header = 34, tileH = 144, gap = 8, minTileW = 168, helpHeight = 42;
 
     std::array<Tile, mix::stageCount> tiles;
     juce::TextButton resetButton;
@@ -175,14 +179,14 @@ private:
     mix::Tweaks tweaks;
     bool known = false, busy = false;
 
-    static int columnsFor (int width) { return juce::jlimit (1, mix::stageCount, (width + gap) / (minTileW + gap)); }
+    static int columnsFor (int width) { juce::ignoreUnused (width); return mix::stageCount; }
 
     juce::Rectangle<int> tileBounds (int i) const
     {
         const int cols = columnsFor (getWidth());
         const int w = (getWidth() - (cols - 1) * gap) / cols;
-        const int c = i % cols, row = i / cols;
-        return { c * (w + gap), header + row * (tileH + gap), w, tileH };
+        const int c = i % cols;
+        return { c * (w + gap), header, w, tileH };
     }
 
     /** Automat uzyl modulu (przed poprawkami). */
