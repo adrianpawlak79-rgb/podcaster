@@ -53,6 +53,8 @@
 #include "MixChainView.h"
 #include "ReadMono.h"
 #include "CutReviewPanel.h"
+#include "Backing.h"
+#include "DSP/BackingEdit.h"
 #include <limits>
 #include <memory>
 #include <thread>
@@ -228,7 +230,11 @@ public:
                 note=PL("Wskaż początek, potem późniejszy koniec cięcia na osi czasu.");repaint();return;
             }
             const double from=cutFrom,to=cutTo,rate=sr;
-            restartEdit([this,from,to,rate](std::vector<float>& out) {
+            const bool mute=withMusic;
+            restartEdit([this,from,to,rate,mute](std::vector<float>& out) {
+                // z podkladem nie usuwamy czasu, tylko wyciszamy: muzyka jest
+                // nieruszalna, glos po cieciu zostaje w swoim takcie (25.10)
+                if(mute) { auto a=review.rawAudio(); if(!tw::BackingEdit::muteRange(a,rate,from,to)) return false; out=std::move(a); return true; }
                 std::vector<float> edited;
                 if(!zs::cutRange(review.rawAudio(),rate,from,to,edited)) return false;
                 out=std::move(edited); return true;
@@ -348,6 +354,12 @@ public:
                          &markStart, &markEnd, &cutButton, &undoButton }) b->setEnabled (false);
         cutPanel.load(wavFile, {}, 48000);
         file  = wavFile;
+        withMusic = zs::BackingTrack::musicFor (wavFile) != juce::File();
+        cutButton.setButtonText (withMusic ? PL("Wycisz zaznaczenie") : PL("Wytnij zaznaczenie"));
+        middleToggle.setButtonText (withMusic ? PL("Wycisz fragment ze środka") : PL("Wytnij fragment ze środka"));
+        selection.setText (withMusic ? PL("Przeciągnij po fali, aby zaznaczyć fragment do wyciszenia. Oryginał zostaje na dysku.")
+                                     : PL("Przeciągnij po fali, aby zaznaczyć fragment do wycięcia. Oryginał zostaje na dysku."),
+                           juce::dontSendNotification);
         saved = juce::File(); savedMp3 = juce::File();
         note.clear();
         // stara kopia nie jest juz potrzebna (godzina = 0,7 GB), a fala nie
@@ -1120,6 +1132,9 @@ private:
                 t << plr::clock (redo.fromSec) << PL("–") << plr::clock (redo.toSec) << "  " << plr::kind (redo.kind) << "\n";
             t << "\n";
         }
+        if (withMusic)
+            t << PL("Nagranie z podkładem: muzyka się nie przesuwa, więc zaznaczony fragment i początek przed uchwytem są wyciszane, a nie wycinane. Głos zostaje w rytmie muzyki. Koniec można przyciąć normalnie.\n\n");
+        else
         t << PL("Możesz przyciąć początek i koniec albo wyciąć fragment ze środka. Oryginał zostaje na dysku.\n\n")
           << PL("Gdy wszystko gra: „Dalej: miks”. Miks policzy się raz, na końcu.");
         return t;
@@ -1165,10 +1180,14 @@ private:
         const double from=trimStart.getValue(),to=trimEnd.getValue(),total=review.seconds(),rate=sr;
         if (from > 0.0 || to < total) {
             // przyciecie w tle; po nim ten sam krok jeszcze raz (juz bez przyciecia)
-            restartEdit([this,from,to,total,rate](std::vector<float>& out) {
+            const bool mute=withMusic;
+            restartEdit([this,from,to,total,rate,mute](std::vector<float>& out) {
                 std::vector<float> audio=review.rawAudio(), cropped;
                 if(to<total) {if(!zs::cutRange(audio,rate,to,total,cropped))return false;audio=std::move(cropped);}
-                if(from>0) {if(!zs::cutRange(audio,rate,0,from,cropped))return false;audio=std::move(cropped);}
+                // z podkladem poczatek sie wycisza, nie znika — inaczej caly glos
+                // przesunalby sie wzgledem muzyki
+                if(from>0 && mute) {if(!tw::BackingEdit::muteRange(audio,rate,0,from))return false;}
+                else if(from>0) {if(!zs::cutRange(audio,rate,0,from,cropped))return false;audio=std::move(cropped);}
                 out=std::move(audio); return true;
             }, true, [this] { goToMix(); },
                PL("Nie udało się przyciąć początku i końca. Przesuń uchwyty i spróbuj jeszcze raz."));
@@ -1242,7 +1261,7 @@ private:
     }
     void updateSelection() {
         if(cutFrom>=0 && cutTo>cutFrom)
-            selection.setText(PL("Do wycięcia: ")+plr::clock(cutFrom)+PL("–")+plr::clock(cutTo)+" ("+juce::String(cutTo-cutFrom,1)+PL(" s) — Delete albo „Wytnij zaznaczenie”."),juce::dontSendNotification);
+            selection.setText((withMusic ? PL("Do wyciszenia: ") : PL("Do wycięcia: "))+plr::clock(cutFrom)+PL("–")+plr::clock(cutTo)+" ("+juce::String(cutTo-cutFrom,1)+PL(" s) — Delete albo „")+cutButton.getButtonText()+PL("”."),juce::dontSendNotification);
         else
             selection.setText(PL("Cięcie: ")+(cutFrom>=0?juce::String(cutFrom,2)+" s":"—")+"  →  "+(cutTo>=0?juce::String(cutTo,2)+" s":"—"),juce::dontSendNotification);
         repaint();
@@ -1915,6 +1934,7 @@ private:
     zs::Envelope   beforeEnv, afterEnv;
 
     juce::File file, saved;
+    bool withMusic = false;   ///< nagrane do podkladu: montaz wycisza zamiast wycinac
     juce::File savedMp3;                  ///< MP3 obok zapisanego WAV-a (puste, gdy sie nie udalo)
     juce::String mp3Problem;              ///< dlaczego MP3 nie powstal
     static constexpr int mp3Kbps = 128;   ///< glos mono: nie do odroznienia od WAV-a
