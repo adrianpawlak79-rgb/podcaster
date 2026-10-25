@@ -30,7 +30,13 @@ Zgłoszenie (issue) z etykietą `gemini`, nadaną przez właściciela repo, uruc
 Cross-kompilacja Linux→Windows: `mingw-toolchain.cmake`.
 
 ## Stan i plan
-- `main` = wersja 0.4.0 (stan z 4 października).
-- Do odtworzenia po resecie środowiska (kod 0.5.x przepadł): ekran nagrywania z przyciskami Start/Stop/Powtórz wers, kreator, wspólny wygląd (Look/StepBar/Fonts), powtarzanie wersu w prompterze.
-- Prompter: kierunek to Vosk (słownik ograniczony do słów skryptu + kompensacja opóźnienia 1–1,5 s), licznik sylab jako rezerwa. Pomiar na prawdziwym głosie: błąd ≤1 słowo w 66% chwil, ≤2 słowa w 88%; to wystarcza do podświetlania wersu, nie pojedynczych słów (potrzeba ≥85%). Metoda „klas głosek" dała 0% na prawdziwym głosie i została odrzucona.
-- Jeszcze nie sprawdzone: lampka na żywym SM7B, kalibracja `proximityDb`.
+- `main` jest aktualny (październik 2026): ekran startowy, przygotowanie z kreatorem sprzętu, nagranie z prompterem (Vosk), pauzą, R i cięciem, odsłuch i montaż, miks z trzema brzmieniami i torem modułów, zapis WAV i MP3, instalator (NSIS), podkład muzyczny (krok 1: muzyka w słuchawkach). Plik `README.md` jest nieaktualny.
+- Wygląd: specyfikacja „ciemny sprzęt z poświatą” w `Docs/projekt/ciemny-sprzet/`. Paleta w `Source/UiRules.h`, rysowanie w `Source/Look.h`, ramy ekranów w `Source/ScreenFrame.h`.
+- Podkład muzyczny (wątek audio, synchronizacja: `Recorder.h`, `Backing.h`, `DSP/EditedView.h`) robi Claude. Nie zmieniaj tych plików bez uzgodnienia w PR.
+- Prompter: Vosk (słownik ograniczony do słów skryptu), licznik sylab jako rezerwa, tylko do 6 s po ostatnim rozpoznanym słowie.
+
+## Końce wierszy
+Pliki z końcówkami CRLF zostają w CRLF (m.in. `Source/MainComponent.h`, `Source/PrompterComponent.h`, `Source/ReviewComponent.h`, `Source/Main.cpp`, `CMakeLists.txt`). Nie zmieniaj końcówek całego pliku przy małej zmianie.
+
+## Podgląd ekranów bez mikrofonu
+`"Zielone swiatlo" --preview-ui plik.png <tryb> [nagranie.wav]`. Tryby: `witaj`, `settings`, `wizard`, `prompter`, `prompter-rec`, `prompter-znaczki`, `prompter-wskazanie`, `review`, `review-ciecia`, `edit`, `tor`, `done`; dopisek `-small` daje okno 960×640. Zmiany wyglądu pokazuj w PR zrzutami w obu rozmiarach.
