@@ -77,8 +77,20 @@ public:
     /** Narzedzia promptera pod tekstem; nagrywanie i lampka sa w panelu bocznym. */
     static constexpr int barHeight = 52;
 
+    class StripTooltip : public juce::Component, public juce::SettableTooltipClient
+    {
+    public:
+        explicit StripTooltip (PrompterComponent& p) : owner (p) {}
+        void mouseDown (const juce::MouseEvent& e) override { owner.mouseDown (e.getEventRelativeTo (&owner)); }
+        void mouseDrag (const juce::MouseEvent& e) override { owner.mouseDrag (e.getEventRelativeTo (&owner)); }
+        void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
+        { owner.mouseWheelMove (e.getEventRelativeTo (&owner), w); }
+    private:
+        PrompterComponent& owner;
+    };
+
     //==========================================================================
-    PrompterComponent (Recorder& r, Settings& s) : recorder (r), settings (s)
+    PrompterComponent (Recorder& r, Settings& s) : recorder (r), settings (s), stripTip (*this)
     {
         fontScale = (float) settings.fontScale();
         mirror    = settings.mirrored();
@@ -92,6 +104,7 @@ public:
         mirrorButton.setButtonText(PL("Lustro"));mirrorButton.onClick=[this]{mirror=!mirror;settings.setMirrored(mirror);repaint();};
         for(auto* b:{&backButton,&smallerButton,&largerButton,&previousButton,&nextButton,&mirrorButton})addAndMakeVisible(b);
         setupTransport();
+        addAndMakeVisible (stripTip);
         setWantsKeyboardFocus (true);
         startTimerHz (30);
     }
@@ -497,6 +510,16 @@ public:
     void updateTransport()
     {
         const bool rec = recorder.isRecording();
+        const bool resumeFromLine = pz.on && pz.selected && ! pz.resuming;
+        tRecord.setButtonText (resumeFromLine ? PL ("Nagraj od linii") : PL ("Nagraj"));
+        tRecord.setTooltip (resumeFromLine
+            ? PL ("Wznowisz od czerwonej linii. Poprzednia wersja zostanie w folderze „surowe”. Kliknij falę, aby zmienić miejsce.")
+            : PL ("Nagraj (spacja)"));
+        stripTip.setTooltip (pz.on
+            ? pz.selected
+                ? PL ("PAUZA. Czerwona linia wyznacza początek nowego podejścia. Kliknij falę lub wers, aby wybrać inne miejsce; poprzednia wersja zostanie w folderze „surowe”.")
+                : PL ("PAUZA. Kliknij wers albo miejsce na fali, aby wskazać początek wznowienia. Kółkiem myszy przewiniesz nagranie.")
+            : juce::String());
         tRecord.setEnabled (! rec || (pz.on && ! pz.resuming));
         tPause.setEnabled (rec && ! pz.on);
         tPlay.setEnabled (pz.on && ! pz.resuming);
@@ -781,8 +804,7 @@ public:
             text = pz.tooOld   ? pick (PL ("PAUZA  ·  ten wers jest dalej niż 5 minut wstecz — tak daleko nie nagrasz od nowa; popraw go w Montażu"),
                                        PL ("PAUZA  ·  za daleko wstecz — popraw w Montażu"))
                  : pz.resuming ? PL ("PAUZA  ·  za chwilę nagrywanie od czerwonej linii")
-                 : pz.selected ? pick (PL ("PAUZA  ·  Nagraj: czytasz od czerwonej linii, stara wersja zostaje w folderze „surowe”  ·  kliknij, by zmienić"),
-                                       PL ("PAUZA  ·  Nagraj: czytasz od czerwonej linii"))
+                 : pz.selected ? PL ("PAUZA  ·  Wznowisz od czerwonej linii")
                                : pick (PL ("PAUZA  ·  kliknij wers albo miejsce na fali, od którego chcesz nagrać  ·  kółko — przewiń"),
                                        PL ("PAUZA  ·  kliknij wers albo miejsce na fali"));
             g.drawText (text, area, juce::Justification::centredLeft);
@@ -1013,6 +1035,7 @@ public:
     void resized() override
     {
         layoutDirty = true;
+        stripTip.setBounds (stripCard());
         layoutTransport();
         auto bar = textCard().removeFromBottom (barHeight).reduced (12, 8);
         const juce::Font f (zs::type::body);
@@ -1707,6 +1730,7 @@ private:
     bool   wasRecording = false;
 
     Settings&    settings;
+    StripTooltip stripTip;
     float        fontScale = 1.0f;
     bool         mirror = false;
 
