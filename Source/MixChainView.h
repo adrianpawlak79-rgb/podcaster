@@ -76,15 +76,16 @@ public:
     /** Wysokosc potrzebna przy danej szerokosci. */
     int heightFor (int width) const
     {
-        juce::ignoreUnused (width);
-        return header + tileH;
+        const int cols = columnsFor (width);
+        const int rows = (mix::stageCount + cols - 1) / cols;
+        return header + rows * tileH + (rows - 1) * gap;
     }
 
     void resized() override
     {
         auto r = getLocalBounds();
         auto head = r.removeFromTop (header);
-        resetButton.setBounds (head.removeFromRight (124).withSizeKeepingCentre (124, 28));
+        resetButton.setBounds (head.removeFromRight (170).withSizeKeepingCentre (170, 26));
         for (int i = 0; i < mix::stageCount; ++i)
         {
             const auto tile = tileBounds (i);
@@ -101,7 +102,7 @@ public:
         using I = zs::Ink;
         auto head = getLocalBounds().removeFromTop (header);
         g.setColour (I::textDim()); g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
-        g.drawText (PL ("ZAAWANSOWANE USTAWIENIA — dźwięk idzie od lewej do prawej"), head.withTrimmedRight (130),
+        g.drawText (PL ("ZAAWANSOWANE USTAWIENIA — dźwięk idzie od lewej do prawej"), head.withTrimmedRight (176),
                     juce::Justification::centredLeft, true);
 
         for (int i = 0; i < mix::stageCount; ++i)
@@ -179,7 +180,7 @@ private:
     };
     struct Tile { Power power; juce::Slider amount; };
 
-    static constexpr int header = 34, tileH = 144, gap = 8, minTileW = 168, helpHeight = 42;
+    static constexpr int header = 28, tileH = 112, gap = 6, minTileW = 150, helpHeight = 30;
 
     std::array<Tile, mix::stageCount> tiles;
     juce::TextButton resetButton;
@@ -187,14 +188,20 @@ private:
     mix::Tweaks tweaks;
     bool known = false, busy = false;
 
-    static int columnsFor (int width) { juce::ignoreUnused (width); return mix::stageCount; }
+    /** Dwa wiersze (5 + 4), bez przewijania w bok (Adrian 25.10); gdy kafel
+        bylby wezszy niz minTileW — trzy wiersze. */
+    static int columnsFor (int width)
+    {
+        const int two = (mix::stageCount + 1) / 2;
+        return width >= two * minTileW + (two - 1) * gap ? two : (mix::stageCount + 2) / 3;
+    }
 
     juce::Rectangle<int> tileBounds (int i) const
     {
         const int cols = columnsFor (getWidth());
         const int w = (getWidth() - (cols - 1) * gap) / cols;
-        const int c = i % cols;
-        return { c * (w + gap), header, w, tileH };
+        const int c = i % cols, row = i / cols;
+        return { c * (w + gap), header + row * (tileH + gap), w, tileH };
     }
 
     /** Automat uzyl modulu (przed poprawkami). */
