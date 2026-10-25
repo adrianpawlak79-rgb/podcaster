@@ -1092,7 +1092,7 @@ private:
             const auto inputName = inputBox.getText().isNotEmpty() ? inputBox.getText() : PL("wejście nieustawione");
             const auto freshness = hardwareCheckedThisSession ? PL("sprawdzone dziś")
                 : settings.hardwareChecked() ? PL("sprawdzone wcześniej") : PL("niesprawdzone");
-            const auto state = (device != nullptr ? device->getName() : PL("Mikrofon nie wybrany"))
+            const auto state = (device != nullptr ? inputDeviceName() : PL("Mikrofon nie wybrany"))
                              + PL(" · ") + inputName + PL(" · ") + freshness;
             text (state, side.removeFromTop(56), zs::type::body);
         }
@@ -1348,7 +1348,16 @@ private:
         const auto key = backingFile.getFullPathName() + "@" + juce::String (rate);
         if (key == loadedBackingKey && recorder.hasBacking()) return true;
         zs::BackingTrack t;
-        const auto err = t.load (backingFile, rate);
+        juce::String err;
+        if (backingPreload != nullptr && backingPreload->key == key)
+        {
+            // wczytywane w tle od Startu (preloadBacking); zwykle juz gotowe
+            while (! backingPreload->done.load()) juce::Thread::sleep (10);
+            t = std::move (backingPreload->track);
+            err = backingPreload->error;
+            backingPreload.reset();
+        }
+        else err = t.load (backingFile, rate);
         if (err.isNotEmpty())
         {
             juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, PL ("Podkład"), err);
@@ -1777,7 +1786,7 @@ private:
                 auto* dev = deviceManager.getCurrentAudioDevice();
                 const int d = settings.daysSinceCheck();
                 const bool checked = settings.hardwareChecked();
-                startScreen->setEquipment (PL ("Mikrofon: ") + (dev != nullptr ? dev->getName() : PL ("nie wybrany"))
+                startScreen->setEquipment (PL ("Mikrofon: ") + (dev != nullptr ? inputDeviceName() : PL ("nie wybrany"))
                     + (checked ? PL ("  ·  sprzęt sprawdzony ") + (d <= 0 ? juce::String (PL ("dzisiaj"))
                                                                       : juce::String (d) + PL (d == 1 ? " dzień temu" : " dni temu"))
                                : PL ("  ·  sprzęt niesprawdzony")),
@@ -2083,6 +2092,18 @@ private:
     bool inStart = false, preparationAfterWizard = false, hardwareCheckedThisSession = false;
     bool startWithPrompter = true;        ///< wybor z ekranu startowego (Adrian 25.10)
 
+    /** Nazwa urzadzenia MIKROFONU. AudioIODevice::getName() na Windows (WASAPI,
+        DirectSound) to nazwa wyjscia, gdy wejscie i wyjscie sa rozne — Adrian
+        25.10 widzial "FxSound" (domyslne sluchawki) zamiast SSL2. */
+    juce::String inputDeviceName()
+    {
+        juce::AudioDeviceManager::AudioDeviceSetup setup;
+        deviceManager.getAudioDeviceSetup (setup);
+        if (setup.inputDeviceName.isNotEmpty()) return setup.inputDeviceName;
+        auto* dev = deviceManager.getCurrentAudioDevice();
+        return dev != nullptr ? dev->getName() : juce::String();
+    }
+
     /** Po ekranie startowym (i kreatorze): z prompterem — Przygotowanie z
         tekstem; bez — od razu ekran nagrania bez tekstu (lampka, Nagraj). */
     void afterStartChoice()
@@ -2090,6 +2111,35 @@ private:
         settingsOpen = false; detailsOpen = false;
         preparation = startWithPrompter;
         if (! startWithPrompter && inPrompter) showPrompter (false);
+        preloadBacking();
+    }
+
+    /** Podklad wczytywany w tle zaraz po Starcie, nie po Nagraj: dekodowanie
+        MP3 i przeliczenie czestotliwosci 3-4 minut muzyki to kilka sekund,
+        ktore zamrazaly okno w chwili nagrania (Adrian 25.10). */
+    struct BackingPreload
+    {
+        juce::String key, error;
+        zs::BackingTrack track;
+        std::atomic<bool> done { false };
+    };
+    std::shared_ptr<BackingPreload> backingPreload;
+    juce::ThreadPool backingPool { 1 };
+
+    void preloadBacking()
+    {
+        const double rate = recorder.currentSampleRate();
+        if (backingFile == juce::File() || rate <= 0.0) return;
+        const auto key = backingFile.getFullPathName() + "@" + juce::String (rate);
+        if ((key == loadedBackingKey && recorder.hasBacking()) || (backingPreload != nullptr && backingPreload->key == key)) return;
+        auto job = std::make_shared<BackingPreload>();
+        job->key = key;
+        backingPreload = job;
+        backingPool.addJob ([job, file = backingFile, rate]
+        {
+            job->error = job->track.load (file, rate);
+            job->done.store (true);
+        });
     }
     bool inReview = false, reviewCameFromPrompter = false;
     bool closeAsked = false;              ///< okno "czy zamknac" juz pokazane

@@ -113,6 +113,7 @@ public:
     {
         recorder.attachSyllableClock (nullptr);
         recorder.attachSpeechRing (nullptr);
+        subsPool.removeAllJobs (true, 20000);   // zadanie czyta slowa modelu z VoskEngine
     }
 
     /** Rozpoznawanie mowy. Bez niego (nullptr albo brak modelu) prompter
@@ -128,6 +129,7 @@ public:
         scrollNow = scrollTarget = 0.0f;
         shownLine = 0;
         layoutDirty = true;
+        prepareSubstitutes();
         repaint();
     }
 
@@ -1120,6 +1122,8 @@ private:
        ktorym opiera sie predkosc czytania, skakalby w momencie startu. */
     void timerCallback() override
     {
+        // model mowy wczytal sie po tekscie: zamienniki liczymy teraz, w tle
+        if (subs == nullptr && ! recorder.isRecording()) prepareSubstitutes();
         if (! running) return;
 
         const bool rec = recorder.isRecording();
@@ -1231,9 +1235,14 @@ private:
         if (speech == nullptr || speech->state() != VoskEngine::State::Ready || script.wordCount() == 0) return;
 
         // Slowa, ktorych model nie zna, dostaja najblizszy znany zamiennik
-        // (na "Nic dwa razy": 7 slow, z tego 6 potem uslyszanych).
-        for (auto& sb : speech->substitutesFor (words.vocabulary()))
-            words.addAlias (sb.second, sb.first);
+        // (na "Nic dwa razy": 7 slow, z tego 6 potem uslyszanych). Liczone w
+        // tle zaraz po wczytaniu tekstu (prepareSubstitutes) — tu liczone na
+        // miejscu zamrazaly okno po Nagraj na kilka sekund (Adrian 25.10;
+        // 244 tys. slow modelu, 92 slowa: 6,7 s). Gdy jeszcze nie gotowe,
+        // to nagranie idzie bez zamiennikow.
+        if (subs != nullptr && subs->done.load() && subs->vocabulary == words.vocabulary())
+            for (auto& sb : subs->pairs)
+                words.addAlias (sb.second, sb.first);
 
         speech->startListening (recorder.currentSampleRate(), words.vocabulary());
         recorder.attachSpeechRing (&speech->samples());
@@ -1698,6 +1707,30 @@ private:
     tw::Follower follower;
     tw::WordTracker words;           ///< pozycja z rozpoznanych slow (Vosk)
     VoskEngine* speech = nullptr;
+
+    /** Zamienniki slow nieznanych modelowi, liczone w tle dla danego tekstu. */
+    struct Substitutes
+    {
+        std::vector<std::string> vocabulary;
+        std::vector<std::pair<std::string, std::string>> pairs;
+        std::atomic<bool> done { false };
+    };
+    std::shared_ptr<Substitutes> subs;
+    juce::ThreadPool subsPool { 1 };
+
+    void prepareSubstitutes()
+    {
+        if (speech == nullptr || speech->state() != VoskEngine::State::Ready || script.wordCount() == 0) return;
+        auto job = std::make_shared<Substitutes>();
+        job->vocabulary = words.vocabulary();
+        if (subs != nullptr && subs->vocabulary == job->vocabulary) return;   // ten sam tekst
+        subs = job;
+        subsPool.addJob ([job, engine = speech]
+        {
+            job->pairs = engine->substitutesFor (job->vocabulary);
+            job->done.store (true);
+        });
+    }
     bool listening = false;
 
     std::vector<Line> lines;
