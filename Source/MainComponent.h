@@ -775,6 +775,17 @@ public:
         previewBackingName = PL ("Nocne_swiatla_demo");
         previewBackingDuration = 220.0;
         previewBackingPosition = 72.0;
+        if (prompter != nullptr)
+        {
+            std::vector<float> envelope (22000);
+            for (size_t i = 0; i < envelope.size(); ++i)
+            {
+                const float pulse = 0.18f + 0.52f * std::abs (std::sin ((float) i * 0.071f));
+                const float phrase = (i % 4300 < 900 || i % 4300 > 3900) ? 0.28f : 1.0f;
+                envelope[i] = pulse * phrase;
+            }
+            prompter->setBackingEnvelope (std::move (envelope), previewBackingPosition);
+        }
         if (pause && prompter != nullptr) prompter->spacePressed();
         resized();
         repaint();
@@ -1344,11 +1355,16 @@ private:
         {
             if (recorder.hasBacking()) recorder.setBacking ({}, {});
             loadedBackingKey.clear();
+            if (prompter != nullptr) prompter->setBackingEnvelope ({});
             return true;
         }
         const double rate = recorder.currentSampleRate();
         const auto key = backingFile.getFullPathName() + "@" + juce::String (rate);
-        if (key == loadedBackingKey && recorder.hasBacking()) return true;
+        if (key == loadedBackingKey && recorder.hasBacking())
+        {
+            if (prompter != nullptr) prompter->setBackingEnvelope (backingEnvelope);
+            return true;
+        }
         zs::BackingTrack t;
         juce::String err;
         if (backingPreload != nullptr && backingPreload->key == key)
@@ -1365,6 +1381,18 @@ private:
             juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, PL ("Podkład"), err);
             return false;
         }
+        backingEnvelope.clear();
+        backingEnvelope.reserve ((t.left.size() + (size_t) juce::jmax (1.0, rate / 100.0) - 1)
+                                 / (size_t) juce::jmax (1.0, rate / 100.0));
+        const size_t hop = (size_t) juce::jmax (1.0, rate / 100.0);
+        for (size_t start = 0; start < t.left.size(); start += hop)
+        {
+            const size_t end = juce::jmin (t.left.size(), start + hop);
+            float peak = 0.0f;
+            for (size_t i = start; i < end; ++i) peak = juce::jmax (peak, std::abs (t.left[i]));
+            backingEnvelope.push_back (peak);
+        }
+        if (prompter != nullptr) prompter->setBackingEnvelope (backingEnvelope);
         recorder.setBacking (std::move (t.left), std::move (t.right));
         loadedBackingKey = key;
         return true;
@@ -2091,6 +2119,7 @@ private:
     juce::String previewBackingName;
     double previewBackingDuration = 0.0, previewBackingPosition = 0.0;
     juce::String loadedBackingKey;        ///< sciezka@czestotliwosc tego, co siedzi w Recorderze
+    std::vector<float> backingEnvelope;   ///< obwiednia promptera, liczona poza callbackiem
     bool inStart = false, preparationAfterWizard = false, hardwareCheckedThisSession = false;
     bool startWithPrompter = true;        ///< wybor z ekranu startowego (Adrian 25.10)
 

@@ -120,6 +120,11 @@ public:
         jedzie na liczniku sylab — tak jak w 0.4.0. */
     void setSpeech (VoskEngine* engine) { speech = engine; }
 
+    /** Lekka obwiednia podkładu: jedna wartość szczytowa na 10 ms.
+        Kopia jest przygotowana poza wątkiem audio. */
+    void setBackingEnvelope (std::vector<float> envelope, double previewPositionSec = -1.0)
+    { backingEnvelope = std::move (envelope); previewBackingPositionSec = previewPositionSec; repaint(); }
+
     //==========================================================================
     void load (const juce::String& utf8)
     {
@@ -608,7 +613,14 @@ public:
     {
         if (pz.on)
         {
-            drawStrip (g, area, pz.history, pz.historyStart, pz.rate, pz.viewEnd - pauseViewSec, pz.viewEnd, true);
+            if (previewBackingPositionSec >= 0.0)
+            {
+                pz.selected = true;
+                pz.cutSec = previewBackingPositionSec - 3.0;
+                drawStrip (g, area, pz.history, pz.historyStart, pz.rate,
+                           previewBackingPositionSec - pauseViewSec, previewBackingPositionSec, true);
+            }
+            else drawStrip (g, area, pz.history, pz.historyStart, pz.rate, pz.viewEnd - pauseViewSec, pz.viewEnd, true);
             return;
         }
         if (previewLive)        // tylko zrzut ekranu
@@ -623,7 +635,8 @@ public:
         if (! recorder.isRecording())
         {
             static const std::vector<float> none;
-            drawStrip (g, area, none, 0.0, 48000.0, -liveStripSec, 0.0, false);
+            const double previewNow = previewBackingPositionSec >= 0.0 ? previewBackingPositionSec : 0.0;
+            drawStrip (g, area, none, 0.0, 48000.0, previewNow - liveStripSec, previewNow, false);
             // Bez rozpoznawania mowy: jedno zdanie tam, gdzie po starcie bedzie
             // fala — wczesniej lezalo na tekscie promptera.
             if (speech != nullptr && speech->whyNot().isNotEmpty())
@@ -644,7 +657,8 @@ public:
         {
             // pierwsze chwile nagrania: karta z pusta osia, nie dziura
             static const std::vector<float> none;
-            drawStrip (g, area, none, 0.0, 48000.0, -liveStripSec, 0.0, false);
+            const double previewNow = previewBackingPositionSec >= 0.0 ? previewBackingPositionSec : 0.0;
+            drawStrip (g, area, none, 0.0, 48000.0, previewNow - liveStripSec, previewNow, false);
             return;
         }
         const double now = start + (double) live.size() / rate;
@@ -680,6 +694,32 @@ public:
         }
 
         auto xOf = [&] (double t) { return wave.getX() + (float) ((t - t0) / (t1 - t0)) * wave.getWidth(); };
+
+        // Podklad rysujemy w dolnym pasmie, przed fala glosu. Indeks muzyki
+        // jest atomowo publikowany przez Recorder; przesuniecie wyliczamy z
+        // jego biezacej pozycji, bez dostepu do bufora watku audio.
+        if (! backingEnvelope.empty())
+        {
+            const double backingRate = recorder.currentSampleRate();
+            const double shift = recorder.hasBacking() && backingRate > 0.0
+                ? recorder.recordedSeconds() - (double) recorder.backingIndexNow() / backingRate : 0.0;
+            const float musicMid = wave.getBottom() - juce::jmax (5.0f, wave.getHeight() * 0.18f);
+            const float musicHalf = juce::jmax (2.0f, wave.getHeight() * 0.16f);
+            const juce::Colour musicColour (0xff8f7cf0);
+            for (int px = 0; px < (int) wave.getWidth(); ++px)
+            {
+                const double t = t0 + (t1 - t0) * (px + 0.5) / wave.getWidth();
+                const double musicSec = t - shift;
+                const auto bucket = (long) std::floor (musicSec * 100.0);
+                if (bucket < 0 || bucket >= (long) backingEnvelope.size()) continue;
+                const float peak = backingEnvelope[(size_t) bucket];
+                const float h = juce::jlimit (0.0f, 1.0f, peak) * musicHalf;
+                if (h < 0.5f) continue;
+                const bool afterRestartLine = paused && pz.selected && t > pz.cutSec;
+                g.setColour (musicColour.withAlpha (afterRestartLine ? 0.08f : 0.30f));
+                g.drawVerticalLine ((int) (wave.getX() + (float) px), musicMid - h, musicMid + h);
+            }
+        }
 
         // na pauzie: wyciete wczesniej (przygaszone) i to, co zostanie zastapione
         if (paused)
@@ -1742,6 +1782,8 @@ private:
     bool listening = false;
 
     std::vector<Line> lines;
+    std::vector<float> backingEnvelope;           ///< 100 szczytow na sekunde, poza audio callbackiem
+    double previewBackingPositionSec = -1.0;      ///< tylko podglad ekranu
     std::vector<tw::LineSpan> spans;     ///< te same wersy, same numery slow
     tw::LineLog lineLog;                 ///< kiedy zaczal sie ktory wers (zapis obok nagrania)
     std::string journalText;             ///< ostatnio zapisany dziennik (TakeJournal.h)
