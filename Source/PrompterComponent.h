@@ -460,13 +460,11 @@ public:
 
     //==========================================================================
     /** Uklad karty z fala: fala, slowa, podpowiedz, pasek transportu. */
-    struct StripLayout { juce::Rectangle<float> wave, labels, hint, transport; };
+    struct StripLayout { juce::Rectangle<float> wave, labels, hint; };
     StripLayout stripLayout (juce::Rectangle<int> card) const
     {
         StripLayout L;
         auto inner = card.toFloat().reduced (14.0f, 10.0f);
-        L.transport = inner.removeFromBottom (34.0f);
-        inner.removeFromBottom (6.0f);
         L.hint = inner.removeFromBottom (18.0f);
         // slowa w jednym rzedzie (Adrian 24.10: dwa rzedy "schodkami" wygladaly slabo)
         L.labels = inner.removeFromBottom (24.0f);
@@ -511,22 +509,23 @@ public:
 
     void layoutTransport()
     {
-        auto row = stripLayout (stripCard()).transport.toNearestInt();
+        auto row = transportRow();
         // licznik czasu jest raz — w prawym panelu (MainComponent), nie tu
         // Kazdy przycisk tak szeroki jak ikona i napis. Gdy cztery sie nie mieszcza
         // (male okno), zostaja same ikony — jak w odtwarzaczu; nazwy
         // i klawisze stoja w podpowiedzi pod spodem.
         const juce::Font f (zs::type::body, juce::Font::bold);
         const auto widthOf = [&] (juce::Button* b) { return f.getStringWidth (b->getButtonText()) + 32 + zs::Look::iconSpace; };
-        int need = 4 * 8;
-        for (auto* b : { &tRecord, &tPause, &tPlay, &tRepeat, &tEnd }) need += juce::jmax (widthOf (b), widthOf (&tPlay));
-        const bool compact = need > row.getWidth();
-        const int w = compact ? juce::jlimit (40, 64, (row.getWidth() - 4 * 8) / 5)
-                              : juce::jmax (juce::jmax (widthOf (&tRecord), widthOf (&tPause), widthOf (&tPlay)), juce::jmax (widthOf (&tRepeat), widthOf (&tEnd)));
+        // piec rownych przyciskow na cala szerokosc (makieta E, nagranie)
+        const int gap = 8;
+        const int w = (row.getWidth() - 4 * gap) / 5;
+        const int widest = juce::jmax (juce::jmax (widthOf (&tRecord), widthOf (&tPause), widthOf (&tPlay)),
+                                       juce::jmax (widthOf (&tRepeat), widthOf (&tEnd)));
+        const bool compact = w < widest;
         for (auto* b : { &tRecord, &tPause, &tPlay, &tRepeat, &tEnd })
         {
             zs::Look::setCompact (*b, compact);
-            b->setBounds (row.removeFromLeft (w)); row.removeFromLeft (8);
+            b->setBounds (b == &tEnd ? row : row.removeFromLeft (w)); row.removeFromLeft (gap);
         }
     }
 
@@ -635,10 +634,19 @@ public:
         const auto box = area.toFloat();
         const auto L = stripLayout (area);
         const auto wave = L.wave, labels = L.labels, hint = L.hint;
-        g.setColour (Ink::panel());
-        g.fillRoundedRectangle (box, 10.0f);
-        g.setColour (paused ? Ink::yellow().withAlpha (0.6f) : Ink::edge());
-        g.drawRoundedRectangle (box.reduced (0.5f), 10.0f, paused ? 1.5f : 1.0f);
+        // specyfikacja E: tlo #0B1118, obrys #293543 (na pauzie pomaranczowy
+        // #B88331 — aneks pkt 6), promien 8
+        g.setColour (juce::Colour (paused ? 0xff151d27 : 0xff0b1118));
+        g.fillRoundedRectangle (box, 8.0f);
+        g.setColour (juce::Colour (paused ? 0xffb88331 : 0xff293543));
+        g.drawRoundedRectangle (box.reduced (0.5f), 8.0f, 1.0f);
+        // siatka czasu: kreska co sekunde (#283443, alpha .7)
+        {
+            const float pxPerSec = wave.getWidth() / (float) juce::jmax (0.1, t1 - t0);
+            g.setColour (juce::Colour (0xff283443).withAlpha (0.7f));
+            for (double s = std::ceil (t0); s < t1; s += 1.0)
+                g.fillRect (wave.getX() + (float) (s - t0) * pxPerSec, wave.getY(), 1.0f, wave.getHeight());
+        }
 
         auto xOf = [&] (double t) { return wave.getX() + (float) ((t - t0) / (t1 - t0)) * wave.getWidth(); };
 
@@ -657,10 +665,12 @@ public:
             }
         }
 
-        // przebieg: szczyt na kolumne w skali decybeli (jak w DAW)
-        g.setColour (Ink::textNext());
+        // przebieg: szczyt na kolumne w skali decybeli (jak w DAW); na zywo
+        // niebieski #38B5FF, na pauzie szary #98A7B6 (spec. E), linia zera #536170
         const float mid = wave.getCentreY(), half = wave.getHeight() * 0.48f;
+        g.setColour (juce::Colour (0xff536170));
         g.drawHorizontalLine ((int) mid, wave.getX(), wave.getRight());
+        g.setColour (paused ? juce::Colour (0xff98a7b6).withAlpha (0.8f) : juce::Colour (0xff38b5ff).withAlpha (0.9f));
         for (int px = 0; px < (int) wave.getWidth(); ++px)
         {
             const double a = t0 + (t1 - t0) * px / wave.getWidth(), b = t0 + (t1 - t0) * (px + 1) / wave.getWidth();
@@ -743,7 +753,7 @@ public:
             const float x = xOf (t), wdt = (float) wordFont.getStringWidth (text) + 8.0f;
             const int row = x >= rowRight[0] ? 0 : rows > 1 && x >= rowRight[1] ? 1 : -1;
             if (row < 0) continue;
-            g.setColour (Ink::textNow().withAlpha (0.85f));
+            g.setColour (juce::Colour (0xffb9c4d0));
             g.drawText (text, juce::Rectangle<float> (x, labels.getY() + row * wordRow, wdt, wordRow), juce::Justification::centredLeft);
             rowRight[row] = x + wdt;
         }
@@ -989,9 +999,16 @@ public:
     /* Dwie karty: tekst u gory, fala na dole — osobne okienko, widoczne od
        wejscia na ekran (Adrian 13.10, uklad z projektu ChatGPT). */
     static constexpr int stripGap = 12;
-    int stripCardHeight() const { return juce::jlimit (getHeight() < 440 ? 150 : 176, 300, (int) (getHeight() * 0.38)); }
-    juce::Rectangle<int> textCard() const  { auto r = getLocalBounds(); r.removeFromBottom (stripCardHeight() + stripGap); return r; }
-    juce::Rectangle<int> stripCard() const { return getLocalBounds().removeFromBottom (stripCardHeight()); }
+    static constexpr int transportH = 44, transportGap = 10;
+    int stripCardHeight() const { return juce::jlimit (getHeight() < 440 ? 110 : 132, 250, (int) (getHeight() * 0.30)); }
+    juce::Rectangle<int> textCard() const  { auto r = getLocalBounds(); r.removeFromBottom (stripCardHeight() + stripGap + transportGap + transportH); return r; }
+    juce::Rectangle<int> stripCard() const
+    {
+        auto r = getLocalBounds(); r.removeFromBottom (transportH + transportGap);
+        return r.removeFromBottom (stripCardHeight());
+    }
+    /** Transport pod oknem z fala, nie w nim (Adrian 25.10). */
+    juce::Rectangle<int> transportRow() const { return getLocalBounds().removeFromBottom (transportH); }
 
     void resized() override
     {
@@ -1017,12 +1034,15 @@ public:
     {
         if (layoutDirty) rebuildLines (g);
         g.fillAll (Ink::bg());
-        g.setColour (Ink::panel());
+        g.setColour (Ink::panel());            // plaskie tlo: wygaszenie przy krawedziach ma ten sam kolor
         g.fillRoundedRectangle (textCard().toFloat(), 10.0f);
-        g.setColour (Ink::edge());
-        g.drawRoundedRectangle (textCard().toFloat().reduced (0.5f), 10.0f, 1.0f);
         drawAim (g, stripCard());              // fala: bez lustra, zawsze czytelna
         auto r = textCard();
+        // Tekst nie wchodzi na ramke: przyciety 12 px od gory i dolu karty,
+        // a obrys rysowany jeszcze raz na koncu (Adrian 25.10: "na gorze tekst
+        // zanika, powinien byc obrys").
+        juce::Graphics::ScopedSaveState clipText (g);
+        g.reduceClipRegion (textCard().reduced (1, 12));
         if (!recorder.isRecording()) r.removeFromBottom (barHeight);
         auto bottom = r.removeFromBottom (follower.isLost() ? bottomHeight() : 0);
         // Lustro dotyczy czytanego tekstu; przyciski i lampka sa stale.
@@ -1031,9 +1051,28 @@ public:
             g.addTransform (juce::AffineTransform::scale (-1.0f, 1.0f)
                                                  .translated ((float) getWidth(), 0.0f));
         drawScript (g, r);
+        // wersy wychodzace poza karte gasna lagodnie, zamiast urywac sie na krawedzi
+        {
+            const auto card = textCard().toFloat();
+            const float fade = 44.0f;
+            g.setGradientFill (juce::ColourGradient (Ink::panel(), 0.0f, card.getY() + 24.0f,
+                                                     Ink::panel().withAlpha (0.0f), 0.0f, card.getY() + 24.0f + fade, false));
+            g.fillRect (card.withHeight (24.0f + fade));
+            const float bottomY = (float) r.getBottom();
+            g.setGradientFill (juce::ColourGradient (Ink::panel().withAlpha (0.0f), 0.0f, bottomY - fade,
+                                                     Ink::panel(), 0.0f, bottomY, false));
+            g.fillRect (card.withTop (bottomY - fade).withBottom (bottomY));
+        }
         if (follower.isLost()) drawLostBanner (g, bottom);
         drawCountdown (g, r);
         drawNoCutNotice (g, r);
+    }
+
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        // obrys karty tekstu na wierzchu: przewijany tekst nie zaciera krawedzi
+        g.setColour (Ink::edge());
+        g.drawRoundedRectangle (textCard().toFloat().reduced (0.5f), 10.0f, 1.0f);
     }
 
 private:
