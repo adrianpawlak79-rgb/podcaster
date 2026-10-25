@@ -714,7 +714,7 @@ public:
         {
             // jeden zegar, lampka, miernik — przyciski sa w transporcie promptera
             const auto P = prompterSide();
-            lamp.setCompact (! P.musicCap.isEmpty());
+            lamp.setCompact (! P.musicCap.isEmpty() && P.lamp.getHeight() < 200);   // mala lampka tylko, gdy muzyka zabrala miejsce
             lamp.setBounds (P.lamp);
             segMeter.setBounds (P.meter);
             for (auto* c : std::initializer_list<juce::Component*> { &recButton, &repeatButton, &meter, &status, &hints })
