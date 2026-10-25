@@ -233,8 +233,11 @@ inline PunchResult replaceRecordedRange (const juce::File& wav, const juce::File
     if (std::abs (original.sr - fresh.sr) > 0.1 || original.channels != fresh.channels)
     { res.error = "poprawka ma inne parametry dźwięku niż nagranie"; return res; }
 
-    const auto replacementSamples = fixedLength
-        ? (size_t) std::llround ((to - from) * original.sr) : fresh.mono.size();
+    size_t firstSample = 0, lastSample = 0;
+    if (! tw::ReplaceRange::sampleBounds (original.mono.size(), original.sr, from, to,
+                                          firstSample, lastSample))
+    { res.error = "zaznaczony fragment wykracza poza nagranie"; return res; }
+    const auto replacementSamples = fixedLength ? lastSample - firstSample : fresh.mono.size();
     if (replacementSamples == 0 || fresh.mono.size() < replacementSamples
         || (original.channels > 1 && fresh.buf.getNumSamples() < (int) replacementSamples))
     { res.error = "poprawka jest krótsza niż zaznaczony fragment"; return res; }

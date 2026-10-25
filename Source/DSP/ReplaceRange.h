@@ -16,19 +16,29 @@ namespace tw
     crossfade. */
 struct ReplaceRange
 {
+    /** Convert the same time interval to rounded sample boundaries everywhere
+        (round(to-from) can differ by one sample from round(to)-round(from)). */
+    static bool sampleBounds (size_t sourceSamples, double sampleRate, double from, double to,
+                              size_t& first, size_t& last)
+    {
+        if (! std::isfinite (sampleRate) || sampleRate <= 0.0
+            || ! std::isfinite (from) || ! std::isfinite (to)
+            || from < 0.0 || to <= from || to > (double) sourceSamples / sampleRate)
+            return false;
+
+        first = std::min (sourceSamples, (size_t) std::llround (from * sampleRate));
+        last = std::min (sourceSamples, (size_t) std::llround (to * sampleRate));
+        return last > first;
+    }
+
     static bool render (const std::vector<float>& original,
                        const std::vector<float>& replacement,
                        double sampleRate, double from, double to,
                        bool fixedLength, std::vector<float>& out)
     {
-        if (! std::isfinite (sampleRate) || sampleRate <= 0.0
-            || ! std::isfinite (from) || ! std::isfinite (to)
-            || from < 0.0 || to <= from || to > (double) original.size() / sampleRate
-            || replacement.empty()) return false;
-
-        const auto a = std::min (original.size(), (size_t) std::llround (from * sampleRate));
-        const auto b = std::min (original.size(), (size_t) std::llround (to * sampleRate));
-        if (b <= a || b - a == original.size()) return false;
+        size_t a = 0, b = 0;
+        if (! sampleBounds (original.size(), sampleRate, from, to, a, b)
+            || replacement.empty() || b - a == original.size()) return false;
         if (fixedLength && replacement.size() != b - a) return false;
 
         const auto fade = std::min ({ (size_t) std::llround (sampleRate * 0.010),

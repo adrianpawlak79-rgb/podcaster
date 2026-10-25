@@ -34,6 +34,15 @@ int main()
     check (! tw::ReplaceRange::render (original, replacement, sr, 2.0, 5.0, true, fixed),
            "z podkładem odrzuca fragment o innej długości");
 
+    size_t first = 0, last = 0;
+    check (tw::ReplaceRange::sampleBounds (original.size(), sr, 1.0004, 2.0006, first, last)
+               && last - first == 1001,
+           "granice ułamkowych sekund zaokrąglane osobno dają tę samą liczbę próbek");
+    std::vector<float> rounded (1001, 0.25f);
+    check (tw::ReplaceRange::render (original, rounded, sr, 1.0004, 2.0006, true, fixed)
+               && fixed.size() == original.size(),
+           "podkład: ułamkowe granice nie odrzucają poprawki przez różnicę zaokrągleń");
+
     tw::LineMark before, removed, afterMark, fresh;
     before.sec = 1.0; removed.sec = 3.0; afterMark.sec = 6.0; fresh.sec = 1.0;
     const auto marks = tw::ReplaceRange::remapMarks ({ before, removed, afterMark }, { fresh }, 2.0, 5.0, 2.0);
