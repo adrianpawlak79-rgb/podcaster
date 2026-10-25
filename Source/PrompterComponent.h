@@ -1037,6 +1037,7 @@ public:
         g.setColour (Ink::panel());            // plaskie tlo: wygaszenie przy krawedziach ma ten sam kolor
         g.fillRoundedRectangle (textCard().toFloat(), 10.0f);
         drawAim (g, stripCard());              // fala: bez lustra, zawsze czytelna
+        drawCountdown (g, stripCard());
         auto r = textCard();
         // Tekst nie wchodzi na ramke: przyciety 12 px od gory i dolu karty,
         // a obrys rysowany jeszcze raz na koncu (Adrian 25.10: "na gorze tekst
@@ -1064,7 +1065,6 @@ public:
             g.fillRect (card.withTop (bottomY - fade).withBottom (bottomY));
         }
         if (follower.isLost()) drawLostBanner (g, bottom);
-        drawCountdown (g, r);
         drawNoCutNotice (g, r);
     }
 
@@ -1344,7 +1344,7 @@ private:
                           box.reduced (14.0f, 6.0f).toNearestInt(), juce::Justification::centred, 2);
     }
 
-    /** Odliczanie po R: duza liczba na srodku tekstu, potem "Czytaj". */
+    /** Odliczanie po R siedzi w karcie fali, poza czytanym tekstem. */
     void drawCountdown (juce::Graphics& g, juce::Rectangle<int> r)
     {
         if (countdownStart < 0.0) return;
@@ -1358,25 +1358,23 @@ private:
 
         const bool go = label == "Czytaj";
         const bool canMove = ! preRoll.candidates.empty() && preRoll.chosen >= 0;
-        // Pod celownikiem, nie na nim: wers do przeczytania ma byc widoczny
-        // przez cale odliczanie.
-        const int h = 120, w = juce::jmin (r.getWidth() - 40, 300);
-        auto box = juce::Rectangle<int> (r.getCentreX() - w / 2, r.getY() + (int) (r.getHeight() * (pz.on ? 0.36f : 0.62f)) - h / 2, w, h).toFloat();
-        g.setColour (Ink::raised().withAlpha (0.94f));
-        g.fillRoundedRectangle (box, 12.0f);
+        auto box = r.toFloat().reduced (12.0f, 8.0f).removeFromTop (56.0f).removeFromRight (juce::jmin (360.0f, (float) r.getWidth() - 24.0f));
+        g.setColour (Ink::bar().withAlpha (0.96f));
+        g.fillRoundedRectangle (box, 8.0f);
         g.setColour (go ? Ink::green() : Ink::edge());
-        g.drawRoundedRectangle (box.reduced (1.0f), 12.0f, 2.0f);
+        g.drawRoundedRectangle (box.reduced (0.5f), 8.0f, 1.0f);
 
+        auto number = box.removeFromRight (70.0f);
         g.setColour (go ? Ink::green() : Ink::textNow());
-        g.setFont (juce::Font (go ? 56.0f : 84.0f, juce::Font::bold));
-        g.drawText (juce::String (label), box.toNearestInt(), juce::Justification::centred);
+        g.setFont (juce::Font (40.0f, juce::Font::bold));
+        g.drawText (juce::String (label), number, juce::Justification::centred);
 
         if (canMove && ! go && ! pz.on)
         {
             g.setColour (Ink::textDim());
             g.setFont (juce::Font (zs::type::small));
-            g.drawText (PL (punchMovedByHand ? "miejsce cięcia: Twoje   ·   ← →" : "← → przesuń miejsce cięcia"),
-                        box.removeFromBottom (24.0f).toNearestInt(), juce::Justification::centred);
+            g.drawFittedText (PL (punchMovedByHand ? "Miejsce cięcia: Twoje · ← →" : "← → przesuń miejsce cięcia"),
+                              box.reduced (10.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft, 2);
         }
     }
 
