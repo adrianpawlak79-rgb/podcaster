@@ -51,7 +51,16 @@ int main()
     mix::MusicBed::Params p;
     const auto r = mix::MusicBed::render (voice, mL, mR, sr, p);
     check (r.left.size() == mL.size() && r.right.size() == mL.size(), "dlugosc = muzyka (dluzsza od glosu)");
-    check (std::abs (r.lufs - p.targetLufs) < 0.5, "calosc na -16 LUFS", f1 (r.lufs));
+    const auto part = [&] (const mix::MusicBed::Result& x, size_t len)
+    { return mix::MusicBed::lufsOf ({ x.left.begin(), x.left.begin() + (long) len }, { x.right.begin(), x.right.begin() + (long) len }, sr); };
+    check (std::abs (part (r, voice.size()) - p.targetLufs) < 0.5, "czesc z glosem na -16 LUFS", f1 (part (r, voice.size())));
+    {
+        // Adrian 25.10: 45 s glosu, 6 min samej muzyki - glos wychodzil -11 LUFS
+        std::vector<float> longL (mL), longR (mR);
+        for (int k = 0; k < 5; ++k) { longL.insert (longL.end(), mL.begin(), mL.end()); longR.insert (longR.end(), mR.begin(), mR.end()); }
+        const auto t = mix::MusicBed::render (voice, longL, longR, sr, p);
+        check (std::abs (part (t, voice.size()) - p.targetLufs) < 0.5, "dlugi ogon muzyki nie podglasnia glosu", f1 (part (t, voice.size())));
+    }
     check (r.peakDbtp <= p.ceilingDb + 0.1, "szczyt najwyzej -1 dBTP", f1 (r.peakDbtp));
 
     std::printf ("2. Poziom muzyki wzgledem glosu\n");
