@@ -126,10 +126,15 @@ struct MusicBed
         const double voiceLufs = lufsOf (voice, {}, sr);
         const double musicLufs = std::isnan (musicLufsKnown) ? lufsOf (musicL, mR, sr) : musicLufsKnown;
         res.musicSilent = musicLufs < -70.0;
-        const double gDb = res.musicSilent || voiceLufs < -100.0 ? 0.0 : voiceLufs + p.musicDb - musicLufs;
+        // Glos prawie cichy (sciszony mikrofon, nikt nie mowil — Adrian 25.10:
+        // calosc wyszla -25 LUFS): muzyka nie idzie za takim glosem w dol, tylko
+        // zostaje jak jest, a calosc i tak dostaje cel glosnosci nizej.
+        const bool voiceSilent = voiceLufs < -55.0;
+        const double gDb = res.musicSilent || voiceSilent ? 0.0 : voiceLufs + p.musicDb - musicLufs;
         res.musicGainDb = gDb;
         const float gm = (float) std::pow (10.0, gDb / 20.0);
-        const auto duck = duckCurve (voice, len, sr, voiceLufs, p);
+        auto pd = p; if (voiceSilent) pd.duck = false;
+        const auto duck = duckCurve (voice, len, sr, voiceLufs, pd);
 
         res.left.assign (len, 0.0f);
         res.right.assign (len, 0.0f);

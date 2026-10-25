@@ -481,9 +481,9 @@ public:
         zs::Look::setKind (prepareButton, zs::ui::ButtonKind::Primary);
         prepareButton.onClick = [this] {
             preparation = false; settingsOpen = false; detailsOpen = false;
-            if (scriptInput.getText().trim().isNotEmpty()) {
-                ensurePrompter(); prompter->load (scriptInput.getText()); showPrompter (true);
-            } else { resized(); repaint(); }
+            // bez tekstu ten sam ekran nagrania co z prompterem — fala, transport,
+            // pauza i nagranie od wskazanego miejsca (Adrian 25.10); tylko bez wersow
+            ensurePrompter(); prompter->load (scriptInput.getText().trim()); showPrompter (true);
         };
         addAndMakeVisible (prepareButton);
         preparationButton.setButtonText (PL("← Przygotowanie"));
@@ -2196,8 +2196,13 @@ private:
     {
         settingsOpen = false; detailsOpen = false;
         preparation = startWithPrompter;
-        if (! startWithPrompter && inPrompter) showPrompter (false);
         preloadBacking();
+        if (! startWithPrompter)
+        {
+            ensurePrompter();
+            prompter->load ({});
+            if (! inPrompter) showPrompter (true);
+        }
     }
 
     /** Podklad wczytywany w tle zaraz po Starcie, nie po Nagraj: dekodowanie
