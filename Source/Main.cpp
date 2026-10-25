@@ -70,6 +70,8 @@ countries: pl
             if(mode=="wizard") preview.previewWizard();
             if(mode=="recording") preview.previewRecording(false);
             if(mode=="prompter-rec") preview.previewRecording(true);
+            if(mode=="prompter-podklad") { preview.previewRecording(true); preview.previewBacking(false); }
+            if(mode=="prompter-podklad-pauza") { preview.previewRecording(true); preview.previewBacking(true); }
             if(mode=="prompter-znaczki") { preview.previewRecording(true); preview.previewMarks(); }
             if(mode=="prompter-wskazanie") { preview.previewRecording(true); preview.previewAim(); }
             if(mode=="prompter-pasek") { preview.previewRecording(true); preview.previewLive(); }
