@@ -380,6 +380,7 @@ public:
                                      : PL("Przeciągnij po fali, aby zaznaczyć fragment do wycięcia. Oryginał zostaje na dysku."),
                            juce::dontSendNotification);
         saved = juce::File(); savedMp3 = juce::File();
+        folderButton.setTooltip ({});
         note.clear();
         // stara kopia nie jest juz potrzebna (godzina = 0,7 GB), a fala nie
         // moze pokazywac poprzedniego nagrania pod napisem "wczytuje"
@@ -1192,7 +1193,7 @@ private:
             t << PL("Nagranie z podkładem: muzyka się nie przesuwa, więc zaznaczony fragment i początek przed uchwytem są wyciszane, a nie wycinane. Głos zostaje w rytmie muzyki. Koniec można przyciąć normalnie.\n\n");
         else
         t << PL("Możesz przyciąć początek i koniec albo wyciąć fragment ze środka. Oryginał zostaje na dysku.\n\n")
-          << PL("Gdy wszystko gra: „Dalej: miks”. Miks policzy się raz, na końcu.");
+          << PL("Gdy wszystko gra: „Dalej: miks”. Miks powstanie w następnym kroku. Po zmianie cięć policzy się od nowa.");
         return t;
     }
     void paintEdit(juce::Graphics& g) {
@@ -1618,9 +1619,11 @@ private:
                 note  = PL ("Zapisane: ") + target.getFileName()
                       + (savedMp3 != juce::File() ? PL (" i ") + savedMp3.getFileName() : juce::String());
                 player.pause();
-                savedPath.setText (saved.getFullPathName() + "\n"
-                                   + (savedMp3 != juce::File() ? savedMp3.getFullPathName()
-                                                               : PL ("MP3 nie powstał: ") + mp3Problem), false);
+                savedPath.setText (saved.getFileName() + PL ("\nFolder: ") + saved.getParentDirectory().getFileName(), false);
+                juce::String pathTip = saved.getFullPathName();
+                if (savedMp3 != juce::File()) pathTip << "\n" << savedMp3.getFullPathName();
+                else pathTip << "\n" << PL ("MP3 nie powstał: ") << mp3Problem;
+                folderButton.setTooltip (pathTip);
                 savedName.setText (saved.getFileName(), false);
                 profileRemembered = false;       // nowy plik: wzorca z niego jeszcze nie ma
                 doneMode = true;

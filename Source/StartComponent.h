@@ -373,7 +373,7 @@ private:
 
         auto in = r.reduced (14, 9);
         auto top = in.removeFromTop (22);
-        const juce::String tag = it.mixed ? PL ("miks gotowy") : PL ("bez miksu");
+        const juce::String tag = it.mixed ? PL ("gotowy plik") : PL ("bez miksu");
         const juce::Font tf (zs::type::tiny, juce::Font::bold);
         const int tw = tf.getStringWidth (tag) + 16;
         auto tagArea = top.removeFromRight (tw).toFloat();
