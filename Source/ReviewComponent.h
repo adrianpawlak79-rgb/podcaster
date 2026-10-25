@@ -55,6 +55,7 @@
 #include "CutReviewPanel.h"
 #include "Backing.h"
 #include "DSP/BackingEdit.h"
+#include "DSP/Mix/MusicBed.h"
 #include <limits>
 #include <memory>
 #include <thread>
@@ -140,6 +141,22 @@ public:
             addAndMakeVisible (styleButtons[i]);
         }
         updateStyleButtons();
+
+        // Podklad (25.10): glosnosc muzyki wzgledem glosu i sciszanie pod glosem.
+        // Zmiana sklada od nowa tylko glos z muzyka — miks glosu zostaje.
+        static const char* const levelNames[3] = { "Ciszej", "Średnio", "Głośniej" };
+        for (int i = 0; i < 3; ++i)
+        {
+            musicLevel[i].setButtonText (PL (levelNames[i]));
+            musicLevel[i].setTooltip (PL ("Muzyka ") + juce::String (-musicLevels[i], 0) + PL (" dB pod głosem"));
+            musicLevel[i].onClick = [this, i] { bedParams.musicDb = musicLevels[i]; remixBed(); };
+            addChildComponent (musicLevel[i]);
+        }
+        duckButton.setButtonText (PL ("Ściszaj pod głosem"));
+        duckButton.setTooltip (PL ("Gdy mówisz, muzyka schodzi o 4 dB i wraca w przerwach"));
+        duckButton.onClick = [this] { bedParams.duck = duckButton.getToggleState(); remixBed(); };
+        addChildComponent (duckButton);
+        updateMusicButtons();
 
         saveButton.setButtonText (PL ("Zapisz miks"));
         saveButton.onClick = [this] { if (editMode) goToMix(); else save(); };
@@ -354,7 +371,9 @@ public:
                          &markStart, &markEnd, &cutButton, &undoButton }) b->setEnabled (false);
         cutPanel.load(wavFile, {}, 48000);
         file  = wavFile;
-        withMusic = zs::BackingTrack::musicFor (wavFile) != juce::File();
+        musicFile = zs::BackingTrack::musicFor (wavFile);
+        withMusic = musicFile != juce::File();
+        music = {}; bed = {}; bedRaw = {}; musicEnv = {}; musicProblem.clear();
         cutButton.setButtonText (withMusic ? PL("Wycisz zaznaczenie") : PL("Wytnij zaznaczenie"));
         middleToggle.setButtonText (withMusic ? PL("Wycisz fragment ze środka") : PL("Wytnij fragment ze środka"));
         selection.setText (withMusic ? PL("Przeciągnij po fali, aby zaznaczyć fragment do wyciszenia. Oryginał zostaje na dysku.")
@@ -371,7 +390,8 @@ public:
 
         // Odczyt i przesluchanie w tle: godzina nagrania to ok. minuty pracy.
         struct Out { juce::String error; std::vector<float> mono; double rate = 48000.0;
-                     std::vector<tw::Event> events; zs::Envelope env; };
+                     std::vector<tw::Event> events; zs::Envelope env;
+                     zs::BackingTrack music; juce::String musicError; };
         auto out = std::make_shared<Out>();
         auto reader = std::shared_ptr<juce::AudioFormatReader> (formats.createReaderFor (wavFile));
         (void) events; (void) watchedLive;   // plik jest wazniejszy niz zdarzenia z nagrywania
@@ -381,7 +401,7 @@ public:
             expect = (double) reader->lengthInSamples / reader->sampleRate;
 
         runJob (PL ("Wczytuję i słucham nagrania…"), zs::ui::review::listenEstimateSec (expect),
-            [out, reader, stop = &jobStop]
+            [out, reader, stop = &jobStop, musicPath = musicFile]
             {
                 if (reader == nullptr) { out->error = "read"; return; }
                 if (reader->lengthInSamples <= 0 || reader->lengthInSamples > std::numeric_limits<int>::max()
@@ -398,6 +418,10 @@ public:
                 out->events = zs::TakeReview::listenOffline (out->mono, out->rate, stop);
                 if (stop->load()) return;
                 out->env.build (out->mono, out->rate, 1400);
+                // podklad w czestotliwosci nagrania: do fali, odsluchu i miksu
+                if (musicPath != juce::File())
+                    out->musicError = musicPath.existsAsFile() ? out->music.load (musicPath, out->rate)
+                                    : PL ("Nie ma pliku muzyki „") + musicPath.getFileName() + PL ("” — miks bez podkładu.");
             },
             [this, out, waitForIt, then, name = wavFile.getFileName()]
             {
@@ -423,6 +447,9 @@ public:
                 cutPanel.load(file, review.rawAudio(), sr);
                 beforeEnv = std::move (out->env);
                 afterEnv = {};
+                music = std::move (out->music);
+                musicProblem = out->musicError;
+                buildMusicEnv();
 
                 // Krok 3: odsluch i montaz na surowym nagraniu. Miks liczy sie dopiero
                 // po "Dalej: miks" — raz, na koncu, a nie po kazdym cieciu.
@@ -435,7 +462,9 @@ public:
                 if (waitForIt)                  // tylko zrzuty ekranu przy budowaniu
                 {
                     mixTweaks = tweaks;
+                    mixBedParams = bedParams;
                     review.run (wish, mixTweaks);
+                    if (hasMusic() && review.mixValid()) renderBed();
                     adoptResult();
                 }
 
@@ -624,9 +653,15 @@ public:
     /* Powiekszenie fali (audyt 14.10). Tylko w montazu — tam sie tnie; miks
        zawsze pokazuje cale nagranie. viewLen 0 = cale nagranie. */
     struct View { double from = 0.0, len = 1.0; };
+    /** Os czasu ekranu: w miksie z podkladem do konca muzyki (gra dluzej niz glos). */
+    double timelineSec() const
+    {
+        return ! editMode && ! bed.left.empty() && sr > 0.0 ? juce::jmax (review.seconds(), (double) bed.left.size() / sr)
+                                                            : review.seconds();
+    }
     View view() const
     {
-        const double total = review.seconds();
+        const double total = timelineSec();
         if (! editMode || total <= 0.0 || viewLen <= 0.0 || viewLen >= total)
             return { 0.0, juce::jmax (0.001, total) };
         const double len = juce::jlimit (juce::jmin (zs::ui::review::minViewSec, total), total, viewLen);
@@ -800,6 +835,8 @@ public:
         cutPanel.setVisible(!doneMode && editMode && !cutPanel.empty());   // decyzje po R: w montazu
         chainPort.setVisible (false);                           // tylko w szczegolach miksu
         for (auto& b : styleButtons) b.setVisible (false);      // tylko w zwyklym widoku oceny
+        for (auto& b : musicLevel) b.setVisible (false);
+        duckButton.setVisible (false);
         for (auto* b : { &zoomIn, &zoomOut, &zoomAllButton }) b->setVisible (false);   // tylko w montazu
         if (doneMode) { layoutDone(); return; }
         doneEditButton.setVisible (false); newTakeButton.setVisible (false); profileButton.setVisible (false);
@@ -829,6 +866,18 @@ public:
         {
             const int w = juce::jlimit (0, 124, (row.getWidth() - 2 * 6) / 3);
             for (auto& b : styleButtons) { b.setVisible (true); b.setBounds (row.removeFromLeft (w)); row.removeFromLeft (6); }
+        }
+        if (hasMusic())
+        {
+            // wiersz podkladu: "MUZYKA" + trzy poziomy + sciszanie pod glosem
+            main.removeFromTop (8);
+            auto mrow = main.removeFromTop (L::buttons);
+            musicLabelArea = mrow.removeFromLeft (70);
+            const int w = juce::jlimit (0, 104, (mrow.getWidth() - 200) / 3);
+            for (auto& b : musicLevel) { b.setVisible (true); b.setBounds (mrow.removeFromLeft (w)); mrow.removeFromLeft (6); }
+            mrow.removeFromLeft (10);
+            duckButton.setVisible (true);
+            duckButton.setBounds (mrow.removeFromLeft (juce::jmin (200, mrow.getWidth())));
         }
         main.removeFromTop (8);
         auto tools = main.removeFromTop (L::tools);
@@ -884,6 +933,11 @@ public:
         drawVerdict (g, side.removeFromTop (84));
         g.setColour (Ink::textNext()); g.setFont (juce::Font (zs::type::small));
         if (note.isNotEmpty()) g.drawFittedText (note, feedbackArea, juce::Justification::centredLeft, 2);
+        if (hasMusic())
+        {
+            g.setColour (Ink::textDim()); g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
+            g.drawText (PL("MUZYKA"), musicLabelArea, juce::Justification::centredLeft);
+        }
         auto summary = summaryArea;
         if (!detailsMode && review.stage() == zs::TakeReview::Stage::Ready)
             summary.removeFromTop (zs::ScreenFrame::wrapped (g, PL("Miks został dobrany automatycznie. Posłuchaj, zanim zapiszesz — po prawej, co zrobił i dlaczego."),
@@ -970,12 +1024,14 @@ private:
         // jeden wiersz na oba pliki — miejsce na przycisk wzorca brzmienia w 960x640
         row (PL("Pliki"), savedMp3 != juce::File() ? PL("WAV 24-bit i MP3 ") + juce::String (mp3Kbps) + " kbit/s"
                                                    : PL("WAV 24-bit (MP3 nie powstał)"), 54);
-        row (PL("Długość"), plr::clock (review.seconds()) + " (" + juce::String (review.seconds(), 1) + " s)", 54);
+        const bool withBed = ! bed.left.empty();
+        const double length = withBed ? (double) bed.left.size() / sr : review.seconds();
+        row (PL("Długość"), plr::clock (length) + " (" + juce::String (length, 1) + " s)", 54);
         // Audyt 14.10: "LUFS" i "dBTP" na glownym ekranie wymagaja wiedzy audio.
-        row (PL("Gotowa głośność"), PL("Jak w podcastach (mono)"), 42);
+        row (PL("Gotowa głośność"), withBed ? PL("Jak w podcastach (stereo, z muzyką)") : PL("Jak w podcastach (mono)"), 42);
         g.setColour (Ink::textDim());
-        g.drawText (juce::String (review.whatIDid().lufsAfter, 1) + PL(" LUFS · szczyt ")
-                        + juce::String (review.whatIDid().peakAfter, 1) + " dBTP",
+        g.drawText (juce::String (withBed ? bed.lufs : review.whatIDid().lufsAfter, 1) + PL(" LUFS · szczyt ")
+                        + juce::String (withBed ? bed.peakDbtp : review.whatIDid().peakAfter, 1) + " dBTP",
                     side.removeFromTop (20), juce::Justification::centredLeft);
         if (wish.profile.valid())
         {
@@ -1209,6 +1265,8 @@ private:
         afterEnv = {}; words.clear(); assessment.clear();
         busySinceMs = juce::jmax (1u, juce::Time::getMillisecondCounter());
         mixTweaks = tweaks;                     // watek czyta tylko te kopie
+        mixBedParams = bedParams;
+        bed = {}; bedRaw = {};
         chainView.setBusy (true);
         startThread();
     }
@@ -1375,6 +1433,7 @@ private:
         review.run (wish, mixTweaks);
 
         if (threadShouldExit()) return;
+        if (hasMusic() && review.mixValid()) renderBed();
 
         ready.store (true);
     }
@@ -1394,6 +1453,7 @@ private:
             convert.render(review.rawAudio(),before);convert.render(review.mixedAudio(),after);
             player.setMaterial(std::move(before),std::move(after),playbackRate,true);
         } else player.setMaterial (review.rawAudio(), review.mixedAudio(), sr, true);
+        if (! bed.left.empty()) setBedMaterial();
         player.showAfter (true);
 
         recorder.attachPlayer (&player);
@@ -1408,6 +1468,8 @@ private:
         juce::String summary;
         for (const auto& line : review.plainSays())
             summary << PL ("• ") << PL (line.c_str()) << "\n\n";
+        if (! bed.left.empty()) summary << PL ("• ") << bedSummary() << "\n\n";
+        else if (musicProblem.isNotEmpty()) summary << PL ("• ") << musicProblem << "\n\n";
         summary << PL ("Liczby i ustawienia: „Szczegóły miksu”.");
         reviewSummary=summary; assessment.setText (summary, false);
         playButton.setEnabled (true); abButton.setEnabled (true);
@@ -1530,10 +1592,14 @@ private:
         runJob (PL ("Zapisuję miks…"), 0,
             [this, err, mp3Err, path, mp3Path, rate]
             {
+                // z podkladem: stereo glos + muzyka (MusicBed), inaczej sam glos mono
                 const auto& mixed = review.mixedAudio();
-                *err = wavio::writePcm (path, { mixed.data() }, mixed.size(), rate, 24);
+                const std::vector<const float*> ch = bed.left.empty() ? std::vector<const float*> { mixed.data() }
+                                                                      : std::vector<const float*> { bed.left.data(), bed.right.data() };
+                const size_t frames = bed.left.empty() ? mixed.size() : bed.left.size();
+                *err = wavio::writePcm (path, ch, frames, rate, 24);
                 if (err->empty())
-                    *mp3Err = zs::mp3::write (mp3Path, { mixed.data() }, mixed.size(), rate, mp3Kbps);
+                    *mp3Err = zs::mp3::write (mp3Path, ch, frames, rate, mp3Kbps);
             },
             [this, err, mp3Err, target, mp3Target]
             {
@@ -1651,13 +1717,33 @@ private:
         // -10 dBFS i pauzy koło -60; w skali liniowej pauzy sa niewidoczna
         // kreska, a to wlasnie w nich siedzi szum i oddechy, czyli to, o co
         // czlowiek pyta.
+        const int cols = r.getWidth();
+        const auto v = view();
+
+        // podklad pod glosem (Adrian 24.10: "muzyka powinna byc na wykresie"):
+        // ta sama os czasu, fiolet, za fala glosu
+        if (! musicEnv.peakDb.empty() && musicEnv.seconds > 0.0)
+        {
+            g.setColour (juce::Colour (0xff8f7cf0).withAlpha (0.30f));
+            for (int x = 0; x < cols; x += 3)
+            {
+                const double t = v.from + (double) x / juce::jmax (1, cols) * v.len;
+                const size_t i = (size_t) (t / musicEnv.seconds * musicEnv.peakDb.size());
+                if (i >= musicEnv.peakDb.size()) break;
+                const float norm = juce::jlimit (0.0f, 1.0f, (musicEnv.peakDb[i] + 66.0f) / 66.0f);
+                if (norm > 0.0f) g.fillRect ((float) (r.getX() + x), mid - half * norm, 2.0f, half * norm * 2.0f);
+            }
+        }
+
         g.setColour ((after ? Ink::accent() : Ink::textNext()).withAlpha (0.75f));
 
-        const int cols = r.getWidth();
-
+        // obwiednia pokrywa env.seconds od poczatku widoku; os moze byc dluzsza (muzyka)
+        const double envFrom = zoomed() && ! after ? v.from : 0.0;
         for (int x = 0; x < cols; x += 3)
         {
-            const size_t i = (size_t) ((double) x / juce::jmax (1, cols) * env.peakDb.size());
+            const double t = v.from + (double) x / juce::jmax (1, cols) * v.len - envFrom;
+            const size_t i = env.seconds > 0.0 ? (size_t) (t / env.seconds * env.peakDb.size())
+                                               : (size_t) ((double) x / juce::jmax (1, cols) * env.peakDb.size());
 
             if (i >= env.peakDb.size()) break;
 
@@ -1701,7 +1787,7 @@ private:
 
         // licznik w rogu: ciemne okienko jak w odtwarzaczu, zakres widoku obok
         const juce::Font mono (juce::Font::getDefaultMonospacedFontName(), zs::type::small, juce::Font::bold);
-        const juce::String clock = plr::clock (player.positionSec()) + " / " + plr::clock (review.seconds());
+        const juce::String clock = plr::clock (player.positionSec()) + " / " + plr::clock (timelineSec());
         auto box = juce::Rectangle<float> (0.0f, 0.0f, (float) mono.getStringWidth (clock) + 16.0f, mono.getHeight() + 6.0f)
                        .withPosition ((float) r.getRight() - 6.0f, (float) r.getY() + 4.0f);
         box.setX (box.getX() - box.getWidth());
@@ -1935,6 +2021,91 @@ private:
 
     juce::File file, saved;
     bool withMusic = false;   ///< nagrane do podkladu: montaz wycisza zamiast wycinac
+    juce::File musicFile;                   ///< podklad z "<nagranie>.podklad.txt"
+    zs::BackingTrack music;                 ///< w czestotliwosci nagrania; watek miksu tylko czyta
+    juce::String musicProblem;              ///< np. brak pliku muzyki
+    zs::Envelope musicEnv;
+    mix::MusicBed::Params bedParams, mixBedParams;   ///< mixBedParams: kopia dla watku
+    mix::MusicBed::Result bed, bedRaw;      ///< glos po miksie / surowy, z muzyka
+    static constexpr float musicLevels[3] = { -16.0f, -11.0f, -6.0f };
+    juce::TextButton musicLevel[3];
+    juce::ToggleButton duckButton;
+    juce::Rectangle<int> musicLabelArea;
+
+    bool hasMusic() const { return ! music.left.empty(); }
+
+    void buildMusicEnv()
+    {
+        musicEnv = {};
+        if (! hasMusic()) return;
+        std::vector<float> m (music.left);
+        if (! music.right.empty())
+            for (size_t i = 0; i < m.size() && i < music.right.size(); ++i) m[i] = 0.5f * (m[i] + music.right[i]);
+        musicEnv.build (m, sr, 1400);
+    }
+
+    /** Glos z muzyka (MusicBed) — po miksie i surowy, do porownania przed/po.
+        Watek miksu albo runJob; ekran czyta wynik dopiero po zakonczeniu. */
+    void renderBed()
+    {
+        bed = mix::MusicBed::render (review.mixedAudio(), music.left, music.right, sr, mixBedParams);
+        bedRaw = mix::MusicBed::render (review.rawAudio(), music.left, music.right, sr, mixBedParams);
+    }
+
+    void setBedMaterial()
+    {
+        const auto mono = [] (const mix::MusicBed::Result& b, size_t len)
+        {
+            std::vector<float> m (len, 0.0f);
+            for (size_t i = 0; i < b.left.size() && i < len; ++i) m[i] = 0.5f * (b.left[i] + b.right[i]);
+            return m;
+        };
+        const size_t len = juce::jmax (bed.left.size(), bedRaw.left.size());
+        auto before = mono (bedRaw, len), after = mono (bed, len);
+        const double playbackRate = recorder.currentSampleRate() > 0 ? recorder.currentSampleRate() : sr;
+        if (std::abs (playbackRate - sr) > 0.1)
+        {
+            mix::Resampler convert; convert.prepare ((int) sr, (int) playbackRate, 64);
+            std::vector<float> b2, a2;
+            convert.render (before, b2); convert.render (after, a2);
+            player.setMaterial (std::move (b2), std::move (a2), playbackRate, true);
+        }
+        else player.setMaterial (std::move (before), std::move (after), sr, true);
+        recorder.attachPlayer (&player);
+    }
+
+    juce::String bedSummary() const
+    {
+        return PL ("Muzyka ") + juce::String (-mixBedParams.musicDb, 0) + PL (" dB pod głosem")
+             + (mixBedParams.duck ? PL (", ściszana pod mową") : juce::String())
+             + PL (". Całość stereo, do końca muzyki.");
+    }
+
+    void updateMusicButtons()
+    {
+        for (int i = 0; i < 3; ++i) zs::Look::setSelected (musicLevel[i], std::abs (musicLevels[i] - bedParams.musicDb) < 0.1f);
+        duckButton.setToggleState (bedParams.duck, juce::dontSendNotification);
+    }
+
+    /** Zmiana poziomu muzyki albo sciszania: skladamy od nowa tylko glos z muzyka. */
+    void remixBed()
+    {
+        updateMusicButtons();
+        if (! hasMusic() || ! mixReady() || bed.left.empty()) return;
+        const bool wasAfter = player.showingAfter();
+        mixBedParams = bedParams;
+        runJob (PL ("Składam głos z muzyką…"), 2, [this] { renderBed(); },
+            [this, wasAfter]
+            {
+                setBedMaterial();
+                player.showAfter (wasAfter);
+                juce::String summary;
+                for (const auto& line : review.plainSays()) summary << PL ("• ") << PL (line.c_str()) << "\n\n";
+                summary << PL ("• ") << bedSummary() << "\n\n" << PL ("Liczby i ustawienia: „Szczegóły miksu”.");
+                reviewSummary = summary; assessment.setText (summary, false);
+                repaint();
+            });
+    }
     juce::File savedMp3;                  ///< MP3 obok zapisanego WAV-a (puste, gdy sie nie udalo)
     juce::String mp3Problem;              ///< dlaczego MP3 nie powstal
     static constexpr int mp3Kbps = 128;   ///< glos mono: nie do odroznienia od WAV-a

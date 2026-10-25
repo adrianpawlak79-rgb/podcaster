@@ -66,6 +66,7 @@ TESTY=(
   "tor-test"
   "profil-test /tmp/mowa.wav"
   "podklad-montaz-test"
+  "podklad-miks-test"
 )
 
 ZNANE=$(grep -v '^#' znane-bledy.txt 2>/dev/null | awk '{print $1}')
