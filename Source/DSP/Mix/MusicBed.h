@@ -146,8 +146,15 @@ struct MusicBed
             res.right[i] = v + (i < mR.size()     ? mR[i] * k     : 0.0f);
         }
 
-        // calosc na cel glosnosci
-        const double now = lufsOf (res.left, res.right, sr);
+        // Cel glosnosci liczony tam, gdzie mowi glos. Dawniej z calosci: 45 s
+        // glosu i 6 min samej muzyki (cichszej o musicDb) zanizalo pomiar,
+        // wiec wszystko szlo w gore o kilka dB - glos -11 LUFS, a z nim
+        // telewizor w tle (Adrian 25.10). Ogon samej muzyki zostaje nizej.
+        const bool voicePart = ! voiceSilent && voice.size() > (size_t) (3.0 * sr) && voice.size() < len;
+        const double now = voicePart
+            ? lufsOf (std::vector<float> (res.left.begin(), res.left.begin() + (long) voice.size()),
+                      std::vector<float> (res.right.begin(), res.right.begin() + (long) voice.size()), sr)
+            : lufsOf (res.left, res.right, sr);
         if (now > -100.0)
         {
             const float g = (float) std::pow (10.0, (p.targetLufs - now) / 20.0);
