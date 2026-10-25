@@ -334,7 +334,7 @@ public:
             pz.cutSec = juce::jlimit (pz.historyStart, pz.atSec, cut);
             if (pz.cutSec < pz.viewEnd - pauseViewSec + 1.0 || pz.cutSec > pz.viewEnd)
                 pz.viewEnd = juce::jmin (pz.atSec, pz.cutSec + pauseViewSec * 0.7);
-            if (preview) playRange (pz.cutSec - 2.0, 2.0);
+            if (preview) playRange (pz.cutSec - 0.3, pz.atSec);
             updateTransport();
             repaint();
             return;
@@ -352,7 +352,7 @@ public:
         shownLine = line;
         if (pz.cutSec < pz.viewEnd - pauseViewSec + 1.0 || pz.cutSec > pz.viewEnd)
             pz.viewEnd = juce::jmin (pz.atSec, pz.cutSec + pauseViewSec * 0.7);
-        if (preview) playRange (pz.cutSec - 2.0, 2.0);
+        if (preview) playRange (pz.cutSec - 0.3, pz.atSec);
         updateTransport();
         repaint();
     }
@@ -364,7 +364,9 @@ public:
         if (pz.playStartMs >= 0.0) { recorder.playPreRoll ({}); pz.playStartMs = -1.0; updateTransport(); return; }
         // ze wskazana linia: tylko to, co zostanie przed nia (3 s), jak mowi opis;
         // dawniej gralo dalej przez pomylke az do pauzy (przeklikanie 25.10)
-        if (pz.selected) { playRange (pz.cutSec - 3.0, pz.cutSec - juce::jmax (pz.historyStart, pz.cutSec - 3.0)); return; }
+        // od linii w prawo i dalej, az do pauzy - Adrian chce slyszec wers,
+        // ktory wskazal, nie poprzedni; linia nie zatrzymuje odtwarzania (25.10)
+        if (pz.selected) { playRange (pz.cutSec - 0.3, pz.atSec); return; }
         const double from = pz.atSec - 8.0;
         playRange (from, pz.atSec - juce::jmax (pz.historyStart, from));
     }
@@ -611,14 +613,49 @@ public:
         }
         if (textCard().contains (e.getPosition()))
         {
-            const int line = lineAtY ((float) e.position.y);
-            if (line >= 0) selectLine (line);
+            browseDragFrom = browseOffset;          // wers wybierany przy puszczeniu, gdy nie bylo przeciagania
+            browseDragging = true;
         }
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (! browseDragging || ! pz.on || pz.resuming) return;
+        if (e.getDistanceFromDragStart() < 6) return;
+        browseOffset = clampBrowse (browseDragFrom - (float) e.getDistanceFromDragStartY() / lineStep());
+        repaint();
+    }
+
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        if (! browseDragging) return;
+        browseDragging = false;
+        if (! pz.on || pz.resuming || e.getDistanceFromDragStart() >= 6) return;
+        const int line = lineAtY ((float) e.position.y);
+        if (line >= 0) { selectLine (line); browseOffset = 0.0f; }
+    }
+
+    float lineStep() const
+    {
+        return fontNow() * 1.35f + (getHeight() >= 1000 ? 32.0f : 20.0f);
+    }
+
+    float clampBrowse (float v) const
+    {
+        return juce::jlimit ((float) -shownLine, (float) juce::jmax (0, (int) lines.size() - 1 - shownLine), v);
     }
 
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
     {
-        if (! pz.on || ! stripCard().contains (e.getPosition())) return;
+        if (! pz.on) return;
+        if (! pz.resuming && textCard().contains (e.getPosition()))
+        {
+            // na pauzie kolko przewija wersy, zeby znalezc miejsce startu
+            browseOffset = clampBrowse (browseOffset - (float) (w.deltaY + w.deltaX) * 4.0f);
+            repaint();
+            return;
+        }
+        if (! stripCard().contains (e.getPosition())) return;
         pz.viewEnd = juce::jlimit (juce::jmin (pz.atSec, pz.historyStart + pauseViewSec), pz.atSec,
                                    pz.viewEnd - (double) (w.deltaY + w.deltaX) * 6.0);
         repaint();
@@ -1769,7 +1806,8 @@ private:
         // tej chwili mowi. Dlatego obraz dojezdza do nowej pozycji w okolo
         // dwie dziesiate sekundy: wystarczajaco szybko, zeby nie zostawac w
         // tyle, wystarczajaco wolno, zeby oko nadazylo.
-        scrollTarget = (float) now;
+        if (! pz.on || pz.resuming) browseOffset = 0.0f;   // przegladanie tylko na pauzie
+        scrollTarget = (float) now + browseOffset;
         scrollNow += (scrollTarget - scrollNow) * 0.18f;
 
         if (std::abs (scrollTarget - scrollNow) < 0.002f) scrollNow = scrollTarget;
@@ -1944,6 +1982,8 @@ private:
 
     /* Gdzie obraz JEST i gdzie ma dojechac, w numerach wersow. */
     float scrollNow = 0.0f, scrollTarget = 0.0f;
+    float browseOffset = 0.0f, browseDragFrom = 0.0f;   ///< przewijanie wersow myszka na pauzie
+    bool browseDragging = false;
     mutable int shownLine = 0;
 
     double elapsed = 0.0;

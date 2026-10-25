@@ -1144,7 +1144,7 @@ private:
         TrimHandle() { setWantsKeyboardFocus (true); setMouseCursor (juce::MouseCursor::LeftRightResizeCursor); }
         void paint (juce::Graphics& g) override {
             g.setColour (Ink::accent()); g.fillRect (getWidth()/2-1, 0, 2, getHeight());
-            g.fillRoundedRectangle (2.f, getHeight()/2.f-25.f, getWidth()-4.f, 50.f, 4.f);
+            g.fillRoundedRectangle (1.f, getHeight()-knobH, getWidth()-2.f, knobH, 4.f);
             if (hasKeyboardFocus (false)) { g.setColour (Ink::textNow()); g.drawRect (getLocalBounds(), 1); }
         }
         /** Uchwyt lapie tylko za galke na srodku (50 px). Dawniej caly pas 14 px
@@ -1152,7 +1152,11 @@ private:
             przycinalo koniec, zamiast zaznaczac fragment do wyciecia (Adrian
             25.10, dwa razy: koniec na 16,9 s i na 7,5 s). Poza galka mysz idzie
             do fali pod spodem. */
-        bool hitTest (int, int y) override { return std::abs (y - getHeight() / 2) <= 30; }
+        /** Galka na dole fali, nie na srodku: przeciagniecie od srodka fali
+            przy krawedzi znow przycinalo koniec do 4,9 s zamiast zaznaczac
+            (Adrian 25.10, trzeci raz). */
+        static constexpr float knobH = 26.0f;
+        bool hitTest (int, int y) override { return y >= getHeight() - (int) knobH - 4; }
         void mouseDown (const juce::MouseEvent&) override { grabKeyboardFocus(); }
         void mouseDrag (const juce::MouseEvent& e) override {
             if (move && axis.getWidth()>0) move (from + (e.getEventRelativeTo(getParentComponent()).position.x-axis.getX())/axis.getWidth()*seconds);
