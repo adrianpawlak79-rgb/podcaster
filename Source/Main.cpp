@@ -125,6 +125,13 @@ countries: pl
                 splash->deleteAfterDelay (juce::RelativeTime::seconds (2.5), true);
             }
         }
+        // Okno programu na wierzch — takze po zniknieciu zdjecia: na Windows
+        // program startowal pod innymi oknami (Adrian 25.10).
+        if (mainWindow != nullptr) mainWindow->toFront (true);
+        juce::Timer::callAfterDelay (2700, [this]
+        {
+            if (mainWindow != nullptr) { mainWindow->toFront (true); mainWindow->grabKeyboardFocus(); }
+        });
     }
 
     void shutdown() override { mainWindow = nullptr; juce::LookAndFeel::setDefaultLookAndFeel(nullptr); }
