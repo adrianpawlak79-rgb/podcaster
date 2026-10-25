@@ -133,6 +133,7 @@ public:
 
     /** Wolane, gdy czlowiek chce wrocic do nagrywania. */
     std::function<void()> onClose;
+    std::function<void()> onOpenSettings;
 
     /** Co kreator zmierzyl w pokoju. Ustawiac przed load(): miks szuka wtedy
         w nagraniu przydzwieku, ktory slyszal kreator, i porownuje tlo. */
@@ -148,6 +149,10 @@ public:
         : juce::Thread ("miks po nagraniu"), recorder (r)
     {
         setWantsKeyboardFocus (true);
+
+        settingsButton.setButtonText (PL("Ustawienia"));
+        settingsButton.onClick = [this] { if (onOpenSettings) onOpenSettings(); };
+        addAndMakeVisible (settingsButton);
 
         formats.registerBasicFormats();
 
@@ -884,6 +889,8 @@ public:
         for (auto* c : { static_cast<juce::Component*>(&trimStart), static_cast<juce::Component*>(&trimEnd), static_cast<juce::Component*>(&startHandle), static_cast<juce::Component*>(&endHandle), static_cast<juce::Component*>(&middleToggle) }) c->setVisible (false);
         flow.setBounds (zs::ScreenFrame::stepsArea (getLocalBounds()));
         flow.setCurrent (3);                         // krok "Miks"
+        settingsButton.setBounds (getWidth() - 196, 14, 174, 36);
+        settingsButton.setVisible (true);
         nextButton.setVisible(false); backButton.setVisible(false); detailsToggle.setVisible(true);
         saveButton.setButtonText(PL("Zapisz miks"));
         assessment.setText(reviewSummary, false);
@@ -1002,6 +1009,8 @@ private:
         flow.setVisible (true);
         flow.setBounds (zs::ScreenFrame::stepsArea (getLocalBounds()));
         flow.setCurrent (4);
+        settingsButton.setBounds (getWidth() - 196, 14, 174, 36);
+        settingsButton.setVisible (true);
         auto main = doneContent();
         main.removeFromTop (68 + 10 + 18 + 40 + 44 + 8);
         folderButton.setBounds (main.removeFromTop (40).withSizeKeepingCentre (220, 40));
@@ -1151,6 +1160,8 @@ private:
         po R (gdy sa), potem przyciecie poczatku i konca albo wyciecie srodka. */
     void layoutEdit() {
         flow.setBounds (zs::ScreenFrame::stepsArea (getLocalBounds())); flow.setCurrent (2);
+        settingsButton.setBounds (getWidth() - 196, 14, 174, 36);
+        settingsButton.setVisible (true);
         namespace L = zs::ui::review;
         abButton.setVisible (false); detailsToggle.setVisible (false); words.setVisible (false);
         auto main = zs::ScreenFrame::mainArea (getLocalBounds()); main.removeFromTop (headH() + waveHeight() + L::strip + 8);
@@ -2190,7 +2201,7 @@ private:
     std::atomic<bool> ready { false };
     bool wasPlaying = false;
 
-    juce::TextButton playButton, abButton, saveButton, backButton;
+    juce::TextButton playButton, abButton, saveButton, backButton, settingsButton;
     MixStyleCard styleCards[3];
     bool styleNote = false;                 ///< note to "Miks ... liczy się…" z chooseStyle
     int takeVersion = 0, mixedVersion = -1; ///< ktora wersja montazu jest zmiksowana...
