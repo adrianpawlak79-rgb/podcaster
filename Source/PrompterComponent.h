@@ -53,6 +53,7 @@
 #include "Settings.h"
 #include "Look.h"
 #include "VoskEngine.h"
+#include "Trace.h"
 
 //==============================================================================
 class PrompterComponent : public juce::Component,
@@ -152,6 +153,7 @@ public:
         elapsed = 0.0;
         wasRecording = false;
         running = true;
+        traceFrames = 2;            // slad pierwszych klatek po powrocie (Trace.h)
         grabKeyboardFocus();
     }
 
@@ -1105,6 +1107,7 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        if (traceFrames > 0) zs::trace ("prompter: rysuje klatke");
         if (layoutDirty) rebuildLines (g);
         g.fillAll (Ink::bg());
         g.setColour (Ink::panel());            // plaskie tlo: wygaszenie przy krawedziach ma ten sam kolor
@@ -1139,6 +1142,7 @@ public:
         }
         if (follower.isLost()) drawLostBanner (g, bottom);
         drawNoCutNotice (g, r);
+        if (traceFrames > 0) { --traceFrames; zs::trace ("prompter: klatka gotowa"); }
     }
 
     void paintOverChildren (juce::Graphics& g) override
@@ -1755,6 +1759,7 @@ private:
     tw::Follower follower;
     tw::WordTracker words;           ///< pozycja z rozpoznanych slow (Vosk)
     VoskEngine* speech = nullptr;
+    int traceFrames = 0;                ///< ile klatek jeszcze zapisac do sladu (Trace.h)
 
     /** Zamienniki slow nieznanych modelowi, liczone w tle dla danego tekstu. */
     struct Substitutes
