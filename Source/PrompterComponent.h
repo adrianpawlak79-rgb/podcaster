@@ -100,8 +100,10 @@ public:
         backButton.onClick=[this] { if(!recorder.isRecording() && onClose)onClose(); };
         smallerButton.setButtonText(PL("A−"));smallerButton.onClick=[this]{zoom(-.1f);};
         largerButton.setButtonText("A+");largerButton.onClick=[this]{zoom(.1f);};
-        previousButton.setButtonText(PL("← Cofnij tekst"));previousButton.onClick=[this]{nudge(-4);};
-        nextButton.setButtonText(PL("→ Dalej"));nextButton.onClick=[this]{nudge(4);};
+        previousButton.setButtonText(PL("Wstecz")); previousButton.setTooltip (PL ("Cofnij tekst o kilka wersów (↑)"));
+        previousButton.onClick=[this]{nudge(-4);};
+        nextButton.setButtonText(PL("Dalej")); nextButton.setTooltip (PL ("Przewiń tekst o kilka wersów (↓)"));
+        nextButton.onClick=[this]{nudge(4);};
         mirrorButton.setButtonText(PL("Lustro"));mirrorButton.onClick=[this]{mirror=!mirror;settings.setMirrored(mirror);repaint();};
         for(auto* b:{&backButton,&smallerButton,&largerButton,&previousButton,&nextButton,&mirrorButton})addAndMakeVisible(b);
         setupTransport();
@@ -142,6 +144,54 @@ public:
     }
 
     bool hasText() const noexcept { return script.wordCount() > 0; }
+    juce::String sourceTextUtf8() const { return juce::String::fromUTF8 (script.source().c_str()); }
+    bool isReplacement() const noexcept { return replacementMode; }
+    const std::vector<tw::LineMark>& replacementMarks() const noexcept { return lineLog.marks(); }
+    void configureReplacement (std::vector<float> audio, double rate, double from, double to, int firstWord)
+    {
+        replacementMode = true; replacementAudio = std::move (audio); replacementRate = rate;
+        replacementFrom = from; replacementTo = to; replacementFirstWord = juce::jmax (0, firstWord);
+        pz = {}; pz.on = true; pz.selected = true; pz.cutSec = from; pz.atSec = to;
+        pz.history = replacementAudio; pz.historyStart = 0.0; pz.rate = rate; pz.viewEnd = to;
+        if (! spans.empty() && ! lines.empty())
+        {
+            shownLine = lineOfWord (replacementFirstWord);
+            const int word = lines[(size_t) shownLine].firstWord;
+            follower.jumpToWord (word); words.jumpTo (word, 0.0);
+            scrollNow = scrollTarget = (float) shownLine;
+        }
+        refreshControls(); repaint();
+        tRecord.setButtonText (PL ("Nagraj poprawkę"));
+        tRecord.setTooltip (PL ("Nagraj zaznaczony fragment jeszcze raz"));
+    }
+    void clearReplacement()
+    {
+        replacementMode = false; replacementAudio.clear(); pz = {}; countdownStart = -1.0;
+        recorder.playPreRoll ({}); refreshControls(); repaint();
+    }
+    void startReplacementPreRoll()
+    {
+        const double seconds = 2.5;
+        const size_t end = juce::jlimit ((size_t) 0, replacementAudio.size(), (size_t) std::llround (replacementFrom * replacementRate));
+        const size_t count = juce::jmin (end, (size_t) std::llround (seconds * replacementRate));
+        std::vector<float> audio;
+        if (count > 0) audio.assign (replacementAudio.begin() + (long) (end - count), replacementAudio.begin() + (long) end);
+        recorder.playPreRoll (std::move (audio));
+        countdownStart = juce::Time::getMillisecondCounterHiRes();
+        countdownTotal = countdown.totalFor ((double) count / juce::jmax (1.0, replacementRate));
+        preRoll = {}; repaint();
+    }
+    bool replacementCountdownElapsed() const
+    { return countdownStart >= 0.0 && (juce::Time::getMillisecondCounterHiRes() - countdownStart) / 1000.0 >= countdownTotal; }
+    void startReplacementMusicCue()
+    {
+        const double rate = juce::jmax (1.0, recorder.currentSampleRate());
+        const auto to = (juce::int64) std::llround (replacementFrom * rate);
+        const auto from = juce::jmax ((juce::int64) 0, to - (juce::int64) std::llround (2.5 * rate));
+        countdownStart = juce::Time::getMillisecondCounterHiRes();
+        countdownTotal = juce::jmax (0.3, (double) (to - from) / rate);
+        recorder.pause(); recorder.cueBacking (from, to); repaint();
+    }
 
     void begin (double sampleRate)
     {
@@ -559,10 +609,10 @@ public:
     {
         const bool rec = recorder.isRecording();
         const bool resumeFromLine = pz.on && pz.selected && ! pz.resuming;
-        tRecord.setButtonText (resumeFromLine ? PL ("Nagraj od linii") : PL ("Nagraj"));
-        tRecord.setTooltip (resumeFromLine
+        tRecord.setButtonText (replacementMode ? PL ("Nagraj poprawkę") : (resumeFromLine ? PL ("Nagraj od linii") : PL ("Nagraj")));
+        tRecord.setTooltip (replacementMode ? PL ("Nagraj zaznaczony fragment jeszcze raz") : (resumeFromLine
             ? PL ("Wznowisz od czerwonej linii. Poprzednia wersja zostanie w folderze „surowe”. Kliknij falę, aby zmienić miejsce.")
-            : PL ("Nagraj (spacja)"));
+            : PL ("Nagraj (spacja)")));
         stripTip.setTooltip (pz.on
             ? pz.selected
                 ? PL ("PAUZA. Czerwona linia wyznacza początek nowego podejścia. Kliknij falę lub wers, aby wybrać inne miejsce; poprzednia wersja zostanie w folderze „surowe”.")
@@ -570,33 +620,56 @@ public:
             : juce::String());
         tRecord.setEnabled (! rec || (pz.on && ! pz.resuming));
         tPause.setEnabled (rec && ! pz.on);
+        // Jedno centralne miejsce na akcje transportu: Nagraj przed startem,
+        // Pauza w trakcie i Nagraj od linii po wskazaniu wznowienia.
+        const bool pauseAction = rec && ! pz.on;
+        tRecord.setVisible (! pauseAction);
+        tPause.setVisible (pauseAction);
         tPlay.setEnabled (pz.on && ! pz.resuming);
         tPlay.setButtonText (pz.playStartMs >= 0.0 ? PL ("Stop") : PL ("Odtwórz"));
         zs::Look::setIcon (tPlay, pz.playStartMs >= 0.0 ? zs::Look::Icon::Stop : zs::Look::Icon::Play);
         tEnd.setEnabled (rec);
         tRepeat.setEnabled (rec && ! pz.resuming && ! spans.empty());
         zs::Look::setKind (tRecord, (! rec || pz.on) ? zs::ui::ButtonKind::Primary : zs::ui::ButtonKind::Secondary);
+        zs::Look::setKind (tPause, zs::ui::ButtonKind::Primary);
     }
 
     void layoutTransport()
     {
         auto row = transportRow();
-        // licznik czasu jest raz — w prawym panelu (MainComponent), nie tu
-        // Kazdy przycisk tak szeroki jak ikona i napis. Gdy cztery sie nie mieszcza
-        // (male okno), zostaja same ikony — jak w odtwarzaczu; nazwy
-        // i klawisze stoja w podpowiedzi pod spodem.
-        const juce::Font f (zs::type::body, juce::Font::bold);
-        const auto widthOf = [&] (juce::Button* b) { return f.getStringWidth (b->getButtonText()) + 32 + zs::Look::iconSpace; };
-        // piec rownych przyciskow na cala szerokosc (makieta E, nagranie)
-        const int gap = 8;
-        const int w = (row.getWidth() - 4 * gap) / 5;
-        const int widest = juce::jmax (juce::jmax (widthOf (&tRecord), widthOf (&tPause), widthOf (&tPlay)),
-                                       juce::jmax (widthOf (&tRepeat), widthOf (&tEnd)));
-        const bool compact = w < widest;
-        for (auto* b : { &tRecord, &tPause, &tPlay, &tRepeat, &tEnd })
+        // Trzy grupy jak w konsolecie: nawigacja tekstu, jedna akcja glowna,
+        // odsluch/powtorzenie/stop. Glowna akcja jest stale na srodku.
+        constexpr int gap = 8, groupGap = 14;
+        const int centreW = juce::jmin (148, juce::jmax (116, row.getWidth() / 5));
+        const int sideW = juce::jmax (0, (row.getWidth() - centreW - 2 * groupGap) / 2);
+        auto left = row.removeFromLeft (sideW);
+        row.removeFromLeft (groupGap);
+        auto centre = row.removeFromLeft (centreW);
+        row.removeFromLeft (groupGap);
+        auto right = row;
+
+        const int navW = juce::jmax (0, (left.getWidth() - gap) / 2);
+        previousButton.setBounds (left.removeFromLeft (navW)); left.removeFromLeft (gap);
+        nextButton.setBounds (left);
+
+        const bool compactNav = navW < 88;
+        zs::Look::setCompact (previousButton, compactNav);
+        zs::Look::setCompact (nextButton, compactNav);
+        const bool compactMain = centreW < zs::Look::iconSpace + 100;
+        zs::Look::setCompact (tRecord, compactMain);
+        zs::Look::setCompact (tPause, compactMain);
+        tRecord.setBounds (centre);
+        tPause.setBounds (centre);
+
+        const int rightW = juce::jmax (0, (right.getWidth() - 2 * gap) / 3);
+        const juce::Font buttonFont (zs::type::body, juce::Font::bold);
+        const auto widthOf = [&] (juce::Button& b)
+        { return buttonFont.getStringWidth (b.getButtonText()) + 32 + zs::Look::iconSpace; };
+        for (auto* b : { &tPlay, &tRepeat, &tEnd })
         {
-            zs::Look::setCompact (*b, compact);
-            b->setBounds (b == &tEnd ? row : row.removeFromLeft (w)); row.removeFromLeft (gap);
+            zs::Look::setCompact (*b, rightW < widthOf (*b));
+            b->setBounds (b == &tEnd ? right : right.removeFromLeft (rightW));
+            if (b != &tEnd) right.removeFromLeft (gap);
         }
     }
 
@@ -681,6 +754,23 @@ public:
         minuty, przewijane kolkiem, z czerwona linia "stad nagrasz od nowa". */
     void drawAim (juce::Graphics& g, juce::Rectangle<int> area)
     {
+        if (replacementMode)
+        {
+            const double fromView = juce::jmax (0.0, replacementFrom - pauseViewSec * 0.6);
+            const double toView = juce::jmin ((double) replacementAudio.size() / replacementRate,
+                                               replacementTo + pauseViewSec * 0.4);
+            drawStrip (g, area, replacementAudio, 0.0, replacementRate, fromView, toView, false);
+            const auto wave = stripLayout (area).wave;
+            const auto xAt = [&] (double t) { return wave.getX() + (float) ((t - fromView) / juce::jmax (0.001, toView - fromView)) * wave.getWidth(); };
+            const float x1 = juce::jmax (wave.getX(), xAt (replacementFrom));
+            const float x2 = juce::jmin (wave.getRight(), xAt (replacementTo));
+            if (x2 > x1)
+            {
+                g.setColour (Ink::red().withAlpha (0.18f)); g.fillRect (juce::Rectangle<float> (x1, wave.getY(), x2 - x1, wave.getHeight()));
+                g.setColour (Ink::red()); g.drawVerticalLine ((int) x1, wave.getY(), wave.getBottom()); g.drawVerticalLine ((int) x2, wave.getY(), wave.getBottom());
+            }
+            return;
+        }
         if (pz.on)
         {
             if (previewBackingPositionSec >= 0.0)
@@ -1218,7 +1308,7 @@ public:
     /* Dwie karty: tekst u gory, fala na dole — osobne okienko, widoczne od
        wejscia na ekran (Adrian 13.10, uklad z projektu ChatGPT). */
     static constexpr int stripGap = 12;
-    static constexpr int transportH = 44, transportGap = 10;
+    static constexpr int transportH = 52, transportGap = 10;
     static constexpr int noTextCardH = 88;
     /** Bez tekstu: maly naglowek u gory, a okno z fala zajmuje reszte. */
     bool noText() const noexcept { return script.wordCount() == 0; }
@@ -1248,13 +1338,6 @@ public:
         smallerButton.setBounds (bar.removeFromLeft (juce::jmax (40, fit (smallerButton)))); bar.removeFromLeft (6);
         largerButton.setBounds (bar.removeFromLeft (juce::jmax (40, fit (largerButton)))); bar.removeFromLeft (6);
         mirrorButton.setBounds (bar.removeFromRight (fit (mirrorButton))); bar.removeFromRight (6);
-        const int w = (bar.getWidth() - 6) / 2;
-        // "← Cofnij tekst" w waskim oknie: sama strzalka (tak jak przyciski nagrywania)
-        const bool compact = w < juce::jmax (fit (previousButton), fit (nextButton));
-        zs::Look::setCompact (previousButton, compact);
-        zs::Look::setCompact (nextButton, compact);
-        previousButton.setBounds (bar.removeFromLeft (w)); bar.removeFromLeft (6);
-        nextButton.setBounds (bar);
     }
 
     void paint (juce::Graphics& g) override
@@ -1348,7 +1431,14 @@ private:
                 follower.begin (&script);
                 words.begin (&script);
                 scrollNow = scrollTarget = 0.0f;
-                shownLine = 0;
+                shownLine = replacementMode && ! spans.empty() ? lineOfWord (replacementFirstWord) : 0;
+                if (replacementMode && ! spans.empty())
+                {
+                    const int word = lines[(size_t) shownLine].firstWord;
+                    follower.jumpToWord (word);
+                    words.jumpTo (word, 0.0);
+                    scrollNow = scrollTarget = (float) shownLine;
+                }
                 lineLog.begin();
                 removedSpans.clear(); pz = {};
                 liveSpanSec = liveStripSec; punchFrac = -1.0;
@@ -1922,6 +2012,10 @@ private:
     double previewBackingPositionSec = -1.0;      ///< tylko podglad ekranu
     std::vector<tw::LineSpan> spans;     ///< te same wersy, same numery slow
     tw::LineLog lineLog;                 ///< kiedy zaczal sie ktory wers (zapis obok nagrania)
+    bool replacementMode = false;
+    std::vector<float> replacementAudio;
+    double replacementRate = 48000.0, replacementFrom = 0.0, replacementTo = 0.0;
+    int replacementFirstWord = 0;
     std::string journalText;             ///< ostatnio zapisany dziennik (TakeJournal.h)
     juce::uint32 journalAtMs = 0;
     std::vector<tw::Event> liveEvents;                 ///< zdarzenia lampki tego nagrania

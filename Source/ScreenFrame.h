@@ -18,14 +18,12 @@ struct ScreenFrame
     /** Dawna lewa kolumna z krokami — kroki sa teraz w naglowku. */
     static juce::Rectangle<int> nav (juce::Rectangle<int>) { return {}; }
 
-    /** Zakladki krokow w naglowku: miedzy nazwa programu a przyciskami po
-        prawej (rightReserve: ile px zajmuja przyciski ekranu). */
-    static juce::Rectangle<int> stepsArea (juce::Rectangle<int> bounds, int rightReserve = 210)
+    /** Pelny wiersz kafelkow pod nazwa programu. Osobny pas daje kazdemu
+        etapowi rowna szerokosc i nie sciska polskich etykiet przy 960 px. */
+    static juce::Rectangle<int> stepsArea (juce::Rectangle<int> bounds, int = 210)
     {
-        auto header = bounds.removeFromTop (ui::frame::header);
-        header.removeFromLeft (leftBlock);
-        header.removeFromRight (rightReserve);
-        return header.withSizeKeepingCentre (header.getWidth(), 40);
+        bounds.removeFromTop (ui::frame::topBar);
+        return bounds.removeFromTop (ui::frame::stepsRow).reduced (16, 4);
     }
 
     static juce::Rectangle<int> sidebar (juce::Rectangle<int> bounds)

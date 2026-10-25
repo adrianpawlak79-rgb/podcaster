@@ -83,6 +83,9 @@ countries: pl
             if(mode=="review") preview.previewReview(fixture);
             if(mode=="tor") preview.previewChain(fixture);
             if(mode=="edit") preview.previewReview(fixture,true);
+            if(mode=="replace") preview.previewReplacementSelection(fixture);
+            if(mode=="replace-after") preview.previewReplacementAfter(fixture);
+            if(mode=="replace-recording") preview.previewReplacementRecording();
             if(mode=="done") preview.previewReview(fixture,false,true);
             if(mode=="review-big") { preview.setSize(1600,1200); preview.previewReview(fixture); }
             auto file=juce::File::getCurrentWorkingDirectory().getChildFile(args[1].unquoted());

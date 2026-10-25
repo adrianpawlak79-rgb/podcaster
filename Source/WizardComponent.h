@@ -89,8 +89,10 @@ public:
                           PL ("Głoski p i b"), PL ("Słuchawki"), PL ("Odsłuch") });
         addAndMakeVisible (steps);
         addAndMakeVisible (flow);
-        flow.setSteps ({ PL("Przygotowanie"), PL("Nagranie"), PL("Odsłuch i montaż"), PL("Miks"), PL("Gotowe") });
-        flow.setCurrent (0);
+        flow.setSteps ({ PL("Ekran startowy"), PL("Przygotowanie"), PL("Nagranie"),
+                         PL("Odsłuch i montaż"), PL("Miks"), PL("Gotowe") });
+        flow.setTileMode();
+        flow.setCurrent (1);
 
         title.setFont (juce::Font (zs::type::heading + 3.0f, juce::Font::bold));   // zdanie, nie nazwa: trzy wiersze w 76 px
         title.setColour (juce::Label::textColourId, zs::Ink::textNow());

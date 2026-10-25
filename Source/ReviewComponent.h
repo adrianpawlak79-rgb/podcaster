@@ -134,8 +134,19 @@ public:
 
     /** Wolane, gdy czlowiek chce wrocic do nagrywania. */
     std::function<void()> onClose;
+    std::function<void(double, double, const std::vector<float>&, double)> onReplaceSelection;
+    std::function<void()> onUndoReplacement;
+    void setReplacementUndoAvailable (bool available) { replacementUndoAvailable = available; updateMontageButtons(); }
+    void showReplacementSeams (double from, double to)
+    {
+        replacementSeams = { juce::jmax (0.0, from), juce::jmax (from, to) };
+        assessment.setText (PL ("Po poprawce zaznaczyłem dwa nowe szwy. Odsłuchaj je przyciskiem „Następne miejsce” albo klawiszem N."), false);
+        updateMontageButtons(); repaint();
+    }
     /** Przejście do przygotowania z paska kroków; bieżący montaż zostaje w pamięci. */
     std::function<void()> onGoToPreparation;
+    /** Powrót do istniejącego ekranu startowego z paska workflow. */
+    std::function<void()> onGoToStart;
     std::function<void()> onOpenSettings;
     /** "Nowy projekt" na ekranie Gotowe: do ekranu startowego. */
     std::function<void()> onNewProject;
@@ -245,20 +256,23 @@ public:
         addAndMakeVisible (assessment);
         // Miks na koncu (ustalone 13.10, ZADANIA zad. 11): najpierw odsluch i montaz
         // SUROWEGO nagrania, potem raz liczony miks z wyborem brzmienia, potem zapis.
-        flow.setSteps ({ PL("Przygotowanie"), PL("Nagranie"), PL("Odsłuch i montaż"), PL("Miks"), PL("Gotowe") });
+        flow.setSteps ({ PL("Ekran startowy"), PL("Przygotowanie"), PL("Nagranie"),
+                         PL("Odsłuch i montaż"), PL("Miks"), PL("Gotowe") });
+        flow.setTileMode();
         flow.canClickStep = [this] (int step)
         {
             if (isThreadRunning() || job != nullptr) return false;
-            if (step == 0) return true;
-            if (step == 2) return ! editMode;
-            if (step == 3) return doneMode && review.stage() == zs::TakeReview::Stage::Ready;
+            if (step == 0 || step == 1) return true;
+            if (step == 3) return ! editMode;
+            if (step == 4) return doneMode && review.stage() == zs::TakeReview::Stage::Ready;
             return false;
         };
         flow.onStepClick = [this] (int step)
         {
-            if (step == 0) { if (onGoToPreparation) onGoToPreparation(); }
-            else if (step == 2) setEditMode (true);
-            else if (step == 3) setEditMode (false);
+            if (step == 0) { if (onGoToStart) onGoToStart(); }
+            else if (step == 1) { if (onGoToPreparation) onGoToPreparation(); }
+            else if (step == 3) setEditMode (true);
+            else if (step == 4) setEditMode (false);
         };
         addAndMakeVisible (flow);
 
@@ -308,6 +322,13 @@ public:
         markEnd.setButtonText(PL("Koniec cięcia"));
         cutButton.setButtonText(PL("Wytnij zaznaczenie"));
         undoButton.setButtonText(PL("Cofnij cięcie"));
+        replaceButton.setButtonText (PL("Nagraj poprawkę"));
+        replaceButton.setTooltip (PL("Nagraj ten fragment od nowa. Zaznacz go na fali."));
+        replaceButton.onClick = [this] {
+            if (! canEdit() || cutFrom < 0.0 || cutTo <= cutFrom || ! onReplaceSelection) return;
+            player.pause();
+            onReplaceSelection (cutFrom, cutTo, review.rawAudio(), sr);
+        };
         markStart.onClick=[this] { if(canEdit()) { player.pause(); cutFrom=player.positionSec(); updateSelection(); } };
         markEnd.onClick=[this] { if(canEdit()) { player.pause(); cutTo=player.positionSec(); updateSelection(); } };
         cutButton.onClick=[this] {
@@ -327,11 +348,13 @@ public:
             }, true);
         };
         undoButton.onClick=[this] {
-            if(!canEdit() || undoAudio.empty()) return;
+            if (! canEdit()) return;
+            if (replacementUndoAvailable && onUndoReplacement) { onUndoReplacement(); return; }
+            if (undoAudio.empty()) return;
             auto back=std::make_shared<std::vector<float>>(std::move(undoAudio)); undoAudio.clear();
             restartEdit([back](std::vector<float>& out) { out=std::move(*back); return true; }, false);
         };
-        for(auto* b:{&markStart,&markEnd,&cutButton,&undoButton}) addAndMakeVisible(b);
+        for(auto* b:{&markStart,&markEnd,&cutButton,&undoButton,&replaceButton}) addAndMakeVisible(b);
         selection.setColour(juce::Label::textColourId,Ink::textNext());
         selection.setText(PL("Przeciągnij po fali, aby zaznaczyć fragment do wycięcia. Oryginał zostaje na dysku."),juce::dontSendNotification);
         // Gdzie jest plik: pytanie, ktore padlo przy pierwszym prawdziwym
@@ -342,6 +365,7 @@ public:
         doneEditButton.setButtonText (PL("← Wróć do miksu"));
         doneEditButton.onClick = [this] { setEditMode (false); };
         newTakeButton.setButtonText (PL("Nagraj nowe podejście"));
+        newTakeButton.setTooltip (PL ("Nowe nagranie od początku. Aby poprawić fragment, zaznacz go na fali."));
         newTakeButton.onClick = [this] { if (job == nullptr && onClose) onClose(); };
         newProjectButton.setButtonText (PL("Nowy projekt"));
         newProjectButton.setTooltip (PL("Ekran startowy: inna nazwa, inny rodzaj nagrania. Ten projekt zostaje na dysku."));
@@ -437,7 +461,7 @@ public:
         player.clear();
         recorder.attachPlayer (nullptr);
 
-        undoAudio.clear();cutFrom=cutTo=-1;editMode=detailsMode=middleMode=doneMode=false;
+        undoAudio.clear(); replacementUndoAvailable = false; replacementSeams.clear(); cutFrom=cutTo=-1;editMode=detailsMode=middleMode=doneMode=false;
         words.clear(); assessment.clear(); reviewSummary.clear(); resized();
         for (auto* b : { &playButton, &abButton, &saveButton, &editToggle, &nextButton,
                          &markStart, &markEnd, &cutButton, &undoButton }) b->setEnabled (false);
@@ -579,6 +603,14 @@ public:
         resized(); repaint();
     }
     void previewDone() { if (! editMode) { previewSave = true; save(); previewSave = false; } }
+    void previewReplacementSelection()
+    {
+        if (! editMode || review.seconds() < 2.0) return;
+        middleMode = true;
+        cutFrom = review.seconds() * 0.28;
+        cutTo = juce::jmin (review.seconds() * 0.40, cutFrom + 3.0);
+        updateSelection(); resized(); repaint();
+    }
 
     bool hasTake() const { return review.stage() != zs::TakeReview::Stage::Empty; }
 
@@ -586,6 +618,7 @@ public:
         miksu — zamkniecie programu by go zgubilo. Oryginal i decyzje po R sa
         na dysku zawsze, wiec ich to nie dotyczy. */
     bool hasUnsavedEdits() const { return takeVersion != loadedVersion && savedVersion != takeVersion; }
+    juce::File sourceFile() const { return file; }
 
     void end()
     {
@@ -922,11 +955,12 @@ public:
         playButton.setVisible (true); abButton.setVisible (true);
         saveButton.setVisible (true); editToggle.setVisible (true);
         zs::Look::setKind (folderButton, zs::ui::ButtonKind::Secondary);
+        replaceButton.setVisible (false);
         if (editMode) { layoutEdit(); return; }
         namespace L = zs::ui::review;
         for (auto* c : { static_cast<juce::Component*>(&trimStart), static_cast<juce::Component*>(&trimEnd), static_cast<juce::Component*>(&startHandle), static_cast<juce::Component*>(&endHandle), static_cast<juce::Component*>(&middleToggle) }) c->setVisible (false);
         flow.setBounds (zs::ScreenFrame::stepsArea (getLocalBounds()));
-        flow.setCurrent (3);                         // krok "Miks"
+        flow.setCurrent (4);                         // krok "Miks"
         settingsButton.setBounds (getWidth() - 196, 14, 174, 36);
         settingsButton.setVisible (true);
         nextButton.setVisible(false); backButton.setVisible(false); detailsToggle.setVisible(true);
@@ -1002,7 +1036,7 @@ public:
         editToggle.setButtonText (PL("← Wróć do montażu"));
         assessment.setVisible (true);
         assessment.setBounds (side);
-        for (auto* b : { &markStart, &markEnd, &cutButton, &undoButton }) b->setVisible (editMode);
+        for (auto* b : { &markStart, &markEnd, &cutButton, &undoButton, &replaceButton }) b->setVisible (editMode);
         selection.setVisible (editMode);
 
     }
@@ -1049,7 +1083,7 @@ private:
         for (auto* child : getChildren()) child->setVisible (false);
         flow.setVisible (true);
         flow.setBounds (zs::ScreenFrame::stepsArea (getLocalBounds()));
-        flow.setCurrent (4);
+        flow.setCurrent (5);
         settingsButton.setBounds (getWidth() - 196, 14, 174, 36);
         settingsButton.setVisible (true);
         auto main = doneContent();
@@ -1110,6 +1144,9 @@ private:
         // rowny rytm: etykieta, wartosc, odstep (nazwa pliku w polu do zaznaczenia, 2 wiersze)
         g.drawText (PL("Nazwa"), side.removeFromTop (24), juce::Justification::centredLeft);
         side.removeFromTop (44 + 14);
+        // Zarezerwuj miejsce na profil i trzy przyciski. Bez tego szczegoly
+        // pliku schodzily pod akcje w niskim oknie (np. 960x640).
+        side.removeFromBottom (124 + 8 + 36 + 8);
         const auto row = [&] (const juce::String& label, const juce::String& value, int height) {
             auto r = side.removeFromTop (height);
             g.setColour (Ink::textDim()); g.drawText (label, r.removeFromTop (18), juce::Justification::centredLeft);
@@ -1211,7 +1248,7 @@ private:
     /** Krok 3 "Odsluch i montaz": surowe nagranie, bez miksu. Najpierw decyzje
         po R (gdy sa), potem przyciecie poczatku i konca albo wyciecie srodka. */
     void layoutEdit() {
-        flow.setBounds (zs::ScreenFrame::stepsArea (getLocalBounds())); flow.setCurrent (2);
+        flow.setBounds (zs::ScreenFrame::stepsArea (getLocalBounds())); flow.setCurrent (3);
         settingsButton.setBounds (getWidth() - 196, 14, 174, 36);
         settingsButton.setVisible (true);
         namespace L = zs::ui::review;
@@ -1249,7 +1286,7 @@ private:
         if (decide)
         {
             // decyzje po R: czasy odnosza sie do pelnego nagrania, wiec najpierw one
-            for (auto* b : { &markStart, &markEnd, &cutButton, &undoButton }) b->setVisible (false);
+            for (auto* b : { &markStart, &markEnd, &cutButton, &undoButton, &replaceButton }) b->setVisible (false);
             selection.setVisible (false);
             feedbackArea = main.removeFromTop (24);
             cutPanel.setBounds (main); summaryArea = {};
@@ -1261,8 +1298,26 @@ private:
             main.removeFromTop (8);
             middleToggle.setBounds (main.removeFromTop (32).removeFromLeft (juce::jmin (260, main.getWidth())));
             main.removeFromTop (8);
-            auto cuts = main.removeFromTop (middleMode ? 32 : 0); const int w = (cuts.getWidth() - 24) / 4;
-            for (auto* b : { &markStart, &markEnd, &cutButton, &undoButton }) { b->setBounds (cuts.removeFromLeft (w)); cuts.removeFromLeft (8); b->setVisible (middleMode); }
+            auto cuts = main.removeFromTop (middleMode ? 32 : 0);
+            if (middleMode && getWidth() < 1180)
+            {
+                const int w = (cuts.getWidth() - 16) / 3;
+                juce::TextButton* firstRow[] = { &markStart, &markEnd, &cutButton };
+                for (int i = 0; i < 3; ++i)
+                { firstRow[i]->setBounds (cuts.removeFromLeft (w)); firstRow[i]->setVisible (true); if (i < 2) cuts.removeFromLeft (8); }
+                main.removeFromTop (4);
+                auto second = main.removeFromTop (32); const int half = (second.getWidth() - 8) / 2;
+                replaceButton.setBounds (second.removeFromLeft (half)); second.removeFromLeft (8);
+                undoButton.setBounds (second); replaceButton.setVisible (true); undoButton.setVisible (true);
+            }
+            else if (middleMode)
+            {
+                const int w = (cuts.getWidth() - 32) / 5;
+                juce::TextButton* all[] = { &markStart, &markEnd, &cutButton, &replaceButton, &undoButton };
+                for (int i = 0; i < 5; ++i)
+                { all[i]->setBounds (cuts.removeFromLeft (w)); all[i]->setVisible (true); if (i < 4) cuts.removeFromLeft (8); }
+            }
+            else for (auto* b : { &markStart, &markEnd, &cutButton, &undoButton, &replaceButton }) b->setVisible (false);
             selection.setVisible (middleMode); selection.setBounds (main.removeFromTop (middleMode ? 24 : 0));
             feedbackArea = main.removeFromTop (24); main.removeFromTop (4);
             // cala notka albo zadna — ucieta w polowie wiersza byla nieczytelna (960x640)
@@ -1411,8 +1466,9 @@ private:
         trimStart.setEnabled(editable);trimEnd.setEnabled(editable);startHandle.setEnabled(editable);endHandle.setEnabled(editable);
         markStart.setEnabled(editable);markEnd.setEnabled(editable);
         cutButton.setEnabled(editable && cutFrom>=0 && cutTo>cutFrom);
-        undoButton.setEnabled(editable && !undoAudio.empty());
-        nextButton.setEnabled (editable && ! review.timeline().empty());
+        replaceButton.setEnabled (editable && cutFrom >= 0 && cutTo > cutFrom);
+        undoButton.setEnabled(editable && (replacementUndoAvailable || !undoAudio.empty()));
+        nextButton.setEnabled (editable && (! review.timeline().empty() || ! replacementSeams.empty()));
         saveButton.setEnabled (editable && cutPanel.empty());
     }
 
@@ -1695,6 +1751,32 @@ private:
         const double now = player.positionSec();
         auto startOf = [] (const auto& t) { return juce::jmax (0.0, (t.mustRedo ? t.redoFrom : t.fromSec) - 0.3); };
         const auto& all = review.timeline();
+        if (! replacementSeams.empty())
+        {
+            size_t index = replacementSeams.size();
+            for (size_t i = 0; i < replacementSeams.size(); ++i)
+                if (replacementSeams[i] > now + 0.3) { index = i; break; }
+            double nextAudio = std::numeric_limits<double>::max();
+            for (const auto& t : all)
+                if (startOf (t) > now + 0.3) { nextAudio = startOf (t); break; }
+            if (index < replacementSeams.size() && replacementSeams[index] - 0.3 <= nextAudio)
+            {
+                const double at = juce::jmax (0.0, replacementSeams[index] - 0.3);
+                player.seekSec (at); follow (at);
+                if (! player.isPlaying()) player.play();
+                note = PL ("Miejsce do sprawdzenia: szew po poprawce ") + juce::String ((int) index + 1)
+                     + PL (" z ") + juce::String ((int) replacementSeams.size()) + PL (". Posłuchaj, czy łączenie brzmi naturalnie.");
+                repaint(); return;
+            }
+            if (all.empty())
+            {
+                const double at = juce::jmax (0.0, replacementSeams.front() - 0.3);
+                player.seekSec (at); follow (at);
+                if (! player.isPlaying()) player.play();
+                note = PL ("Miejsce do sprawdzenia: szew po poprawce. Posłuchaj, czy łączenie brzmi naturalnie.");
+                repaint(); return;
+            }
+        }
         if (all.empty()) return;
         // Ktore to miejsce, kiedy i dlaczego (audyt 14.10: "Nastepne miejsce
         // do sprawdzenia" z czasem i powodem).
@@ -2021,6 +2103,12 @@ private:
             g.setColour (c.withAlpha (t.mustRedo ? 0.95f : 0.65f));
             g.fillRect (x1, (float) strip.getY(), juce::jmax (3.0f, x2 - x1), (float) strip.getHeight());
         }
+        for (const auto sec : replacementSeams)
+        {
+            const float x = xAt (sec, strip);
+            if (x >= strip.getX() && x <= strip.getRight())
+            { g.setColour (Ink::yellow()); g.fillRect (x - 1.5f, (float) strip.getY(), 3.0f, (float) strip.getHeight()); }
+        }
 
         // Fragmenty do powtorzenia dostaja podpis z czasem — to jedyna rzecz z
         // tego ekranu, ktora czlowiek bedzie przepisywal na kartke.
@@ -2319,8 +2407,8 @@ private:
     juce::Viewport chainPort;
     juce::TextEditor words, assessment;
     zs::StepBar flow;
-    juce::TextButton markStart,markEnd,cutButton,undoButton,editToggle,detailsToggle,nextButton;
-    bool editMode=false,detailsMode=false,middleMode=false,doneMode=false;
+    juce::TextButton markStart,markEnd,cutButton,undoButton,replaceButton,editToggle,detailsToggle,nextButton;
+    bool editMode=false,detailsMode=false,middleMode=false,doneMode=false,replacementUndoAvailable=false;
     juce::TextButton doneEditButton,newTakeButton,newProjectButton;
     juce::TextButton profileButton;           ///< "Zapamietaj to brzmienie" (ekran Gotowe)
     bool profileRemembered = false;           ///< wzorzec wziety z tego miksu
@@ -2350,6 +2438,7 @@ private:
     TrimHandle startHandle,endHandle;
     juce::TextButton middleToggle;
     juce::String reviewSummary;
+    std::vector<double> replacementSeams;
     juce::Rectangle<int> summaryArea, feedbackArea;
     juce::Label selection;
     double cutFrom=-1,cutTo=-1;
