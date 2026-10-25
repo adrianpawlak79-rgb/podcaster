@@ -202,7 +202,7 @@ public:
         updateMusicButtons();
 
         saveButton.setButtonText (PL ("Zapisz miks"));
-        saveButton.onClick = [this] { if (editMode) goToMix(); else save(); };
+        saveButton.onClick = [this] { if (editMode) goToMix(); else if (review.isPreview()) acceptPreview(); else save(); };
         addAndMakeVisible (saveButton);
 
         backButton.setButtonText (PL ("Wróć do nagrywania"));
@@ -533,7 +533,7 @@ public:
                 {
                     mixTweaks = tweaks;
                     mixBedParams = bedParams;
-                    review.run (wish, mixTweaks);
+                    review.run (wish, mixTweaks, previewSec);
                     if (hasMusic() && review.mixValid()) renderBed();
                     adoptResult();
                 }
@@ -926,7 +926,7 @@ public:
         settingsButton.setBounds (getWidth() - 196, 14, 174, 36);
         settingsButton.setVisible (true);
         nextButton.setVisible(false); backButton.setVisible(false); detailsToggle.setVisible(true);
-        saveButton.setButtonText(PL("Zapisz miks"));
+        saveButton.setButtonText(review.isPreview() ? PL("Akceptuję — miksuj całość") : PL("Zapisz miks"));
         assessment.setText(reviewSummary, false);
         auto main = zs::ScreenFrame::mainArea (getLocalBounds());
         main.removeFromTop (headH() + waveHeight() + L::strip + 8);
@@ -1559,7 +1559,8 @@ private:
        kilkaset uruchomien. */
     void run() override
     {
-        review.run (wish, mixTweaks);
+        // dluzsze nagranie: najpierw probka 15 s do odsluchu, calosc po akceptacji
+        review.run (wish, mixTweaks, acceptingFull ? 0.0 : previewSec, acceptingFull);
 
         if (threadShouldExit()) return;
         if (hasMusic() && review.mixValid()) renderBed();
@@ -1567,8 +1568,25 @@ private:
         ready.store (true);
     }
 
+    static juce::String timeText (double t)
+    {
+        const int s = (int) t;
+        return juce::String (s / 60) + ":" + juce::String (s % 60).paddedLeft ('0', 2);
+    }
+
+    /** Probka sie podoba: cala reszta tymi samymi ustawieniami, potem zapis. */
+    void acceptPreview()
+    {
+        if (! mixReady()) return;
+        acceptingFull = true;
+        note = PL ("Miksuję całość…");
+        startMix();
+        repaint();
+    }
+
     void adoptResult()
     {
+        const bool thenSave = std::exchange (acceptingFull, false) && ! review.isPreview();
         if (styleNote) { note.clear(); styleNote = false; }   // "Miks ... liczy się…" juz nieaktualne
         mixedVersion = takeVersion; mixedStyle = wish.style; mixedTweaks = mixTweaks;
         chainView.setState (review.whatIDecided().params, review.whatIMixedWith(), mixTweaks);
@@ -1584,6 +1602,7 @@ private:
         } else player.setMaterial (review.rawAudio(), review.mixedAudio(), sr, true);
         if (! bed.left.empty()) setBedMaterial();
         player.showAfter (true);
+        if (review.isPreview()) player.seekSec (review.previewFrom());
 
         recorder.attachPlayer (&player);
 
@@ -1600,6 +1619,9 @@ private:
         if (! bed.left.empty()) summary << PL ("• ") << bedSummary() << "\n\n";
         else if (musicProblem.isNotEmpty()) summary << PL ("• ") << musicProblem << "\n\n";
         summary << PL ("Liczby i ustawienia: „Zaawansowane ustawienia”.");
+        if (review.isPreview())
+            summary = PL ("PRÓBKA: zmiksowane tylko ") + juce::String ((int) review.previewSeconds()) + PL (" s od ")
+                    + timeText (review.previewFrom()) + PL (". Posłuchaj (Odtwórz zaczyna od próbki). Pasuje? „Akceptuję — miksuj całość”. Inne brzmienie: kliknij kartę obok.\n\n") + summary;
         reviewSummary=summary; assessment.setText (summary, false);
         playButton.setEnabled (true); abButton.setEnabled (true);
         editToggle.setEnabled (true); saveButton.setEnabled (true);
@@ -1617,6 +1639,9 @@ private:
         }
         resized();
         repaint();
+        if (thenSave && ! editMode && ! doneMode)
+            juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<ReviewComponent> (this)]
+                                             { if (safe != nullptr) safe->save(); });
     }
 
     //==========================================================================
@@ -1804,7 +1829,8 @@ private:
         // Krok "Miks": werdykt o miksie, nie o miejscach do odsluchu — te byly
         // w montazu. Do powtorki (przester, brak sygnalu) wciaz na czerwono.
         int v = 0;
-        juce::String line = PL ("Miks gotowy. Posłuchaj przed i po, wybierz brzmienie i zapisz.");
+        juce::String line = review.isPreview() ? PL ("Próbka miksu gotowa. Posłuchaj, wybierz brzmienie i zaakceptuj.")
+                                               : PL ("Miks gotowy. Posłuchaj przed i po, wybierz brzmienie i zapisz.");
         if (damagedRecording) { v = 2; line = PL ("Podczas zapisu utracono dane. Nagraj materiał ponownie."); }
         else if (! review.mixValid()) { v = 2; line = PL (review.verdictLine().c_str()); }
         else if (review.nearlySilent())
@@ -1910,6 +1936,13 @@ private:
         if(cutFrom>=0 && cutTo>cutFrom) {
             const float a=clampX(xAt(cutFrom,r)), b=clampX(xAt(cutTo,r));
             g.setColour(Ink::yellow().withAlpha(.20f));g.fillRect(a,float(r.getY()),b-a,float(r.getHeight()));
+        }
+        if(! editMode && review.isPreview() && mixReady()) {   // probka miksu na fali
+            const float a=clampX(xAt(review.previewFrom(),r)), b=clampX(xAt(review.previewFrom()+review.previewSeconds(),r));
+            g.setColour(Ink::accent().withAlpha(.16f));g.fillRect(a,float(r.getY()),b-a,float(r.getHeight()));
+            g.setColour(Ink::accent());g.drawRect(a,float(r.getY()),b-a,float(r.getHeight()),1.5f);
+            g.setFont(juce::Font(zs::type::small,juce::Font::bold));
+            g.drawText(PL("PRÓBKA"),juce::Rectangle<float>(a+4,float(r.getY())+4,juce::jmax(60.0f,b-a),16.0f),juce::Justification::centredLeft);
         }
         if(editMode) {
             const float a=clampX(xAt(trimStart.getValue(),r)), b=clampX(xAt(trimEnd.getValue(),r));
@@ -2174,6 +2207,8 @@ private:
     juce::Rectangle<int> musicLabelArea;
 
     bool hasMusic() const { return ! music.left.empty(); }
+    static constexpr double previewSec = 15.0;   ///< probka miksu (Adrian 25.10)
+    bool acceptingFull = false;                  ///< po akceptacji probki: calosc, potem zapis
     juce::TextButton withMusicButton;
     bool editWithMusic = false;
 

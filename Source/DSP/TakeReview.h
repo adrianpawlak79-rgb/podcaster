@@ -327,6 +327,7 @@ public:
         marks  = std::move (events);
 
         mixed.clear();
+        decided = false; preview = false;
         lines.clear();
         troubles.clear();
         redos.clear();
@@ -359,14 +360,23 @@ public:
     }
 
     /** tweaks: reczne poprawki z toru miksu (Tweaks.h); puste = sam automat. */
-    void run (mix::Decide::Wish wish = podcastWish(), const mix::Tweaks& tweaks = {})
+    /** previewSec > 0: probka miksu (Adrian 25.10: godzina liczyla sie ok.
+        3 min przy kazdym kliknieciu brzmienia). Decyzja z wycinkow calego
+        nagrania (do 3 min), miks tylko previewSec od previewFrom(); reszta
+        mixed = surowe. reuseDecision: calosc po akceptacji probki - te same
+        ustawienia, ktore czlowiek uslyszal. */
+    void run (mix::Decide::Wish wish = podcastWish(), const mix::Tweaks& tweaks = {},
+              double previewSec = 0.0, bool reuseDecision = false)
     {
         if (before.empty()) { st.store (Stage::Empty); return; }
 
         st.store (Stage::Listening);
         prog.store (0.05);
 
-        decision = mix::Decide::listen (before, sr, wish);
+        preview = previewSec > 0.0 && (double) before.size() / sr > previewSec * 2.0;
+        if (! (reuseDecision && decided))
+            decision = mix::Decide::listen (preview ? sampleOf (before, sr) : before, sr, wish);
+        decided = true;
 
         prog.store (0.35);
         st.store (Stage::Mixing);
@@ -385,7 +395,20 @@ public:
         chain.setSampleRate (sr);
         chain.prepare (sr);
 
-        report = chain.render (before, mixed);
+        if (preview)
+        {
+            // 3 s rozbiegu, zeby kompresor i odszumianie zdazyly sie ustawic
+            const size_t len = (size_t) (previewSec * sr), warm = (size_t) (3.0 * sr);
+            const size_t at = pickPreview (before, sr, len);
+            const size_t from = at > warm ? at - warm : 0;
+            std::vector<float> part (before.begin() + (long) from, before.begin() + (long) std::min (before.size(), at + len)), out;
+            report = chain.render (part, out);
+            mixed = before;
+            for (size_t i = at; i < at + len && i < mixed.size() && i - from < out.size(); ++i) mixed[i] = out[i - from];
+            previewAt = (double) at / sr; previewLen = previewSec;
+        }
+        else
+            report = chain.render (before, mixed);
 
         prog.store (0.95);
 
@@ -397,6 +420,40 @@ public:
     }
 
     //==========================================================================
+    bool   isPreview()   const noexcept { return preview; }
+    double previewFrom() const noexcept { return previewAt; }
+    double previewSeconds() const noexcept { return previewLen; }
+
+    /** Do decyzji: cale nagranie albo 9 wycinkow po 20 s rowno rozlozonych. */
+    static std::vector<float> sampleOf (const std::vector<float>& x, double rate)
+    {
+        const size_t chunk = (size_t) (20.0 * rate), parts = 9;
+        if (x.size() <= chunk * parts) return x;
+        std::vector<float> s; s.reserve (chunk * parts);
+        for (size_t k = 0; k < parts; ++k)
+        {
+            const size_t a = (x.size() - chunk) * k / (parts - 1);
+            s.insert (s.end(), x.begin() + (long) a, x.begin() + (long) (a + chunk));
+        }
+        return s;
+    }
+
+    /** Probka tam, gdzie najwiecej mowy: okno o najwiekszej energii
+        (krok 5 s), bez pierwszych 10% - poczatek bywa rozgrzewka. */
+    static size_t pickPreview (const std::vector<float>& x, double rate, size_t len)
+    {
+        if (x.size() <= len) return 0;
+        const size_t step = (size_t) (5.0 * rate);
+        size_t best = 0; double bestE = -1.0;
+        for (size_t a = x.size() / 10; a + len <= x.size(); a += step)
+        {
+            double e = 0.0;
+            for (size_t i = a; i < a + len; i += 16) e += (double) x[i] * x[i];
+            if (e > bestE) { bestE = e; best = a; }
+        }
+        return best;
+    }
+
     const std::vector<float>& rawAudio()   const noexcept { return before; }
     const std::vector<float>& mixedAudio() const noexcept { return mixed; }
     double sampleRate() const noexcept { return sr; }
@@ -810,6 +867,10 @@ private:
     std::vector<Redo>      redos;
 
     mix::Decision    decision;
+
+    bool decided = false, preview = false;   ///< probka miksu (run z previewSec)
+
+    double previewAt = 0.0, previewLen = 0.0;
     mix::ChainReport report;
     mix::SpeechChain::Params mixedParams;
 
