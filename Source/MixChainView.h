@@ -56,7 +56,7 @@ public:
             t.amount.onValueChange = [this, i] { if (! tiles[(size_t) i].amount.isMouseButtonDown()) take (i); };
             addAndMakeVisible (t.amount);
         }
-        resetButton.setButtonText (PL ("Cofnij moje zmiany"));
+        resetButton.setButtonText (PL ("Przywróć domyślne ustawienia"));
         resetButton.setTooltip (PL ("Wszystkie moduły tak, jak dobrał je miks"));
         resetButton.onClick = [this] { tweaks = {}; refreshControls(); send(); };
         addAndMakeVisible (resetButton);
@@ -85,7 +85,7 @@ public:
     {
         auto r = getLocalBounds();
         auto head = r.removeFromTop (header);
-        resetButton.setBounds (head.removeFromRight (170).withSizeKeepingCentre (170, 26));
+        resetButton.setBounds (head.removeFromRight (230).withSizeKeepingCentre (230, 26));
         for (int i = 0; i < mix::stageCount; ++i)
         {
             const auto tile = tileBounds (i);
