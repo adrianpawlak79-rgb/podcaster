@@ -353,7 +353,7 @@ public:
         checkButton.onClick = [this] { enterWizard(); };
         addAndMakeVisible (checkButton);
 
-        settingsButton.setButtonText (PL("Mikrofon i sprzęt"));
+        settingsButton.setButtonText (PL("Ustawienia"));
         settingsButton.onClick = [this] {
             settingsOpen = !settingsOpen; refreshHomeVisibility(); resized(); repaint();
         };
@@ -505,8 +505,8 @@ public:
         }
         else
         {
-            startAfterWizard = ! previewMode;   // pierwsze uruchomienie: kreator, potem ekran startowy
-            enterWizard();
+            showRecordingUi (true);
+            if (! previewMode) showStart (true);
         }
 
         // Nagranie z linii polecen przeskakuje wszystko, takze kreator: nie
@@ -521,7 +521,7 @@ public:
                 inWizard = false;
                 showRecordingUi (true);
             }
-            startAfterWizard = false;
+            preparationAfterWizard = false;
             showStart (false);
             openReview (openForReview, reviewNow, true);
         }
@@ -570,6 +570,7 @@ public:
     /** Dla okna, ktore chce zapamietac swoje polozenie. */
     Settings& userSettings() noexcept { return settings; }
     void previewSettings() { settingsOpen=true;resized();repaint(); }
+    void previewPreparation() { inStart = false; preparation = true; settingsOpen = false; refreshHomeVisibility(); resized(); repaint(); }
     /** --preview-ui witaj: ekran startowy z nagraniami z folderu przykladu. */
     void previewStart (const juce::File& folder)
     {
@@ -636,7 +637,24 @@ public:
     void resized() override
     {
         if (wizard) wizard->setBounds (getLocalBounds());
-        if (inWizard) return;
+        if (inWizard)
+        {
+            const bool deviceStep = wizard != nullptr && wizard->isDeviceStep();
+            auto area = deviceStep ? wizard->deviceControlsArea().translated (wizard->getX(), wizard->getY()) : juce::Rectangle<int>();
+            auto deviceRow = area.removeFromTop (30);
+            const int half = juce::jmax (0, (deviceRow.getWidth() - 8) / 2);
+            deviceBox.setBounds (deviceRow.removeFromLeft (half)); deviceRow.removeFromLeft (8);
+            inputBox.setBounds (deviceRow.removeFromLeft (half));
+            auto level = area.removeFromBottom (20);
+            meter.setBounds (level.removeFromLeft (juce::jmax (0, level.getWidth() - 82)));
+            heardLabel.setBounds (level.removeFromRight (82));
+            for (auto* c : { (juce::Component*) &deviceBox, (juce::Component*) &inputBox, (juce::Component*) &meter, (juce::Component*) &heardLabel })
+            {
+                c->setVisible (deviceStep);
+                if (deviceStep) c->toFront (false);
+            }
+            return;
+        }
         if (inReview && review) { review->setBounds (getLocalBounds()); return; }
         if (startScreen != nullptr) startScreen->setBounds (getLocalBounds());
         if (inStart) return;
@@ -918,7 +936,7 @@ private:
         const bool idleHome=home && !rec;
         settingsButton.setVisible(!inWizard && !inReview && !rec);settingsButton.setEnabled(idleHome);   // w trakcie nagrania nieaktywny przycisk tylko zawadzal
         detailsButton.setVisible(idleHome && !settingsOpen);openButton.setVisible(idleHome && !settingsOpen);
-        settingsButton.setButtonText(settingsOpen?PL("Zamknij ustawienia"):PL("Mikrofon i sprzęt"));
+        settingsButton.setButtonText(settingsOpen?PL("Zamknij ustawienia"):PL("Ustawienia"));
         detailsButton.setButtonText(detailsOpen?PL("Ukryj uwagi"):PL("Pokaż uwagi"));
         selector->setVisible(idleHome && settingsOpen);
         folderButton.setVisible(idleHome && settingsOpen);checkButton.setVisible(idleHome && settingsOpen);
@@ -932,7 +950,7 @@ private:
         prepareButton.setVisible(prepare && !settingsOpen);
         preparationButton.setVisible(!preparation && !rec && !inWizard && !inReview);
         for (auto* c : { (juce::Component*) &deviceBox, (juce::Component*) &inputBox, (juce::Component*) &heardLabel })
-            c->setVisible(prepare && !settingsOpen);
+            c->setVisible(false);
         if (prepare) {
             prompterButton.setVisible(!detailsOpen && !settingsOpen); otherTextButton.setVisible(false);
             checkButton.setVisible(true); folderButton.setVisible(settingsOpen);
@@ -973,7 +991,7 @@ private:
 
     void paintHardwareSettings (juce::Graphics& g)
     {
-        zs::ScreenFrame::paintHead (g, getLocalBounds(), PL("01 / PRZYGOTOWANIE"), PL("Mikrofon i sprzęt"), hardwareSubtitle());
+        zs::ScreenFrame::paintHead (g, getLocalBounds(), PL("01 / PRZYGOTOWANIE"), PL("Ustawienia"), hardwareSubtitle());
         auto side = settingsBox().reduced (22, 24);
         juce::AudioDeviceManager::AudioDeviceSetup setup;
         deviceManager.getAudioDeviceSetup (setup);
@@ -997,7 +1015,7 @@ private:
                                   profile.valid() ? zs::Ink::textNow() : zs::Ink::textNext());
     }
 
-    static juce::String hardwareSubtitle() { return PL("Wybierz mikrofon i słuchawki, potem sprawdź sprzęt."); }
+    static juce::String hardwareSubtitle() { return PL("Urządzenia, słuchawki, wzorzec brzmienia i folder sesji."); }
     juce::String preparationSubtitle() const
     {
         return backingFile != juce::File()
@@ -1024,12 +1042,13 @@ private:
             auto side = settingsBox().reduced(22,24);
             text (PL("Przed nagraniem"), side.removeFromTop(32), zs::type::heading, true);
             side.removeFromTop(4);
-            text (settings.hardwareChecked() ? PL("Sprzęt został sprawdzony") : PL("Mikrofon nie został sprawdzony"), side.removeFromTop(32), zs::type::body);
-            side.removeFromTop(8);
-            text (PL("Karta / urządzenie"), side.removeFromTop(18), zs::type::small);
-            side.removeFromTop(30 + 6);
-            text (PL("Wejście z mikrofonem"), side.removeFromTop(18), zs::type::small);
-            text (PL("Nagranie rozpocznie się po naciśnięciu Nagraj."), settingsBox().reduced(22,12).removeFromBottom(40), zs::type::small);
+            const auto device = deviceManager.getCurrentAudioDevice();
+            const auto inputName = inputBox.getText().isNotEmpty() ? inputBox.getText() : PL("wejście nieustawione");
+            const auto freshness = hardwareCheckedThisSession ? PL("sprawdzone dziś")
+                : settings.hardwareChecked() ? PL("sprawdzone wcześniej") : PL("niesprawdzone");
+            const auto state = (device != nullptr ? device->getName() : PL("Mikrofon nie wybrany"))
+                             + PL(" · ") + inputName + PL(" · ") + freshness;
+            text (state, side.removeFromTop(56), zs::type::body);
         }
     }
 
@@ -1048,20 +1067,15 @@ private:
             main.removeFromBottom(8); events.setBounds(main);
         }
         auto side = settingsBox().reduced(22,24);
-        auto bottom = side.removeFromBottom(168);
-        bottom.removeFromBottom(36);
+        auto bottom = side.removeFromBottom(210);
         prepareButton.setBounds(bottom.removeFromBottom(42)); bottom.removeFromBottom(8);
+        checkButton.setBounds(bottom.removeFromBottom(38)); bottom.removeFromBottom(8);
         openButton.setBounds(bottom.removeFromBottom(32)); bottom.removeFromBottom(8);
         detailsButton.setBounds(bottom.removeFromBottom(32));
-
-        // Uklad musi sie zmiescic przy 960 x 640: folder sesji zostaje
-        // w "Mikrofon i sprzet", tu sa tylko rzeczy przed kazdym nagraniem.
-        side.removeFromTop(32 + 4 + 32 + 8 + 18);
-        deviceBox.setBounds(side.removeFromTop(30)); side.removeFromTop(6);
-        heardLabel.setBounds(side.removeFromTop(18));
-        inputBox.setBounds(side.removeFromTop(30)); side.removeFromTop(8);
-        meter.setBounds(side.removeFromTop(20)); side.removeFromTop(8);
-        checkButton.setBounds(side.removeFromTop(34));
+        const bool checked = hardwareCheckedThisSession;
+        zs::Look::setKind (prepareButton, checked ? zs::ui::ButtonKind::Primary : zs::ui::ButtonKind::Secondary);
+        zs::Look::setKind (checkButton, checked ? zs::ui::ButtonKind::Secondary : zs::ui::ButtonKind::Primary);
+        checkButton.setButtonText (PL("Sprawdź sprzęt"));
         folderButton.setVisible(false);
         status.setVisible(false);
     }
@@ -1309,7 +1323,7 @@ private:
             if (dev == nullptr || dev->getActiveInputChannels().isZero())
             {
                 juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, PL ("Nie ma mikrofonu"),
-                    PL ("Program nie widzi żadnego wejścia dźwięku. Podłącz mikrofon albo interfejs i wybierz go w „Mikrofon i sprzęt” (prawy górny róg)."));
+                    PL ("Program nie widzi żadnego wejścia dźwięku. Podłącz mikrofon albo interfejs, a potem kliknij „Sprawdź sprzęt”."));
                 return;
             }
         }
@@ -1429,6 +1443,9 @@ private:
         // konstruktorze.
         if (inWizard)
         {
+            const float lvNow = recorder.inputLevel();
+            meter.setLevel (lvNow);
+            updateHeard (lvNow);
             // Kreator rusza dopiero przy otwartej karcie Z WEJSCIEM; do tego
             // czasu mowi, czego mu brakuje (a nie pusty panel).
             auto* dev = deviceManager.getCurrentAudioDevice();
@@ -1681,8 +1698,13 @@ private:
             {
                 backingFile = startScreen->chosenMusic();
                 nameInput.setText (name.isEmpty() ? PL ("Nowy odcinek") : name, juce::dontSendNotification);
-                preparation = true; settingsOpen = false; detailsOpen = false;
                 showStart (false);
+                if (! settings.hardwareChecked())
+                {
+                    preparationAfterWizard = true;
+                    enterWizard();
+                }
+                else { preparation = true; settingsOpen = false; detailsOpen = false; resized(); repaint(); }
             };
             startScreen->onOpen = [this] (const juce::File& f) { showStart (false); openReview (f, false, true); };
             startScreen->onOpenOther = [this]
@@ -1741,6 +1763,7 @@ private:
         // Pominiecie nie liczy sie jako sprawdzenie — patrz WizardComponent::completed().
         if (wizard != nullptr && wizard->completed())
         {
+            hardwareCheckedThisSession = true;
             settings.setHardwareChecked (true, wizard->summaryLine());
             settings.setRoomCheck (wizard->roomCheck());
             append (PL ("sprzęt sprawdzony: ") + wizard->summaryLine() + ".");
@@ -1754,7 +1777,7 @@ private:
 
         showRecordingUi (true);
         lamp.setState (0, PL ("Naciśnij Nagraj, kiedy będziesz gotowy."), true);
-        if (std::exchange (startAfterWizard, false)) showStart (true);
+        if (std::exchange (preparationAfterWizard, false)) { preparation = true; settingsOpen = false; detailsOpen = false; }
 
         // Kreator sluchal mikrofonu przez caly swoj czas. Zostawiony przy zyciu
         // slucha go dalej — takze w trakcie nagrywania, ktorego juz nie dotyczy.
@@ -2007,7 +2030,7 @@ private:
     std::unique_ptr<StartComponent> startScreen;
     juce::File backingFile;               ///< podklad muzyczny projektu (pusty = sam glos)
     juce::String loadedBackingKey;        ///< sciezka@czestotliwosc tego, co siedzi w Recorderze
-    bool inStart = false, startAfterWizard = false;
+    bool inStart = false, preparationAfterWizard = false, hardwareCheckedThisSession = false;
     bool inReview = false, reviewCameFromPrompter = false;
     bool closeAsked = false;              ///< okno "czy zamknac" juz pokazane
     std::unique_ptr<ReviewComponent> review;

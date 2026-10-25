@@ -63,7 +63,8 @@ countries: pl
             auto mode = args.size() > 2 ? args[2] : juce::String();
             if (mode.endsWith ("-small")) { preview.setSize (960, 640); mode = mode.dropLastCharacters (6); }
             if (mode.endsWith ("-fhd"))   { preview.setSize (1920, 1080); mode = mode.dropLastCharacters (4); }
-            if(mode=="settings") { preview.setSize(960,640);preview.previewSettings(); }
+            if(mode=="settings") preview.previewSettings();
+            if(mode=="start") preview.previewPreparation();
             if(mode=="prompter")preview.previewPrompter();
             if(mode=="small") preview.setSize(960,640);
             if(mode=="wizard") preview.previewWizard();
