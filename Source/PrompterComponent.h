@@ -402,7 +402,9 @@ public:
             return;
         }
         tw::PreRollPlan p;
-        if (! settings.roomCheck().headphonesLeak())
+        // rozbieg gra zawsze: w odliczaniu zapis stoi, wiec przeciek ze
+        // sluchawek nie trafia do pliku (Adrian 25.10: "w odliczaniu powinno
+        // byc slychac to, co nagrane")
             tw::PreRoll().render (p, pz.history, pz.rate, pz.historyStart, pz.cutSec);
         pz.resuming = true;
         playPreRollPlan (std::move (p));              // odliczanie; zapis nadal stoi
@@ -462,6 +464,15 @@ public:
         // punch-in jak w DAW (Adrian 25.10): nowe nagranie rosnie od miejsca linii
         punchFrac = juce::jlimit (0.0, 0.95, (pz.cutSec - (pz.viewEnd - pauseViewSec)) / pauseViewSec);
         punchResumeRaw = end;
+        // Rozpoznawanie od nowa: slowa sprzed pauzy dochodzily z opoznieniem
+        // i przestawialy prompter z powrotem tam, gdzie byla pauza (Adrian 25.10)
+        if (listening && speech != nullptr)
+        {
+            VoskEngine::Hypothesis h;
+            while (speech->nextHypothesis (h)) {}
+            words.endUtterance();
+            speech->startListening (recorder.currentSampleRate(), words.vocabulary());
+        }
         liveSpanSec = pauseViewSec;
         recorder.resume();
         if (onRetake) onRetake();
@@ -675,7 +686,7 @@ public:
         double start = 0.0;
         const double rate = recorder.currentSampleRate();
         const double span = liveSpanSec;
-        const auto live = recorder.recentAudio (span, start);
+        const auto live = recorder.recentAudio (2.0 * span, start);   // zakotwiczone okno siega dalej wstecz
         if (live.empty() || rate <= 0.0)
         {
             // pierwsze chwile nagrania: karta z pusta osia, nie dziura
@@ -686,7 +697,7 @@ public:
         }
         const double now = start + (double) live.size() / rate;
         auto spans2 = removedSpans;
-        const auto view = tw::EditedView::render (live, start, rate, now, spans2, span);
+        const auto view = tw::EditedView::render (live, start, rate, now, spans2, 2.0 * span);
         viewSpans = &spans2; viewNow = now;
         double t0 = now + liveAheadSec - span;
         if (punchFrac >= 0.0)
@@ -698,7 +709,7 @@ public:
         // samej krawedzi, tylko z kawalkiem przyszlosci po prawej — widac, co
         // nadchodzi w podkladzie; nagrane to kolorowy blok do glowicy.
         livePlayhead = now; liveRecordedFrom = now - (recorder.recordedSeconds() - tw::EditedView::removedAfter (0.0, recorder.recordedSeconds(), removedSpans));
-        drawStrip (g, area, view, now - span, rate, t0, t0 + span, false);
+        drawStrip (g, area, view, now - 2.0 * span, rate, t0, t0 + span, false);
         livePlayhead = -1.0e9;
         viewSpans = nullptr;
     }
