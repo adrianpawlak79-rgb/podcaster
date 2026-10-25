@@ -130,7 +130,13 @@ countries: pl
         if (mainWindow != nullptr) mainWindow->toFront (true);
         juce::Timer::callAfterDelay (2700, [this]
         {
-            if (mainWindow != nullptr) { mainWindow->toFront (true); mainWindow->grabKeyboardFocus(); }
+            if (mainWindow == nullptr) return;
+            // Windows blokuje toFront, gdy fokus ma inny program (np. Eksplorator,
+            // z ktorego uruchomiono). Chwilowe "zawsze na wierzchu" to omija.
+            mainWindow->setAlwaysOnTop (true);
+            mainWindow->toFront (true);
+            mainWindow->grabKeyboardFocus();
+            juce::Timer::callAfterDelay (400, [this] { if (mainWindow != nullptr) mainWindow->setAlwaysOnTop (false); });
         });
     }
 
