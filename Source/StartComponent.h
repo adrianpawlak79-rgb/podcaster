@@ -64,6 +64,8 @@ public:
     }
     /** Muzyka do nagrania albo pusty File, gdy wybrany "Sam glos". */
     juce::File chosenMusic() const { return musicMode ? music : juce::File(); }
+    /** Z prompterem (Przygotowanie z tekstem) albo bez (od razu nagranie). */
+    bool prompterChosen() const noexcept { return withPrompter; }
 
     /** Nazwa w polu, gdy ekran wraca (np. po skonczonym odcinku: pusta). */
     void setName (const juce::String& n) { nameInput.setText (n, juce::dontSendNotification); }
@@ -125,18 +127,23 @@ public:
         g.setColour (I::textNext()); g.setFont (juce::Font (zs::type::small));
         g.drawText (PL ("Nazwa"), L.nameLabel, juce::Justification::bottomLeft);
         g.drawText (PL ("Rodzaj nagrania"), L.kindLabel, juce::Justification::bottomLeft);
+        g.drawText (PL ("Tekst"), L.textLabel, juce::Justification::centredLeft);
+        paintChoice (g, L.withText, withPrompter, PL ("Z prompterem"));
+        paintChoice (g, L.withoutText, ! withPrompter, PL ("Bez promptera"));
 
         paintCard (g, L.voiceCard, ! musicMode, true, PL ("Sam głos"),
-                   PL ("Podcast, lektor, audiobook. Prompter i lampka prowadzą przez nagranie."), false);
+                   PL ("Podcast, lektor, audiobook. Lampka mówi, czy nagranie się nadaje."), false);
         paintCard (g, L.musicCard, musicMode, true, PL ("Głos z podkładem"),
                    music.existsAsFile()
                        ? music.getFileName() + "  (" + duration (musicSec) + PL (")\nKliknij, by wybrać inny plik.")
                        : PL ("Muzyka w słuchawkach, nagrywasz do bitu. Kliknij i wybierz plik (WAV, MP3)."), true);
 
         g.setColour (I::textDim()); g.setFont (juce::Font (zs::type::small));
-        g.drawText (musicMode ? PL ("Dalej: mikrofon i tekst. Muzyka zagra po Nagraj.")
-                              : PL ("Dalej: mikrofon i tekst do promptera."),
-                    L.startHint, juce::Justification::centredLeft);
+        g.drawFittedText (withPrompter ? (musicMode ? PL ("Dalej: mikrofon i tekst. Muzyka zagra po Nagraj.")
+                                                    : PL ("Dalej: mikrofon i tekst do promptera."))
+                                       : (musicMode ? PL ("Dalej: mikrofon, potem nagranie bez tekstu. Muzyka zagra po Nagraj.")
+                                                    : PL ("Dalej: mikrofon, potem od razu nagranie bez tekstu.")),
+                          L.startHint, juce::Justification::centredLeft, 2);
 
         if (equipment.isNotEmpty())
         {
@@ -181,7 +188,8 @@ public:
         const int r = rowAt (e.getPosition());
         if (r != hoverRow) { hoverRow = r; repaint(); }
         const auto L = layout();
-        const bool card = L.voiceCard.contains (e.getPosition()) || L.musicCard.contains (e.getPosition());
+        const bool card = L.voiceCard.contains (e.getPosition()) || L.musicCard.contains (e.getPosition())
+                       || L.withText.contains (e.getPosition()) || L.withoutText.contains (e.getPosition());
         setMouseCursor (r >= 0 || card ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
     }
     void mouseExit (const juce::MouseEvent&) override { if (hoverRow >= 0) { hoverRow = -1; repaint(); } }
@@ -189,6 +197,8 @@ public:
     {
         const auto L = layout();
         if (L.voiceCard.contains (e.getPosition())) { musicMode = false; repaint(); return; }
+        if (L.withText.contains (e.getPosition()))    { withPrompter = true;  repaint(); return; }
+        if (L.withoutText.contains (e.getPosition())) { withPrompter = false; repaint(); return; }
         if (L.musicCard.contains (e.getPosition()))
         {
             if (music.existsAsFile() && ! musicMode) { musicMode = true; repaint(); }
@@ -206,6 +216,7 @@ private:
     struct Layout
     {
         juce::Rectangle<int> left, right, nameLabel, name, kindLabel, voiceCard, musicCard,
+                             textLabel, withText, withoutText,
                              start, startHint, list, other, equipment;
     };
 
@@ -218,6 +229,7 @@ private:
     juce::File music;
     double musicSec = 0.0;
     bool musicMode = false;
+    bool withPrompter = true;    ///< Adrian 25.10: wybor na starcie, czy z tekstem
     juce::String equipment;
     bool equipmentChecked = false;
 
@@ -240,11 +252,19 @@ private:
         L.kindLabel = a.removeFromTop (24);  a.removeFromTop (6);
         L.equipment = a.removeFromBottom (24);
         a.removeFromBottom (12);
-        auto cards = a.removeFromTop (juce::jlimit (124, 170, a.getHeight() - 52 - 28));
+        auto cards = a.removeFromTop (juce::jlimit (112, 170, a.getHeight() - 52 - 28 - 52));
         L.voiceCard = cards.removeFromLeft ((cards.getWidth() - 14) / 2);
         cards.removeFromLeft (14);
         L.musicCard = cards;
-        a.removeFromTop (juce::jmin (28, juce::jmax (12, a.getHeight() - 52)));
+        // z prompterem / bez: dwa przelaczniki w jednym rzedzie pod kartami
+        a.removeFromTop (14);
+        auto textRow = a.removeFromTop (38);
+        L.textLabel = textRow.removeFromLeft (52);
+        const int w = juce::jmin (180, (textRow.getWidth() - 8) / 2);
+        L.withText = textRow.removeFromLeft (w);
+        textRow.removeFromLeft (8);
+        L.withoutText = textRow.removeFromLeft (w);
+        a.removeFromTop (juce::jmin (24, juce::jmax (10, a.getHeight() - 52)));
         auto bottom = a.removeFromTop (52);
         L.start = bottom.removeFromLeft (220);
         bottom.removeFromLeft (16);
@@ -284,6 +304,27 @@ private:
     {
         g.setColour (zs::Ink::textDim()); g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
         g.drawText (text, r, juce::Justification::centredLeft);
+    }
+
+    /** Przelacznik "Z prompterem / Bez promptera": jak karta, tylko nizszy. */
+    static void paintChoice (juce::Graphics& g, juce::Rectangle<int> r, bool selected, const juce::String& text)
+    {
+        using I = zs::Ink;
+        const auto rf = r.toFloat();
+        g.setColour (selected ? I::accent().withAlpha (0.12f) : I::bg());
+        g.fillRoundedRectangle (rf, 7.0f);
+        g.setColour (selected ? I::accent() : I::edge());
+        g.drawRoundedRectangle (rf.reduced (selected ? 1.0f : 0.5f), 7.0f, selected ? 2.0f : 1.0f);
+        auto in = r.reduced (12, 0);
+        // kropka wyboru jak w radiu
+        const auto dot = in.removeFromLeft (14).withSizeKeepingCentre (14, 14).toFloat();
+        g.setColour (selected ? I::accent() : I::edge());
+        g.drawEllipse (dot.reduced (1.0f), 1.5f);
+        if (selected) g.fillEllipse (dot.reduced (4.0f));
+        in.removeFromLeft (10);
+        g.setColour (selected ? I::textNow() : I::textNext());
+        g.setFont (juce::Font (zs::type::small, juce::Font::bold));
+        g.drawText (text, in, juce::Justification::centredLeft, true);
     }
 
     static void paintCard (juce::Graphics& g, juce::Rectangle<int> r, bool selected, bool enabled,
