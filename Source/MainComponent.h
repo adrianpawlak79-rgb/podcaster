@@ -359,7 +359,23 @@ public:
 
         settingsButton.setButtonText (PL("Ustawienia"));
         settingsButton.onClick = [this] {
-            settingsOpen = !settingsOpen; refreshHomeVisibility(); resized(); repaint();
+            if (settingsOpen)
+            {
+                settingsOpen = false;
+                const bool returnToReview = settingsReturnToReview;
+                const bool returnToPrompter = settingsReturnToPrompter;
+                settingsReturnToReview = settingsReturnToPrompter = false;
+                refreshHomeVisibility(); resized(); repaint();
+                if (returnToReview) showReview (true);
+                else if (returnToPrompter) showPrompter (true);
+                return;
+            }
+            if (inPrompter)
+            {
+                settingsReturnToPrompter = true;
+                showPrompter (false);
+            }
+            settingsOpen = true; refreshHomeVisibility(); resized(); repaint();
         };
         addAndMakeVisible(settingsButton);
         detailsButton.setButtonText (PL("Pokaż uwagi"));
@@ -723,7 +739,7 @@ public:
             segMeter.setBounds (P.meter);
             for (auto* c : std::initializer_list<juce::Component*> { &recButton, &repeatButton, &meter, &status, &hints })
                 c->setVisible (false);
-            for (auto* c : std::initializer_list<juce::Component*> { &lamp, &segMeter, &flow })
+            for (auto* c : std::initializer_list<juce::Component*> { &lamp, &segMeter, &flow, &settingsButton })
                 c->toFront (false);
         }
     }
@@ -995,9 +1011,11 @@ private:
         const bool rec=recorder.isRecording();
         const bool home=!inWizard && !inReview && !inPrompter;
         const bool idleHome=home && !rec;
-        settingsButton.setVisible(!inWizard && !inReview && !rec);settingsButton.setEnabled(idleHome);   // w trakcie nagrania nieaktywny przycisk tylko zawadzal
+        settingsButton.setVisible(!inWizard && !inReview && !inStart);
+        settingsButton.setEnabled(!inWizard && !inStart && !rec);
         detailsButton.setVisible(idleHome && !settingsOpen);openButton.setVisible(idleHome && !settingsOpen);
         settingsButton.setButtonText(settingsOpen?PL("Zamknij ustawienia"):PL("Ustawienia"));
+        settingsButton.setTooltip (rec ? PL("Ustawienia będą dostępne po zakończeniu nagrania") : juce::String());
         detailsButton.setButtonText(detailsOpen?PL("Ukryj uwagi"):PL("Pokaż uwagi"));
         selector->setVisible(idleHome && settingsOpen);
         folderButton.setVisible(idleHome && settingsOpen);checkButton.setVisible(idleHome && settingsOpen);
@@ -1721,6 +1739,7 @@ private:
     zs::StepBar flow;
     juce::File previewFolder;   ///< tylko --preview-ui: nagrywanie do katalogu tymczasowego
     bool settingsOpen=false, detailsOpen=false;
+    bool settingsReturnToReview=false, settingsReturnToPrompter=false;
     juce::SortedSet<int> mutedKinds;
     tw::Kind lastFlagged = tw::Kind::Clipping;
     juce::TextEditor events;
@@ -2053,6 +2072,12 @@ private:
             {
                 closeReview();
                 if (preparationButton.onClick) preparationButton.onClick();
+            };
+            review->onOpenSettings = [this] {
+                settingsReturnToReview = true;
+                showReview (false);
+                settingsOpen = true;
+                refreshHomeVisibility(); resized(); repaint();
             };
             addAndMakeVisible (*review);
         }
