@@ -10,6 +10,10 @@ namespace zs
 class StepBar : public juce::Component
 {
 public:
+    std::function<void (int)> onStepClick;
+    std::function<bool (int)> canClickStep;
+
+    StepBar() { setMouseClickGrabsKeyboardFocus (false); }
     void setSteps (const juce::StringArray& names) { steps = names; repaint(); }
     void setCurrent (int index, bool everythingDone = false)
     {
@@ -20,6 +24,24 @@ public:
     }
 
     int currentStep() const noexcept { return current; }
+
+    void mouseMove (const juce::MouseEvent& e) override
+    {
+        const int step = hitStep (e.position);
+        setMouseCursor (isClickable (step) ? juce::MouseCursor::PointingHandCursor
+                                            : juce::MouseCursor::NormalCursor);
+        if (hovered != step) { hovered = step; repaint(); }
+    }
+    void mouseExit (const juce::MouseEvent&) override
+    {
+        setMouseCursor (juce::MouseCursor::NormalCursor);
+        if (hovered >= 0) { hovered = -1; repaint(); }
+    }
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        const int step = hitStep (e.position);
+        if (e.mouseWasClicked() && isClickable (step) && onStepClick) onStepClick (step);
+    }
 
     static constexpr int preferredHeight = 46;
 
@@ -63,6 +85,7 @@ public:
 
         const float cy = getHeight() * 0.5f;
         float x = 2.0f;
+        stepBounds.clearQuick();
         for (int i = 0; i < n; ++i)
         {
             const auto state = ui::stepState (i, current, allDone);
@@ -70,6 +93,7 @@ public:
             const bool done = state == ui::StepState::Done;
             const bool label = mode == 0 || (mode == 1 && active);
             const auto b = juce::Rectangle<float> (x, cy - d / 2, d, d);
+            const float itemX = x;
 
             if (active)
             {
@@ -80,6 +104,8 @@ public:
             }
             else
             {
+                if (done && hovered == i && isClickable (i))
+                    Depth::glow (g, b, d / 2, Ink::accent(), 5.0f, 0.35f);
                 g.setColour (Ink::bg().darker (0.3f));
                 g.fillEllipse (b);
                 g.setColour (done ? Ink::select().withAlpha (0.8f) : Ink::edge().brighter (0.15f));
@@ -103,11 +129,13 @@ public:
             if (label)
             {
                 g.setColour (active ? Ink::textNow() : done ? Ink::textNext() : Ink::textDim());
+                if (done && hovered == i && isClickable (i)) g.setColour (Ink::textNow());
                 g.setFont (font);
                 g.drawText (steps[i], juce::Rectangle<float> (x + inner, 0.0f, labelW (i) + 2.0f, (float) getHeight()),
                             juce::Justification::centredLeft, false);
                 x += inner + labelW (i);
             }
+            stepBounds.add (juce::Rectangle<float> (itemX, 0.0f, x - itemX, (float) getHeight()));
             if (i < n - 1)
             {
                 // przebyta czesc drogi (do biezacego kroku) swieci na niebiesko
@@ -120,6 +148,19 @@ public:
     }
 
 private:
+    int hitStep (juce::Point<float> point) const
+    {
+        for (int i = 0; i < stepBounds.size(); ++i)
+            if (stepBounds.getReference (i).contains (point)) return i;
+        return -1;
+    }
+    bool isClickable (int step) const
+    {
+        return step >= 0 && step < steps.size()
+            && ui::stepState (step, current, allDone) == ui::StepState::Done
+            && onStepClick != nullptr && (! canClickStep || canClickStep (step));
+    }
+
     /** Lewa kolumna (uklad z projektu ChatGPT, 13.10): kroki jeden pod drugim,
         biezacy w kolorze akcentu, zrobione ze znaczkiem. */
     void paintVertical (juce::Graphics& g)
@@ -162,7 +203,9 @@ private:
     }
 
     juce::StringArray steps;
+    juce::Array<juce::Rectangle<float>> stepBounds;
     int current = 0;
+    int hovered = -1;
     bool allDone = false;
 };
 

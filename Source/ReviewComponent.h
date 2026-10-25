@@ -133,6 +133,8 @@ public:
 
     /** Wolane, gdy czlowiek chce wrocic do nagrywania. */
     std::function<void()> onClose;
+    /** Przejście do przygotowania z paska kroków; bieżący montaż zostaje w pamięci. */
+    std::function<void()> onGoToPreparation;
 
     /** Co kreator zmierzyl w pokoju. Ustawiac przed load(): miks szuka wtedy
         w nagraniu przydzwieku, ktory slyszal kreator, i porownuje tlo. */
@@ -236,6 +238,20 @@ public:
         // Miks na koncu (ustalone 13.10, ZADANIA zad. 11): najpierw odsluch i montaz
         // SUROWEGO nagrania, potem raz liczony miks z wyborem brzmienia, potem zapis.
         flow.setSteps ({ PL("Przygotowanie"), PL("Nagranie"), PL("Odsłuch i montaż"), PL("Miks"), PL("Gotowe") });
+        flow.canClickStep = [this] (int step)
+        {
+            if (isThreadRunning() || job != nullptr) return false;
+            if (step == 0) return true;
+            if (step == 2) return ! editMode;
+            if (step == 3) return doneMode && review.stage() == zs::TakeReview::Stage::Ready;
+            return false;
+        };
+        flow.onStepClick = [this] (int step)
+        {
+            if (step == 0) { if (onGoToPreparation) onGoToPreparation(); }
+            else if (step == 2) setEditMode (true);
+            else if (step == 3) setEditMode (false);
+        };
         addAndMakeVisible (flow);
 
         editToggle.setButtonText(PL("← Wróć do montażu"));

@@ -398,6 +398,10 @@ public:
         addAndMakeVisible (hints);
 
         flow.setSteps ({ PL ("Przygotowanie"), PL ("Nagranie"), PL ("Odsłuch i montaż"), PL ("Miks"), PL ("Gotowe") });
+        flow.canClickStep = [this] (int step)
+        { return step == 0 && ! recorder.isRecording() && ! preparation && ! inWizard && ! inReview; };
+        flow.onStepClick = [this] (int step)
+        { if (step == 0 && preparationButton.isVisible()) preparationButton.onClick(); };
         addAndMakeVisible (flow);
 
         setWantsKeyboardFocus (true);
@@ -2045,6 +2049,11 @@ private:
         {
             review = std::make_unique<ReviewComponent> (recorder);
             review->onClose = [this] { closeReview(); };
+            review->onGoToPreparation = [this]
+            {
+                closeReview();
+                if (preparationButton.onClick) preparationButton.onClick();
+            };
             addAndMakeVisible (*review);
         }
 
