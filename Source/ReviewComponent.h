@@ -281,6 +281,14 @@ public:
         addChildComponent (chainPort);
         nextButton.setButtonText(PL("Następne miejsce")); zs::Look::setKey(nextButton,"N");
         nextButton.onClick=[this] { nextTrouble(); };
+        // z podkladem: w montazu do wyboru sam glos albo glos z muzyka (Adrian 25.10)
+        withMusicButton.setWantsKeyboardFocus (false);
+        withMusicButton.onClick = [this] {
+            editWithMusic = ! editWithMusic;
+            const double at = player.positionSec(); const bool was = player.isPlaying();
+            player.pause(); setRawMaterial(); player.seekSec (at); if (was) player.play();
+        };
+        addChildComponent (withMusicButton);
         // Powiekszenie fali: wokol igly (kolko myszy — wokol kursora).
         zoomIn.setButtonText ("+"); zoomOut.setButtonText (PL ("−")); zoomAllButton.setButtonText (PL ("Całość"));
         zoomIn.setTooltip (PL ("Powiększ falę (kółko myszy albo +)"));
@@ -903,6 +911,7 @@ public:
         for (auto& b : musicLevel) b.setVisible (false);
         duckButton.setVisible (false);
         for (auto* b : { &zoomIn, &zoomOut, &zoomAllButton }) b->setVisible (false);   // tylko w montazu
+        withMusicButton.setVisible (false);
         if (doneMode) { layoutDone(); return; }
         doneEditButton.setVisible (false); newTakeButton.setVisible (false); profileButton.setVisible (false); newProjectButton.setVisible (false);
         savedPath.setVisible (false); savedName.setVisible (false);
@@ -1222,6 +1231,11 @@ private:
             zoomIn.setVisible (true);  zoomIn.setBounds (row.removeFromLeft (40));
             if (zoomAll) { row.removeFromLeft (6); zoomAllButton.setVisible (true); zoomAllButton.setBounds (row.removeFromLeft (80)); }
         }
+        if (hasMusic() && row.getWidth() >= 196)
+        {
+            withMusicButton.setButtonText (editWithMusic ? PL ("Słychać: głos z podkładem") : PL ("Słychać: sam głos"));
+            withMusicButton.setVisible (true); withMusicButton.setBounds (row.removeFromRight (juce::jmin (230, row.getWidth() - 16)));
+        }
         zoomIn.setEnabled (view().len > juce::jmin (zs::ui::review::minViewSec, review.seconds()) + 1.0e-6);
         zoomOut.setEnabled (zoomed()); zoomAllButton.setEnabled (zoomed());
         main.removeFromTop (8);
@@ -1364,11 +1378,21 @@ private:
     /** Odsluch surowego nagrania (krok montazu): przed = po = surowe. */
     void setRawMaterial() {
         const double rate = recorder.currentSampleRate() > 0 ? recorder.currentSampleRate() : sr;
+        std::vector<float> src;
+        if (editWithMusic && hasMusic())
+        {
+            // glos z muzyka na dlugosci glosu, zeby fala i czas sie zgadzaly
+            if (std::isnan (musicLufs)) musicLufs = mix::MusicBed::lufsOf (music.left, music.right, sr);
+            const auto b = mix::MusicBed::render (review.rawAudio(), music.left, music.right, sr, bedParams, false, musicLufs);
+            src.assign (review.rawAudio().size(), 0.0f);
+            for (size_t i = 0; i < src.size() && i < b.left.size(); ++i) src[i] = 0.5f * (b.left[i] + b.right[i]);
+        }
+        const auto& voice = src.empty() ? review.rawAudio() : src;
         if (std::abs (rate - sr) > 0.1) {
             mix::Resampler convert; convert.prepare ((int) sr, (int) rate, 64);
-            std::vector<float> r; convert.render (review.rawAudio(), r);
+            std::vector<float> r; convert.render (voice, r);
             player.setMaterial (r, r, rate, true);
-        } else player.setMaterial (review.rawAudio(), review.rawAudio(), sr, true);
+        } else player.setMaterial (voice, voice, sr, true);
         player.showAfter (false);
         recorder.attachPlayer (&player);
         playButton.setEnabled (true);
@@ -2150,6 +2174,8 @@ private:
     juce::Rectangle<int> musicLabelArea;
 
     bool hasMusic() const { return ! music.left.empty(); }
+    juce::TextButton withMusicButton;
+    bool editWithMusic = false;
 
     void buildMusicEnv()
     {

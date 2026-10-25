@@ -1657,64 +1657,25 @@ public:
         regrade();                // znaczki z pelnego nagrania, zanim zapis wersow sie wyczysci
         if (wav == juce::File()) return res;
 
-        // Z podkladem: wycinamy dokladnie to, od czego liczyl sie rozbieg muzyki
-        // (removedSpans), zawsze i bez listy do decyzji — inaczej glos po cieciu
-        // wypadlby obok bitu (BackingEdit.h).
-        // Bez tekstu (Adrian 25.10: "musze moc cofnac nagranie tam, gdzie chce")
-        // nie ma wersow, wiec nie ma czego szukac po slowach: wycinamy dokladnie
-        // to, co wskazano na fali (linia stoi juz w ciszy — PauseCut::nearest).
-        if (recorder.hasBacking() || noText())
-        {
-            auto marks = lineLog.marks();
-            res = zs::applyBackingCuts (wav, removedSpans, &marks);
-            if (! marks.empty())
-            {
-                tw::LineLog out;
-                out.begin();
-                for (const auto& m : marks) out.restart (m, m.source);
-                juce::String text = juce::String::fromUTF8 (out.toText().c_str());
-                if (res.applied)
-                    text = "# nagranie z podkladem: wyciete dokladnie miejsca wznowien (" + juce::String (res.cuts)
-                         + ", razem " + juce::String (res.removedSec, 1) + " s); surowe: " + res.rawCopy.getFileName()
-                         + " w folderze surowe\n" + text;
-                wav.getSiblingFile (wav.getFileNameWithoutExtension() + ".wersy.txt")
-                   .replaceWithText (text, false, false, "\n");
-            }
-            lineLog.begin();
-            return res;
-        }
-        if (lineLog.marks().empty()) return res;
-
+        // Kazde nagranie od linii (pauza, R) wycina od razu dokladnie to, co
+        // nagrano od nowa (removedSpans) - zostaje tylko ostatnia wersja, bez
+        // listy prob do decyzji w Montazu (Adrian 25.10: "pogubimy sie").
+        // Z podkladem i tak musi byc dokladnie, inaczej glos wypadlby obok bitu.
         auto marks = lineLog.marks();
-        res = zs::applyPunch (wav, marks, heardWords, settings.punchAutoCut(),
-                              tw::similarlyStartingLines (script, tw::lineSpans (script)));
-
-        // lista ciec dla ekranu Odsluch (DSP/CutList.h): pewne + do wskazania
-        if (! res.applied && ! res.proposals.empty())
-            zs::writeCutList (wav, res.proposals);
-
-        tw::LineLog out;
-        out.begin();
-        for (const auto& m : marks) out.restart (m, m.source);
-
-        juce::String text = juce::String::fromUTF8 (out.toText().c_str());
-        if (! res.applied)
-            for (const auto& c : res.plan)
-                text = "# pomylka do wyciecia na ekranie Montaz: " + juce::String (c.from, 2) + "-" + juce::String (c.to, 2)
-                     + " s (R; automatyczne wycinanie wylaczone)\n" + text;
-        if (res.applied)
-            text = "# wyciete pomylki (klawisz R): " + juce::String (res.cuts) + ", razem "
-                 + juce::String (res.removedSec, 1) + " s; surowe nagranie: " + res.rawCopy.getFileName()
-                 + " w folderze surowe"
-                 + (res.audibleSeams > 0 ? "; polaczenia z inna cisza (posluchaj): " + juce::String (res.audibleSeams) : juce::String())
-                 + "\n" + text;
-        for (const auto& s : res.skipped)
-            text = "# NIE wyciete (" + juce::String (s.cut.from, 2) + "-" + juce::String (s.cut.to, 2) + " s): "
-                 + juce::String::fromUTF8 (s.why.c_str()) + " — wytnij recznie na ekranie Montaz\n" + text;
-
-        wav.getSiblingFile (wav.getFileNameWithoutExtension() + ".wersy.txt")
-           .replaceWithText (text, false, false, "\n");
-
+        res = zs::applyBackingCuts (wav, removedSpans, &marks);
+        if (! marks.empty())
+        {
+            tw::LineLog out;
+            out.begin();
+            for (const auto& m : marks) out.restart (m, m.source);
+            juce::String text = juce::String::fromUTF8 (out.toText().c_str());
+            if (res.applied)
+                text = "# wyciete poprzednie wersje (nagraj od linii / R): " + juce::String (res.cuts)
+                     + ", razem " + juce::String (res.removedSec, 1) + " s; surowe: " + res.rawCopy.getFileName()
+                     + " w folderze surowe\n" + text;
+            wav.getSiblingFile (wav.getFileNameWithoutExtension() + ".wersy.txt")
+               .replaceWithText (text, false, false, "\n");
+        }
         lineLog.begin();          // juz zapisane — drugi raz nie
         return res;
     }
