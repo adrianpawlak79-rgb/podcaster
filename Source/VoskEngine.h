@@ -75,9 +75,9 @@ public:
         switch (state())
         {
             case State::NoLibrary: return juce::String (juce::CharPointer_UTF8 (
-                "Śledzenie słów niedostępne — tekst przewija się orientacyjnie, a R tylko proponuje miejsce. Zainstaluj program instalatorem."));
+                "Automatyczne śledzenie tekstu jest wyłączone. Możesz nagrywać, ale tekst nie pójdzie za głosem, a R tylko zaproponuje miejsce. Zainstaluj program instalatorem."));
             case State::NoModel:   return juce::String (juce::CharPointer_UTF8 (
-                "Śledzenie słów niedostępne (brak modelu mowy) — tekst przewija się orientacyjnie, a R tylko proponuje miejsce."));
+                "Automatyczne śledzenie tekstu jest wyłączone. Możesz nagrywać, ale tekst nie pójdzie za głosem, a R tylko zaproponuje miejsce."));
             case State::Failed:    return juce::String (juce::CharPointer_UTF8 (
                 "Model mowy nie dał się wczytać — prompter liczy sylaby."));
             default:               return {};

@@ -48,7 +48,7 @@ public:
             t.amount.setRange (-1.0, 1.0, 0.25);
             t.amount.setValue (0.0, juce::dontSendNotification);
             t.amount.setDoubleClickReturnValue (true, 0.0);
-            t.amount.setTooltip (PL (mix::stageHelp (s)) + PL ("\nDwuklik: jak automat."));
+            t.amount.setTooltip (PL (mix::stageHelp (s)) + PL ("\nDwuklik: bez zmian."));
             t.amount.setColour (juce::Slider::trackColourId, zs::Ink::accent());
             t.amount.setColour (juce::Slider::backgroundColourId, zs::Ink::edge());
             t.amount.setColour (juce::Slider::thumbColourId, zs::Ink::textNow());
@@ -56,7 +56,7 @@ public:
             t.amount.onValueChange = [this, i] { if (! tiles[(size_t) i].amount.isMouseButtonDown()) take (i); };
             addAndMakeVisible (t.amount);
         }
-        resetButton.setButtonText (PL ("Jak automat"));
+        resetButton.setButtonText (PL ("Cofnij moje zmiany"));
         resetButton.setTooltip (PL ("Wszystkie moduły tak, jak dobrał je miks"));
         resetButton.onClick = [this] { tweaks = {}; refreshControls(); send(); };
         addAndMakeVisible (resetButton);
