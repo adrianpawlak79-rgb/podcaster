@@ -73,7 +73,7 @@ countries: pl
             if(mode=="prompter-wskazanie") { preview.previewRecording(true); preview.previewAim(); }
             if(mode=="prompter-pasek") { preview.previewRecording(true); preview.previewLive(); }
             if(mode=="review-ciecia") {
-                if(!args[2].endsWith("-small")) preview.setSize(1280,1100);
+                if(!args[2].endsWith("-small")) preview.setSize(1280,800);
                 preview.previewCuts(fixture);
             }
             if(mode=="witaj") preview.previewStart(fixture.getParentDirectory());

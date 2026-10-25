@@ -1401,7 +1401,7 @@ private:
     }
     //==========================================================================
     /** Rosnie z oknem — liczby i uzasadnienie w zs::ui::review (UiRules.h). */
-    int waveHeight() const { if(!cutPanel.empty() && editMode) return getHeight()<720 ? 0 : 80; const int h=juce::jmax(zs::ui::review::waveMin,zs::ui::review::waveHeight(getHeight())-juce::jmax(0,headH()-78)); return editMode ? juce::jmax(120,h-(middleMode?72:16)) : detailsMode ? juce::jmin(h,getHeight()<720?56:96) : h; }
+    int waveHeight() const { if(!cutPanel.empty() && editMode) return 80; const int h=juce::jmax(zs::ui::review::waveMin,zs::ui::review::waveHeight(getHeight())-juce::jmax(0,headH()-78)); return editMode ? juce::jmax(120,h-(middleMode?72:16)) : detailsMode ? juce::jmin(h,getHeight()<720?56:96) : h; }
 
     /** Podtytul ekranu: montaz (z decyzjami po R albo bez) albo miks. */
     juce::String subtitle() const

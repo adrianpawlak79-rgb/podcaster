@@ -760,7 +760,7 @@ public:
         list[0].from=1; list[0].to=2; list[0].sure=true; list[0].state=tw::CutProposal::State::Accepted;
         list[1].from=3; list[1].to=4; list[1].sure=true; list[1].state=tw::CutProposal::State::Accepted;
         list[2].from=5; list[2].to=6; list[2].why="Nie rozpoznano początku powtórzonego wersu.";
-        zs::writeCutList(copy,list); previewReview(copy);
+        zs::writeCutList(copy,list); previewReview(copy, true);
     }
     void previewChain (const juce::File& wav)
     {

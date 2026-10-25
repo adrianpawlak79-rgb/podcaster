@@ -86,9 +86,9 @@ public:
             if (p.state == tw::CutProposal::State::Pending) ++pending;
         }
         return pending > 0
-            ? tr("Posłuchaj miejsc oznaczonych „sprawdź”. Czego nie zaznaczysz, zostanie w nagraniu.")
-            : cut > 0 ? tr("Nagranie zmieni się dopiero po „Wytnij zaznaczone”. Pełne nagranie zostanie w folderze surowe.")
-                      : tr("Nic nie jest zaznaczone — nagranie zostanie bez zmian.");
+            ? tr("Posłuchaj miejsc oznaczonych „sprawdź”. Niezaznaczone miejsca zostaną w nagraniu.")
+            : cut > 0 ? tr("Nagranie zmieni się po „Wytnij zaznaczone”. Niezaznaczone miejsca zostaną w nagraniu.")
+                      : tr("Nic nie wybrano. Niezaznaczone miejsca zostaną w nagraniu.");
     }
     int hintHeight(int width) const { return zs::ScreenFrame::wrappedHeight(hint(), width, juce::Font(zs::type::small)); }
     /** 1 miejsce, 2-4 miejsca, 5 miejsc (12-14 miejsc). */
