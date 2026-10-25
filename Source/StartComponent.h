@@ -159,7 +159,9 @@ public:
 
         // ---- ostatnie nagrania -------------------------------------------
         zs::ScreenFrame::paintPanel (g, L.right);
+        paintHero (g, L.hero);
         auto b = L.right.reduced (pad, pad);
+        if (! L.hero.isEmpty()) b.setTop (L.hero.getBottom() + 16);
         caption (g, PL ("OSTATNIE NAGRANIA"), b.removeFromTop (18));
         if (recent.empty())
         {
@@ -215,7 +217,7 @@ private:
     struct Item { juce::File file; juce::Time when; double seconds = 0.0; bool mixed = false; };
     struct Layout
     {
-        juce::Rectangle<int> left, right, nameLabel, name, kindLabel, voiceCard, musicCard,
+        juce::Rectangle<int> left, right, hero, nameLabel, name, kindLabel, voiceCard, musicCard,
                              textLabel, withText, withoutText,
                              start, startHint, list, other, equipment;
     };
@@ -271,6 +273,13 @@ private:
         L.startHint = bottom;
 
         auto b = L.right.reduced (pad, pad);
+        // zdjecie z ekranu powitalnego na stale (Adrian 25.10), 16:9 nad lista;
+        // w niskim oknie mniejsze, zeby zmiescily sie choc dwa nagrania
+        if (! heroImage().isNull())
+        {
+            const int h = juce::jmin (b.getWidth() * 9 / 16, juce::jmax (0, b.getHeight() - 18 - 12 - 40 - 12 - 2 * (rowH + 6)));
+            if (h >= 90) { L.hero = b.removeFromTop (h); b.removeFromTop (16); }
+        }
         b.removeFromTop (18 + 12);
         L.other = b.removeFromBottom (40);
         b.removeFromBottom (12);
@@ -298,6 +307,36 @@ private:
     void start()
     {
         if (onStart) onStart (nameInput.getText().trim());
+    }
+
+    /** Zdjecie z ekranu powitalnego (Resources/splash.jpg). Tylko w programie:
+        BinaryData jest dolaczane z fontami (ZS_FONTS), testy JUCE go nie maja. */
+    static juce::Image heroImage()
+    {
+       #if ZS_FONTS
+        return juce::ImageCache::getFromMemory (BinaryData::splash_jpg, BinaryData::splash_jpgSize);
+       #else
+        return {};
+       #endif
+    }
+
+    static void paintHero (juce::Graphics& g, juce::Rectangle<int> r)
+    {
+        const auto img = heroImage();
+        if (r.isEmpty() || img.isNull()) return;
+        const auto rf = r.toFloat();
+        juce::Graphics::ScopedSaveState keep (g);
+        juce::Path clip; clip.addRoundedRectangle (rf, 8.0f);
+        g.reduceClipRegion (clip);
+        // caly kadr bez przycinania na bokach: napis "Zielone swiatlo" jest w zdjeciu
+        g.setOpacity (1.0f);   // drawImage bierze krycie biezacego koloru (z ramki panelu: 7%)
+        g.drawImage (img, rf, juce::RectanglePlacement::centred | juce::RectanglePlacement::fillDestination);
+        // dol lagodnie w kolor panelu — zdjecie przechodzi w liste
+        g.setGradientFill (juce::ColourGradient (zs::Ink::panel().withAlpha (0.0f), 0.0f, rf.getBottom() - rf.getHeight() * 0.35f,
+                                                 zs::Ink::panel().withAlpha (0.85f), 0.0f, rf.getBottom(), false));
+        g.fillRect (rf);
+        g.setColour (zs::Ink::edge());
+        g.drawRoundedRectangle (rf.reduced (0.5f), 8.0f, 1.0f);
     }
 
     static void caption (juce::Graphics& g, const juce::String& text, juce::Rectangle<int> r)
