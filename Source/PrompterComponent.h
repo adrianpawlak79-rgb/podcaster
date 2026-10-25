@@ -459,6 +459,10 @@ public:
         lineLog.setLastCutTo (end);
         punchMovedByHand = true;
         if (pz.selected && pz.cutSec < end) removedSpans.push_back ({ pz.cutSec, end });
+        // punch-in jak w DAW (Adrian 25.10): nowe nagranie rosnie od miejsca linii
+        punchFrac = juce::jlimit (0.0, 0.95, (pz.cutSec - (pz.viewEnd - pauseViewSec)) / pauseViewSec);
+        punchResumeRaw = end;
+        liveSpanSec = pauseViewSec;
         recorder.resume();
         if (onRetake) onRetake();
         pz = {};
@@ -670,7 +674,8 @@ public:
         }
         double start = 0.0;
         const double rate = recorder.currentSampleRate();
-        const auto live = recorder.recentAudio (liveStripSec, start);
+        const double span = liveSpanSec;
+        const auto live = recorder.recentAudio (span, start);
         if (live.empty() || rate <= 0.0)
         {
             // pierwsze chwile nagrania: karta z pusta osia, nie dziura
@@ -681,20 +686,27 @@ public:
         }
         const double now = start + (double) live.size() / rate;
         auto spans2 = removedSpans;
-        const auto view = tw::EditedView::render (live, start, rate, now, spans2, liveStripSec);
+        const auto view = tw::EditedView::render (live, start, rate, now, spans2, span);
         viewSpans = &spans2; viewNow = now;
+        double t0 = now + liveAheadSec - span;
+        if (punchFrac >= 0.0)
+        {
+            const double a = punchResumeRaw - punchFrac * span;   // szew stoi tam, gdzie stala linia
+            if (now - a < span - liveAheadSec) t0 = a; else punchFrac = -1.0;
+        }
         // Jak w DAW (Adrian 25.10, zrzut ze Studio One): glowica "teraz" nie na
         // samej krawedzi, tylko z kawalkiem przyszlosci po prawej — widac, co
         // nadchodzi w podkladzie; nagrane to kolorowy blok do glowicy.
         livePlayhead = now; liveRecordedFrom = now - (recorder.recordedSeconds() - tw::EditedView::removedAfter (0.0, recorder.recordedSeconds(), removedSpans));
-        drawStrip (g, area, view, now - liveStripSec, rate, now - (liveStripSec - liveAheadSec), now + liveAheadSec, false);
+        drawStrip (g, area, view, now - span, rate, t0, t0 + span, false);
         livePlayhead = -1.0e9;
         viewSpans = nullptr;
     }
 
     static constexpr double liveStripSec = 10.0;
     static constexpr double liveAheadSec = 2.5;     ///< ile przyszlosci za glowica (podklad)
-    double livePlayhead = -1.0e9, liveRecordedFrom = 0.0;   ///< tylko na czas drawStrip na zywo
+    double livePlayhead = -1.0e9, liveRecordedFrom = 0.0;
+    double liveSpanSec = liveStripSec, punchFrac = -1.0, punchResumeRaw = 0.0;   ///< tylko na czas drawStrip na zywo
     bool previewLive = false;
 
     void drawStrip (juce::Graphics& g, juce::Rectangle<int> area, const std::vector<float>& hist,
@@ -781,7 +793,7 @@ public:
                 const float a = juce::jmax (wave.getX(), xOf (sp.first)), b = juce::jmin (wave.getRight(), xOf (sp.second));
                 if (b > a) { g.setColour (Ink::bg().withAlpha (0.55f)); g.fillRect (juce::Rectangle<float> (a, wave.getY(), b - a, wave.getHeight())); }
             }
-            if (pz.selected)
+            if (pz.selected && ! pz.resuming)
             {
                 const float a = juce::jmax (wave.getX(), xOf (pz.cutSec)), b = juce::jmin (wave.getRight(), xOf (pz.atSec));
                 if (b > a) { g.setColour (Ink::red().withAlpha (0.16f)); g.fillRect (juce::Rectangle<float> (a, wave.getY(), b - a, wave.getHeight())); }
@@ -814,6 +826,7 @@ public:
         for (int px = 0; px < (int) wave.getWidth(); ++px)
         {
             const double a = t0 + (t1 - t0) * px / wave.getWidth(), b = t0 + (t1 - t0) * (px + 1) / wave.getWidth();
+            if (paused && pz.resuming && pz.selected && a > pz.cutSec) break;   // w odliczaniu: za linia pusto
             const auto i0 = (long) ((a - histStart) * sr), i1 = (long) ((b - histStart) * sr);
             float pk = 0.0f;
             for (long i = juce::jmax (0L, i0); i < i1 && i < (long) hist.size(); ++i)
@@ -845,7 +858,15 @@ public:
         {
             // miejsce pauzy, czerwona linia, glowica odtwarzania
             g.setColour (Ink::yellow());
-            if (pz.atSec > t0 && pz.atSec <= t1) g.fillRect (juce::Rectangle<float> (xOf (pz.atSec) - 1.0f, wave.getY(), 2.0f, wave.getHeight()));
+            if (pz.resuming && pz.selected && countdownStart >= 0.0)
+            {
+                // glowica rozbiegu jedzie do linii
+                const double el = (juce::Time::getMillisecondCounterHiRes() - countdownStart) / 1000.0;
+                const double ph = juce::jmin (pz.cutSec, pz.cutSec - countdownTotal + el);
+                if (ph > t0 && ph < t1) { g.setColour (Ink::accent()); g.fillRect (juce::Rectangle<float> (xOf (ph) - 1.0f, wave.getY() - 2.0f, 2.0f, wave.getHeight() + 4.0f)); }
+                g.setColour (Ink::yellow());
+            }
+            else if (pz.atSec > t0 && pz.atSec <= t1) g.fillRect (juce::Rectangle<float> (xOf (pz.atSec) - 1.0f, wave.getY(), 2.0f, wave.getHeight()));
             if (pz.selected && pz.cutSec > t0 && pz.cutSec < t1)
             {
                 const float x = xOf (pz.cutSec);
@@ -1282,6 +1303,7 @@ private:
                 shownLine = 0;
                 lineLog.begin();
                 removedSpans.clear(); pz = {};
+                liveSpanSec = liveStripSec; punchFrac = -1.0;
                 heardWords.clear();
                 lastHeard = -1;
                 liveEvents.clear();
