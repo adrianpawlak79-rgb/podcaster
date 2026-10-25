@@ -407,6 +407,7 @@ public:
         musicFile = zs::BackingTrack::musicFor (wavFile);
         withMusic = musicFile != juce::File();
         music = {}; bed = {}; bedRaw = {}; musicEnv = {}; musicProblem.clear();
+        musicLufs = std::numeric_limits<double>::quiet_NaN(); queuedStyle = -1;
         cutButton.setButtonText (withMusic ? PL("Wycisz zaznaczenie") : PL("Wytnij zaznaczenie"));
         middleToggle.setButtonText (withMusic ? PL("Wycisz fragment ze środka") : PL("Wytnij fragment ze środka"));
         selection.setText (withMusic ? PL("Przeciągnij po fali, aby zaznaczyć fragment do wyciszenia. Oryginał zostaje na dysku.")
@@ -1345,7 +1346,18 @@ private:
     /** Brzmienie miksu: ten sam surowy dzwiek, miks od nowa w tle. */
     void chooseStyle (mix::Decide::Style st)
     {
-        if (st == wish.style || ! mixReady()) return;
+        // Klik w trakcie liczenia miksu przepadal bez sladu (przeklikanie 25.10:
+        // "pierwszy klik w Studyjny nie zadzialal"). Teraz czeka w kolejce i
+        // rusza, gdy biezacy miks sie skonczy; watek czyta wish, wiec go nie ruszamy.
+        if (! mixReady())
+        {
+            if (review.stage() == zs::TakeReview::Stage::Empty || editMode) return;
+            queuedStyle = (int) st;
+            for (int i = 0; i < 3; ++i) styleCards[i].setSelected (i == queuedStyle);
+            return;
+        }
+        queuedStyle = -1;
+        if (st == wish.style) return;
         wish.style = st;
         updateStyleButtons();
         note = PL ("Miks ") + PL (mix::Decide::styleName (st)).toLowerCase() + PL (" liczy się…");
@@ -1525,6 +1537,13 @@ private:
         // Wynik dotarl, gdy czlowiek jest w montazu (podglad, powrot z miksu):
         // tam slychac surowe nagranie i widac liste do sprawdzenia, nie miks.
         if (editMode && ! doneMode) { setRawMaterial(); assessment.setText (montageSummary(), false); updateMontageButtons(); }
+        // brzmienie klikniete w trakcie liczenia
+        if (queuedStyle >= 0 && ! editMode && ! doneMode)
+        {
+            const auto st = (mix::Decide::Style) std::exchange (queuedStyle, -1);
+            juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<ReviewComponent> (this), st]
+                                             { if (safe != nullptr) safe->chooseStyle (st); });
+        }
         resized();
         repaint();
     }
@@ -1639,6 +1658,7 @@ private:
             [this, err, mp3Err, path, mp3Path, rate]
             {
                 // z podkladem: stereo glos + muzyka (MusicBed), inaczej sam glos mono
+                if (! bed.left.empty()) mix::MusicBed::measureResult (bed, sr);   // dla ekranu Gotowe
                 const auto& mixed = review.mixedAudio();
                 const std::vector<const float*> ch = bed.left.empty() ? std::vector<const float*> { mixed.data() }
                                                                       : std::vector<const float*> { bed.left.data(), bed.right.data() };
@@ -2069,6 +2089,8 @@ private:
 
     juce::File file, saved;
     bool withMusic = false;   ///< nagrane do podkladu: montaz wycisza zamiast wycinac
+    int queuedStyle = -1;     ///< brzmienie klikniete, gdy miks jeszcze sie liczyl
+    double musicLufs = std::numeric_limits<double>::quiet_NaN();   ///< glosnosc podkladu (raz, w watku)
     juce::File musicFile;                   ///< podklad z "<nagranie>.podklad.txt"
     zs::BackingTrack music;                 ///< w czestotliwosci nagrania; watek miksu tylko czyta
     juce::String musicProblem;              ///< np. brak pliku muzyki
@@ -2096,8 +2118,13 @@ private:
         Watek miksu albo runJob; ekran czyta wynik dopiero po zakonczeniu. */
     void renderBed()
     {
-        bed = mix::MusicBed::render (review.mixedAudio(), music.left, music.right, sr, mixBedParams);
-        bedRaw = mix::MusicBed::render (review.rawAudio(), music.left, music.right, sr, mixBedParams);
+        // 8:40 muzyki skladalo sie 17 s (przeklikanie 25.10). Teraz: glosnosc
+        // muzyki raz, "przed" i "po" naraz w dwoch watkach, pomiar szczytu
+        // dopiero przy zapisie (save) — zmierzone 12,6 s -> ok. 2,5 s.
+        if (std::isnan (musicLufs)) musicLufs = mix::MusicBed::lufsOf (music.left, music.right, sr);
+        std::thread raw ([this] { bedRaw = mix::MusicBed::render (review.rawAudio(), music.left, music.right, sr, mixBedParams, false, musicLufs); });
+        bed = mix::MusicBed::render (review.mixedAudio(), music.left, music.right, sr, mixBedParams, false, musicLufs);
+        raw.join();
     }
 
     void setBedMaterial()
@@ -2142,7 +2169,7 @@ private:
         if (! hasMusic() || ! mixReady() || bed.left.empty()) return;
         const bool wasAfter = player.showingAfter();
         mixBedParams = bedParams;
-        runJob (PL ("Składam głos z muzyką…"), 2, [this] { renderBed(); },
+        runJob (PL ("Składam głos z muzyką…"), juce::jmax (2, (int) (music.seconds() / 200.0)), [this] { renderBed(); },
             [this, wasAfter]
             {
                 setBedMaterial();

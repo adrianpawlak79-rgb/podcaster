@@ -1002,7 +1002,9 @@ private:
             checkButton.setVisible(true); folderButton.setVisible(settingsOpen);
         }
         lamp.setVisible(!inWizard && !inReview && (rec || inPrompter));
-        meter.setVisible(!inWizard && !inReview && !settingsOpen);
+        // w Przygotowaniu miernika nie ma (wybor wejscia jest w kreatorze); zostawal
+        // z granicami z kreatora i zaslanial "Ekran startowy" (przeklikanie 25.10)
+        meter.setVisible(!inWizard && !inReview && !settingsOpen && !prepare);
         status.setVisible(!inWizard && !inReview && !settingsOpen);
         zs::Look::setKind(recButton, rec || detailsOpen ? zs::ui::ButtonKind::Primary : zs::ui::ButtonKind::Record);
 
