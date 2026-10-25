@@ -602,9 +602,10 @@ public:
         if (inWizard || inReview || inStart) return;
         const bool rec = recorder.isRecording();
         const auto name = recordingName();
-        zs::ScreenFrame::paint (g, getLocalBounds(), name,
-            inPrompter ? PL ("Spacja — pauza / nagraj  ·  R — powtórz wers  ·  Esc — zakończ")
-            : rec ? PL ("Spacja albo Esc — zakończ i oceń") : preparation ? PL("Wybierz mikrofon i przygotuj tekst") : PL ("Nagraj, a potem odsłuchaj podejście"));
+        zs::ScreenFrame::paint (g, getLocalBounds(), inPrompter ? juce::String() : name,
+            inPrompter ? PL ("Spacja — nagraj / pauza  ·  R — powtórz wers  ·  Esc — zakończ")
+            : rec ? PL ("Spacja albo Esc — zakończ i oceń") : preparation ? PL("Wybierz mikrofon i przygotuj tekst") : PL ("Nagraj, a potem odsłuchaj podejście"),
+            inPrompter);
         auto side = zs::ScreenFrame::sidebar (getLocalBounds());
         zs::ScreenFrame::paintPanel (g, side);
         if (settingsOpen) { paintHardwareSettings (g); return; }
@@ -794,11 +795,13 @@ private:
 
     /** Prawy panel w nagraniu z prompterem (przeglad 24.10): jeden zegar w
         okienku ze stanem, lampka, miernik segmentowy, postep w tekscie. */
-    struct PrompterSide { juce::Rectangle<int> clockCap, clock, limit, lamp, meterCap, meter, textCap, text, bar; };
+    struct PrompterSide { juce::Rectangle<int> nameCap, name, clockCap, clock, limit, lamp, meterCap, meter, textCap, text, bar; };
     PrompterSide prompterSide() const
     {
         PrompterSide L;
         auto s = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 22);
+        L.nameCap = s.removeFromTop (18);
+        L.name = s.removeFromTop (26);     s.removeFromTop (12);
         L.clockCap = s.removeFromTop (18); s.removeFromTop (6);
         L.clock = s.removeFromTop (64);    s.removeFromTop (4);
         L.limit = s.removeFromTop (18);    s.removeFromTop (4);
@@ -825,6 +828,11 @@ private:
         const bool cue = paused && prompter->isResuming();
         const double t = rec && prompter != nullptr ? prompter->clockSeconds() : 0.0;
         const bool nearLimit = rec && zs::ui::session::phase (t) != zs::ui::session::Phase::Ok;
+
+        // nazwa nagrania w panelu, nie w stopce (Adrian 25.10)
+        caption (PL ("NAGRANIE"), L.nameCap);
+        g.setColour (I::textNow()); g.setFont (juce::Font (zs::type::heading, juce::Font::bold));
+        g.drawText (recordingName(), L.name, juce::Justification::centredLeft, true);
 
         caption (PL ("CZAS NAGRANIA"), L.clockCap);
         // okienko z liczba (spec. E); na pauzie pomaranczowe (aneks pkt 7)
