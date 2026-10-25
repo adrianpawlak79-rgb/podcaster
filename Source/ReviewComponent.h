@@ -942,7 +942,7 @@ public:
         words.setVisible (detailsMode && main.getHeight() >= 48);
         words.setBounds (main);
         detailsToggle.setEnabled(true);
-        if (detailsMode) detailsToggle.setButtonText (getWidth() < 1100 ? PL ("Ukryj zaawansowane") : PL("Ukryj ustawienia zaawansowane"));
+        if (detailsMode) detailsToggle.setButtonText (getWidth() < 1100 ? PL ("Ukryj zaawansowane") : PL("Ukryj zaawansowane"));
 
         auto side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24);
         side.removeFromTop (32 + 84 + 8);
@@ -969,6 +969,8 @@ public:
         auto main = zs::ScreenFrame::paintHead (g, getLocalBounds(), PL("04 / MIKS"), PL("Wybierz brzmienie"), subtitle());
         drawWave (g, main.removeFromTop (waveHeight()));
         drawStrip (g, main.removeFromTop (zs::ui::review::strip));
+        if (abButton.isVisible())
+            zs::Depth::well (g, abButton.getBounds().toFloat().expanded (4.0f, 3.0f), 9.0f);
         side = side.reduced (22, 24);
         g.setColour (Ink::textNow()); g.setFont (juce::Font (zs::type::heading, juce::Font::bold));
         g.drawText (PL("Co zrobił miks"), side.removeFromTop (32), juce::Justification::centredLeft);
@@ -1440,7 +1442,7 @@ private:
     }
     //==========================================================================
     /** Rosnie z oknem — liczby i uzasadnienie w zs::ui::review (UiRules.h). */
-    int waveHeight() const { if(!cutPanel.empty() && editMode) return 80; const int h=juce::jmax(zs::ui::review::waveMin,zs::ui::review::waveHeight(getHeight())-juce::jmax(0,headH()-78)); return editMode ? juce::jmax(120,h-(middleMode?72:16)) : detailsMode ? juce::jmin(h,getHeight()<720?56:96) : h; }
+    int waveHeight() const { if(!cutPanel.empty() && editMode) return 80; const int h=juce::jmax(zs::ui::review::waveMin,zs::ui::review::waveHeight(getHeight())-juce::jmax(0,headH()-78)); return editMode ? juce::jmax(120,h-(middleMode?72:16)) : detailsMode ? juce::jmin(h,getHeight()<720?56:96) : hasMusic() && getHeight()<720 ? h-44 : h; }   // wiersz MUZYKA w malym oknie
 
     /** Podtytul ekranu: montaz (z decyzjami po R albo bez) albo miks. */
     juce::String subtitle() const
@@ -1509,7 +1511,7 @@ private:
             summary << PL ("• ") << PL (line.c_str()) << "\n\n";
         if (! bed.left.empty()) summary << PL ("• ") << bedSummary() << "\n\n";
         else if (musicProblem.isNotEmpty()) summary << PL ("• ") << musicProblem << "\n\n";
-        summary << PL ("Liczby i ustawienia: „Szczegóły miksu”.");
+        summary << PL ("Liczby i ustawienia: „Zaawansowane ustawienia”.");
         reviewSummary=summary; assessment.setText (summary, false);
         playButton.setEnabled (true); abButton.setEnabled (true);
         editToggle.setEnabled (true); saveButton.setEnabled (true);
@@ -2142,7 +2144,7 @@ private:
                 player.showAfter (wasAfter);
                 juce::String summary;
                 for (const auto& line : review.plainSays()) summary << PL ("• ") << PL (line.c_str()) << "\n\n";
-                summary << PL ("• ") << bedSummary() << "\n\n" << PL ("Liczby i ustawienia: „Szczegóły miksu”.");
+                summary << PL ("• ") << bedSummary() << "\n\n" << PL ("Liczby i ustawienia: „Zaawansowane ustawienia”.");
                 reviewSummary = summary; assessment.setText (summary, false);
                 repaint();
             });

@@ -1387,7 +1387,7 @@ private:
         g.setColour (go ? Ink::green() : Ink::edge());
         g.drawRoundedRectangle (box.reduced (0.5f), 8.0f, 1.0f);
 
-        auto number = box.removeFromRight (70.0f);
+        auto number = box.removeFromRight (go ? 150.0f : 70.0f);   // "Czytaj" szersze niz cyfra
         g.setColour (go ? Ink::green() : Ink::textNow());
         g.setFont (juce::Font (40.0f, juce::Font::bold));
         g.drawText (juce::String (label), number, juce::Justification::centred);
