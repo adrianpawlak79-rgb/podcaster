@@ -54,6 +54,7 @@
 #include "ReadMono.h"
 #include "CutReviewPanel.h"
 #include "Backing.h"
+#include "Trace.h"
 #include "DSP/BackingEdit.h"
 #include "DSP/Mix/MusicBed.h"
 #include <limits>
@@ -136,6 +137,8 @@ public:
     /** Przejście do przygotowania z paska kroków; bieżący montaż zostaje w pamięci. */
     std::function<void()> onGoToPreparation;
     std::function<void()> onOpenSettings;
+    /** "Nowy projekt" na ekranie Gotowe: do ekranu startowego. */
+    std::function<void()> onNewProject;
 
     /** Co kreator zmierzyl w pokoju. Ustawiac przed load(): miks szuka wtedy
         w nagraniu przydzwieku, ktory slyszal kreator, i porownuje tlo. */
@@ -328,7 +331,10 @@ public:
         doneEditButton.onClick = [this] { setEditMode (false); };
         newTakeButton.setButtonText (PL("Nagraj nowe podejście"));
         newTakeButton.onClick = [this] { if (job == nullptr && onClose) onClose(); };
-        addAndMakeVisible (doneEditButton); addAndMakeVisible (newTakeButton);
+        newProjectButton.setButtonText (PL("Nowy projekt"));
+        newProjectButton.setTooltip (PL("Ekran startowy: inna nazwa, inny rodzaj nagrania. Ten projekt zostaje na dysku."));
+        newProjectButton.onClick = [this] { if (job == nullptr && onNewProject) onNewProject(); };
+        addAndMakeVisible (doneEditButton); addAndMakeVisible (newTakeButton); addChildComponent (newProjectButton);
         profileButton.onClick = [this] { rememberProfile(); };
         addAndMakeVisible (profileButton);
         for (auto* editor : { &savedPath, &savedName }) {
@@ -571,8 +577,11 @@ public:
 
     void end()
     {
+        zs::trace ("odsluch end: pauza");
         player.pause(); seamPlayer.pause(); seamPlaying=false;
+        zs::trace ("odsluch end: odpinam odtwarzanie od karty");
         recorder.attachPlayer (nullptr);
+        zs::trace ("odsluch end: odpiete");
     }
 
     void begin()
@@ -895,7 +904,7 @@ public:
         duckButton.setVisible (false);
         for (auto* b : { &zoomIn, &zoomOut, &zoomAllButton }) b->setVisible (false);   // tylko w montazu
         if (doneMode) { layoutDone(); return; }
-        doneEditButton.setVisible (false); newTakeButton.setVisible (false); profileButton.setVisible (false);
+        doneEditButton.setVisible (false); newTakeButton.setVisible (false); profileButton.setVisible (false); newProjectButton.setVisible (false);
         savedPath.setVisible (false); savedName.setVisible (false);
         playButton.setVisible (true); abButton.setVisible (true);
         saveButton.setVisible (true); editToggle.setVisible (true);
@@ -1039,13 +1048,14 @@ private:
         side.removeFromTop (40 + 24);
         savedName.setBounds (side.removeFromTop (44)); savedName.setVisible (true);
         side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24);
-        auto actions = side.removeFromBottom (80);
+        auto actions = side.removeFromBottom (124);
+        newProjectButton.setBounds (actions.removeFromBottom (36)); actions.removeFromBottom (8);
         newTakeButton.setBounds (actions.removeFromBottom (36)); actions.removeFromBottom (8);
         doneEditButton.setBounds (actions.removeFromBottom (36));
-        newTakeButton.setVisible (true); doneEditButton.setVisible (true);
+        newTakeButton.setVisible (true); doneEditButton.setVisible (true); newProjectButton.setVisible (true);
         // nad nimi: wzorzec brzmienia dla kolejnych odcinkow
         side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24);
-        side.removeFromBottom (80 + 8);
+        side.removeFromBottom (124 + 8);
         profileButton.setBounds (side.removeFromBottom (36));
         profileButton.setVisible (true);
         profileButton.setButtonText (profileRemembered ? PL("Brzmienie zapamiętane ✓")
@@ -2232,7 +2242,7 @@ private:
     zs::StepBar flow;
     juce::TextButton markStart,markEnd,cutButton,undoButton,editToggle,detailsToggle,nextButton;
     bool editMode=false,detailsMode=false,middleMode=false,doneMode=false;
-    juce::TextButton doneEditButton,newTakeButton;
+    juce::TextButton doneEditButton,newTakeButton,newProjectButton;
     juce::TextButton profileButton;           ///< "Zapamietaj to brzmienie" (ekran Gotowe)
     bool profileRemembered = false;           ///< wzorzec wziety z tego miksu
 

@@ -17,6 +17,7 @@
 #include "ReviewComponent.h"
 #include "StartComponent.h"
 #include "Backing.h"
+#include "Trace.h"
 #include "Settings.h"
 #include "InputChoice.h"
 #include "StepBar.h"
@@ -660,6 +661,11 @@ public:
 
     void resized() override
     {
+        // miernik segmentowy tylko na ekranie nagrania z prompterem. Ustawiany na
+        // koncu resized(), ale uklady Przygotowania i Ustawien wracaja wczesniej —
+        // zostawal z dawnymi granicami i zaslanial "Ekran startowy" / "Sprawdz
+        // sprzet" (przeklikanie 25.10, zrzut Adriana)
+        segMeter.setVisible (inPrompter && prompter != nullptr && ! inReview && ! inWizard && ! settingsOpen && ! inStart);
         if (wizard) wizard->setBounds (getLocalBounds());
         if (inWizard)
         {
@@ -1991,7 +1997,7 @@ private:
         {
             prompter->setVisible (on);
 
-            if (on) prompter->begin (recorder.currentSampleRate());
+            if (on) { zs::trace ("prompter: begin"); prompter->begin (recorder.currentSampleRate()); zs::trace ("prompter: po begin"); }
             else    prompter->end();
         }
 
@@ -2067,7 +2073,17 @@ private:
         if (review == nullptr)
         {
             review = std::make_unique<ReviewComponent> (recorder);
-            review->onClose = [this] { closeReview(); };
+            review->onClose = [this] { zs::trace ("Gotowe: nowe podejscie"); closeReview(); zs::trace ("Gotowe: z powrotem na nagraniu"); };
+            // "Nowy projekt" z ekranu Gotowe (Adrian 25.10): porzucic projekt i zaczac inny
+            review->onNewProject = [this]
+            {
+                zs::trace ("Gotowe: nowy projekt");
+                closeReview();
+                if (inPrompter) showPrompter (false);
+                preparation = true; settingsOpen = false; detailsOpen = false;
+                showStart (true);
+                zs::trace ("Gotowe: ekran startowy");
+            };
             review->onGoToPreparation = [this]
             {
                 closeReview();
@@ -2098,13 +2114,18 @@ private:
 
     void closeReview()
     {
+        zs::trace ("closeReview: chowam odsluch");
         showReview (false);
+        zs::trace ("closeReview: odsluch schowany");
 
         // Wracamy tam, skad przyszlismy. Czlowiek, ktory czytal z promptera,
         // chce czytac dalej od tego samego miejsca — a nie szukac przycisku
         // promptera po raz drugi.
         if (reviewCameFromPrompter && prompter != nullptr)
+        {
             showPrompter (true);
+            zs::trace ("closeReview: prompter pokazany");
+        }
         else
             lamp.setState (0, PL ("Naciśnij Nagraj, kiedy będziesz gotowy."), true);
     }
