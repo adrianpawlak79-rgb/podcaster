@@ -216,8 +216,14 @@ public:
         saveButton.onClick = [this] { if (editMode) goToMix(); else if (review.isPreview()) acceptPreview(); else save(); };
         addAndMakeVisible (saveButton);
 
-        backButton.setButtonText (PL ("Wróć do nagrywania"));
-        backButton.onClick = [this] { if (job == nullptr && onClose) onClose(); };
+        backButton.setButtonText (PL ("Popraw fragment"));
+        backButton.onClick = [this] {
+            if (job != nullptr || ! editMode) return;
+            correctionSelectionMode = ! correctionSelectionMode;
+            middleMode = correctionSelectionMode;
+            updateSelectionPrompt();
+            resized(); repaint();
+        };
         addAndMakeVisible (backButton);
 
         savedPath.setJustification (juce::Justification::centred);
@@ -356,7 +362,7 @@ public:
         };
         for(auto* b:{&markStart,&markEnd,&cutButton,&undoButton,&replaceButton}) addAndMakeVisible(b);
         selection.setColour(juce::Label::textColourId,Ink::textNext());
-        selection.setText(PL("Przeciągnij po fali, aby zaznaczyć fragment do wycięcia. Oryginał zostaje na dysku."),juce::dontSendNotification);
+        selection.setText(PL("Przeciągnij po fali, aby zaznaczyć miejsce do zmiany. Oryginał zostaje na dysku."),juce::dontSendNotification);
         // Gdzie jest plik: pytanie, ktore padlo przy pierwszym prawdziwym
         // nagraniu ("nie wiem, gdzie mi sie zapisala sesja").
         folderButton.setButtonText (PL("Pokaż w folderze"));
@@ -364,9 +370,16 @@ public:
         addAndMakeVisible (folderButton);
         doneEditButton.setButtonText (PL("← Wróć do miksu"));
         doneEditButton.onClick = [this] { setEditMode (false); };
-        newTakeButton.setButtonText (PL("Nagraj nowe podejście"));
-        newTakeButton.setTooltip (PL ("Nowe nagranie od początku. Aby poprawić fragment, zaznacz go na fali."));
-        newTakeButton.onClick = [this] { if (job == nullptr && onClose) onClose(); };
+        newTakeButton.setButtonText (PL("Popraw fragment"));
+        newTakeButton.setTooltip (PL ("Pokaż pełną falę i wybierz miejsce do nagrania poprawki."));
+        newTakeButton.onClick = [this] {
+            if (job != nullptr) return;
+            setEditMode (true);
+            correctionSelectionMode = true;
+            middleMode = true;
+            updateSelectionPrompt();
+            resized(); repaint();
+        };
         newProjectButton.setButtonText (PL("Nowy projekt"));
         newProjectButton.setTooltip (PL("Ekran startowy: inna nazwa, inny rodzaj nagrania. Ten projekt zostaje na dysku."));
         newProjectButton.onClick = [this] { if (job == nullptr && onNewProject) onNewProject(); };
@@ -385,8 +398,8 @@ public:
             addAndMakeVisible (*editor);
         }
         addAndMakeVisible(selection);
-        middleToggle.setButtonText (PL("Wytnij fragment ze środka"));
-        middleToggle.onClick = [this] { middleMode = !middleMode; resized(); repaint(); };
+        middleToggle.setButtonText (PL("Zaznacz fragment do zmiany"));
+        middleToggle.onClick = [this] { middleMode = ! middleMode; updateSelectionPrompt(); resized(); repaint(); };
         addAndMakeVisible (middleToggle);
         for (auto* slider : { &trimStart, &trimEnd }) {
             slider->setSliderStyle (juce::Slider::LinearHorizontal);
@@ -461,7 +474,7 @@ public:
         player.clear();
         recorder.attachPlayer (nullptr);
 
-        undoAudio.clear(); replacementUndoAvailable = false; replacementSeams.clear(); cutFrom=cutTo=-1;editMode=detailsMode=middleMode=doneMode=false;
+        undoAudio.clear(); replacementUndoAvailable = false; replacementSeams.clear(); cutFrom=cutTo=-1;editMode=detailsMode=middleMode=correctionSelectionMode=doneMode=false;
         words.clear(); assessment.clear(); reviewSummary.clear(); resized();
         for (auto* b : { &playButton, &abButton, &saveButton, &editToggle, &nextButton,
                          &markStart, &markEnd, &cutButton, &undoButton }) b->setEnabled (false);
@@ -473,8 +486,7 @@ public:
         musicLufs = std::numeric_limits<double>::quiet_NaN(); queuedStyle = -1;
         cutButton.setButtonText (withMusic ? PL("Wycisz zaznaczenie") : PL("Wytnij zaznaczenie"));
         middleToggle.setButtonText (withMusic ? PL("Wycisz fragment ze środka") : PL("Wytnij fragment ze środka"));
-        selection.setText (withMusic ? PL("Przeciągnij po fali, aby zaznaczyć fragment do wyciszenia. Oryginał zostaje na dysku.")
-                                     : PL("Przeciągnij po fali, aby zaznaczyć fragment do wycięcia. Oryginał zostaje na dysku."),
+        selection.setText (PL("Przeciągnij po fali, aby zaznaczyć miejsce do zmiany. Oryginał zostaje na dysku."),
                            juce::dontSendNotification);
         saved = juce::File(); savedMp3 = juce::File();
         folderButton.setTooltip ({});
@@ -606,6 +618,7 @@ public:
     void previewReplacementSelection()
     {
         if (! editMode || review.seconds() < 2.0) return;
+        correctionSelectionMode = true;
         middleMode = true;
         cutFrom = review.seconds() * 0.28;
         cutTo = juce::jmin (review.seconds() * 0.40, cutFrom + 3.0);
@@ -648,8 +661,8 @@ public:
         if (cutPanel.isVisible() && cutPanel.keyPressed(k)) return true;
         if (c == juce::KeyPress::spaceKey)     { togglePlay(); return true; }
         if (c == juce::KeyPress::tabKey)       { if (! editMode) toggleAb(); return true; }
-        // Esc cofa o krok: z miksu do montazu, z montazu do nagrywania
-        if (c == juce::KeyPress::escapeKey)    { if (! editMode) setEditMode (true); else if (onClose) onClose(); return true; }
+        // Esc cofa o krok: z miksu do montazu, z montazu do miksu.
+        if (c == juce::KeyPress::escapeKey)    { if (! editMode) setEditMode (true); else setEditMode (false); return true; }
 
         if (editMode && (c == juce::KeyPress::deleteKey || c == juce::KeyPress::backspaceKey)
             && cutFrom >= 0 && cutTo > cutFrom && cutButton.onClick) { cutButton.onClick(); return true; }
@@ -942,7 +955,7 @@ public:
     void resized() override
     {
         jobShield.setBounds (getLocalBounds()); jobShield.toFront (false);
-        cutPanel.setVisible(!doneMode && editMode && !cutPanel.empty());   // decyzje po R: w montazu
+        cutPanel.setVisible(!doneMode && editMode && !correctionSelectionMode && !cutPanel.empty());   // decyzje po R: w montazu
         chainPort.setVisible (false);                           // tylko w szczegolach miksu
         for (auto& b : styleCards) b.setVisible (false);
         for (auto& b : musicLevel) b.setVisible (false);
@@ -1254,10 +1267,10 @@ private:
         namespace L = zs::ui::review;
         abButton.setVisible (false); detailsToggle.setVisible (false); words.setVisible (false);
         auto main = zs::ScreenFrame::mainArea (getLocalBounds()); main.removeFromTop (headH() + waveHeight() + L::strip + 8);
-        const bool decide = ! cutPanel.empty();
+        const bool decide = ! cutPanel.empty() && ! correctionSelectionMode;
         for (auto* c : { static_cast<juce::Component*>(&trimStart), static_cast<juce::Component*>(&trimEnd),
                          static_cast<juce::Component*>(&startHandle), static_cast<juce::Component*>(&endHandle),
-                         static_cast<juce::Component*>(&middleToggle) }) c->setVisible (! decide);
+                         static_cast<juce::Component*>(&middleToggle) }) c->setVisible (! decide && ! correctionSelectionMode);
         auto row = main.removeFromTop (36);
         playButton.setBounds (row.removeFromLeft (112)); row.removeFromLeft (8);
         // Waskie okno (np. skalowanie 150% w Windows): najpierw znika "Calosc"
@@ -1290,6 +1303,20 @@ private:
             selection.setVisible (false);
             feedbackArea = main.removeFromTop (24);
             cutPanel.setBounds (main); summaryArea = {};
+        }
+        else if (correctionSelectionMode)
+        {
+            for (auto* b : { &markStart, &markEnd, &cutButton, &undoButton }) b->setVisible (false);
+            auto action = main.removeFromTop (38);
+            replaceButton.setButtonText (PL ("Nagraj poprawkę"));
+            replaceButton.setBounds (action.removeFromLeft (juce::jmin (220, action.getWidth())));
+            replaceButton.setVisible (true);
+            selection.setVisible (true);
+            selection.setBounds (main.removeFromTop (28));
+            feedbackArea = main.removeFromTop (24);
+            main.removeFromTop (4);
+            const int noteH = zs::ScreenFrame::wrappedHeight (safeNote(), main.getWidth() - 24, juce::Font (zs::type::small)) + 12;
+            summaryArea = noteH <= main.getHeight() ? main.removeFromTop (noteH) : juce::Rectangle<int>();
         }
         else
         {
@@ -1332,7 +1359,7 @@ private:
         editToggle.setVisible (false);
         assessment.setBounds (side); assessment.setVisible (true);
         saveButton.setButtonText (PL("Dalej: miks →"));
-        backButton.setButtonText (PL("Wróć do nagrywania"));
+        backButton.setButtonText (correctionSelectionMode ? PL ("← Wróć do montażu") : PL ("Popraw fragment"));
         positionHandles();
     }
 
@@ -1364,7 +1391,8 @@ private:
     void paintEdit(juce::Graphics& g) {
         g.fillAll(Ink::bg());
         zs::ScreenFrame::paint(g,getLocalBounds(),file.getFileNameWithoutExtension(),
-            cutPanel.empty() ? PL("Klik — posłuchaj · przeciągnij — zaznacz · kółko, + − — powiększ · N — następne · Esc — wróć")
+            correctionSelectionMode ? PL ("Przeciągnij po fali, wybierz „Nagraj poprawkę”, a po nagraniu zdecyduj o podmianie.")
+            : cutPanel.empty() ? PL("Klik — posłuchaj · przeciągnij — zaznacz · kółko, + − — powiększ · N — następne · Esc — wróć")
                              : PL("Spacja — połączenie · Enter — zaznacz do wycięcia · Backspace — zostaw · ↑↓ — miejsca · Esc — wróć"));
         auto side=zs::ScreenFrame::sidebar(getLocalBounds());zs::ScreenFrame::paintPanel(g,side);
         auto main=zs::ScreenFrame::paintHead(g,getLocalBounds(),PL("03 / ODSŁUCH I MONTAŻ"),PL("Posłuchaj i popraw"),subtitle());
@@ -1372,7 +1400,7 @@ private:
         drawWave(g,main.removeFromTop(waveHeight()));
         drawStrip(g,main.removeFromTop(zs::ui::review::strip));main.removeFromTop(8);
         main.removeFromTop(44);
-        if(cutPanel.empty()) {
+        if(cutPanel.empty() && ! correctionSelectionMode) {
             auto row=main.removeFromTop(54);auto left=row.removeFromLeft((row.getWidth()-16)/2);row.removeFromLeft(16);
             // zwykly kolor: czerwony w programie znaczy "blad", a to tylko czasy
             g.setColour(Ink::textNext());g.setFont(juce::Font(zs::type::small));g.drawText(PL("Początek: ")+juce::String(trimStart.getValue(),1)+" s",left,juce::Justification::topLeft);g.drawText(PL("Koniec: ")+juce::String(trimEnd.getValue(),1)+" s",row,juce::Justification::topLeft);
@@ -1505,9 +1533,20 @@ private:
         for (int i = 0; i < 3; ++i)
             styleCards[i].setSelected (static_cast<mix::Decide::Style> (i) == wish.style);
     }
+    void updateSelectionPrompt()
+    {
+        middleToggle.setButtonText (middleMode ? PL ("Ukryj wybór fragmentu") : PL ("Zaznacz fragment do zmiany"));
+        if (cutFrom >= 0.0 && cutTo > cutFrom) { updateSelection(); return; }
+        selection.setText (middleMode
+            ? PL ("Przeciągnij po fali, aby wskazać fragment do poprawki lub cięcia. Oryginał zostaje bez zmian do Twojej decyzji.")
+            : PL ("Całe nagranie pozostaje bez zmian. Wybierz fragment, jeśli chcesz go poprawić."),
+            juce::dontSendNotification);
+        if (editMode) updateMontageButtons();
+    }
+
     void updateSelection() {
         if(cutFrom>=0 && cutTo>cutFrom)
-            selection.setText((withMusic ? PL("Do wyciszenia: ") : PL("Do wycięcia: "))+plr::clock(cutFrom)+PL("–")+plr::clock(cutTo)+" ("+juce::String(cutTo-cutFrom,1)+PL(" s) — Delete albo „")+cutButton.getButtonText()+PL("”."),juce::dontSendNotification);
+            selection.setText((correctionSelectionMode ? PL("Wybrano: ") : withMusic ? PL("Do wyciszenia: ") : PL("Do wycięcia: "))+plr::clock(cutFrom)+PL("–")+plr::clock(cutTo)+" ("+juce::String(cutTo-cutFrom,1)+PL(" s)")+ (correctionSelectionMode ? PL(" — nagraj poprawkę lub wybierz inny fragment.") : PL(" — możesz też nagrać poprawkę.")),juce::dontSendNotification);
         else
             selection.setText(PL("Cięcie: ")+(cutFrom>=0?juce::String(cutFrom,2)+" s":"—")+"  →  "+(cutTo>=0?juce::String(cutTo,2)+" s":"—"),juce::dontSendNotification);
         // przycisk ciecia za zaznaczeniem: po pierwszym cieciu nic innego go nie
@@ -2408,7 +2447,7 @@ private:
     juce::TextEditor words, assessment;
     zs::StepBar flow;
     juce::TextButton markStart,markEnd,cutButton,undoButton,replaceButton,editToggle,detailsToggle,nextButton;
-    bool editMode=false,detailsMode=false,middleMode=false,doneMode=false,replacementUndoAvailable=false;
+    bool editMode=false,detailsMode=false,middleMode=false,correctionSelectionMode=false,doneMode=false,replacementUndoAvailable=false;
     juce::TextButton doneEditButton,newTakeButton,newProjectButton;
     juce::TextButton profileButton;           ///< "Zapamietaj to brzmienie" (ekran Gotowe)
     bool profileRemembered = false;           ///< wzorzec wziety z tego miksu
