@@ -9,7 +9,7 @@
 class ZieloneSwiatloApplication : public juce::JUCEApplication
 {
 public:
-    const juce::String getApplicationName() override       { return "Zielone swiatlo"; }
+    const juce::String getApplicationName() override       { return juce::String::fromUTF8 ("Zielone światło"); }
     const juce::String getApplicationVersion() override    { return "0.4.0-test"; }
     bool moreThanOneInstanceAllowed() override { return getCommandLineParameters().startsWith("--preview-ui"); }
 
@@ -125,7 +125,7 @@ countries: pl
                                 : juce::Rectangle<int> (1280, 800);
                 const int w = juce::jmin (960, area.getWidth() * 2 / 3);
                 img = img.rescaled (w, w * img.getHeight() / img.getWidth(), juce::Graphics::highResamplingQuality);
-                auto* splash = new juce::SplashScreen ("Zielone swiatlo", img, true);
+                auto* splash = new juce::SplashScreen (getApplicationName(), img, true);
                 splash->deleteAfterDelay (juce::RelativeTime::seconds (2.5), true);
             }
         }

@@ -94,6 +94,14 @@ private:
 //==============================================================================
 namespace plr
 {
+    /** Liczba z jedną cyfrą po przecinku, z prawdziwym minusem (−) zamiast łącznika. */
+    inline juce::String plNumber (double v)
+    {
+        auto s = juce::String (v, 1).replace (".", ",");
+        if (s.startsWithChar ('-')) s = juce::String::charToString ((juce::juce_wchar) 0x2212) + s.substring (1);
+        return s;
+    }
+
     /** Nazwa rodzaju zdarzenia. Ta sama co na liscie w trakcie nagrywania —
         czlowiek ma rozpoznac na osi to, co widzial przed chwila. */
     inline juce::String kind (tw::Kind k)
@@ -1125,7 +1133,7 @@ private:
                                    : wish.profile.valid() ? PL("Ustaw to brzmienie jako wzorzec")
                                                           : PL("Zapamiętaj to brzmienie"));
         profileButton.setEnabled (! profileRemembered && saved.existsAsFile());
-        profileButton.setTooltip (PL("Następne odcinki dostaną tę barwę — seria brzmi jak z jednego studia. Usunąć wzorzec można w „Mikrofon i sprzęt”."));
+        profileButton.setTooltip (PL("Następne odcinki dostaną tę barwę — seria brzmi jak z jednego studia. Wzorzec można usunąć w Ustawieniach."));
     }
     void paintDone (juce::Graphics& g) {
         g.fillAll (Ink::bg());
@@ -1170,12 +1178,12 @@ private:
                                                    : PL("WAV 24-bit (MP3 nie powstał)"), 54);
         const bool withBed = ! bed.left.empty();
         const double length = withBed ? (double) bed.left.size() / sr : review.seconds();
-        row (PL("Długość"), plr::clock (length) + " (" + juce::String (length, 1) + " s)", 54);
+        row (PL("Długość"), plr::clock (length) + " (" + plr::plNumber (length) + " s)", 54);
         // Audyt 14.10: "LUFS" i "dBTP" na glownym ekranie wymagaja wiedzy audio.
         row (PL("Gotowa głośność"), withBed ? PL("Jak w podcastach (stereo, z muzyką)") : PL("Jak w podcastach (mono)"), 42);
         g.setColour (Ink::textDim());
-        g.drawText (juce::String (withBed ? bed.lufs : review.whatIDid().lufsAfter, 1) + PL(" LUFS · szczyt ")
-                        + juce::String (withBed ? bed.peakDbtp : review.whatIDid().peakAfter, 1) + " dBTP",
+        g.drawText (plr::plNumber (withBed ? bed.lufs : review.whatIDid().lufsAfter) + PL(" LUFS · szczyt ")
+                        + plr::plNumber (withBed ? bed.peakDbtp : review.whatIDid().peakAfter) + " dBTP",
                     side.removeFromTop (20), juce::Justification::centredLeft);
         if (wish.profile.valid())
         {
@@ -1964,7 +1972,7 @@ private:
         else if (review.nearlySilent())
         {
             v = 1;
-            line = PL ("Nagranie jest prawie ciche — mikrofon chyba nie dochodził. Sprawdź „Mikrofon i sprzęt” i nagraj jeszcze raz.");
+            line = PL ("Nagranie jest prawie ciche — mikrofon chyba nie dochodził. Sprawdź mikrofon w Ustawieniach i nagraj jeszcze raz.");
         }
         else if (! review.toRedo().empty())
         {
