@@ -784,7 +784,7 @@ public:
     /* Powiekszenie fali (audyt 14.10). Tylko w montazu — tam sie tnie; miks
        zawsze pokazuje cale nagranie. viewLen 0 = cale nagranie. */
     struct View { double from = 0.0, len = 1.0; };
-    /** Os czasu ekranu: w miksie z podkladem do konca muzyki (gra dluzej niz glos). */
+    /** Os czasu ekranu: w miksie z podkladem do konca podkladu (glos + ogon muzyki, MusicBed::bedLength). */
     double timelineSec() const
     {
         return ! editMode && ! bed.left.empty() && sr > 0.0 ? juce::jmax (review.seconds(), (double) bed.left.size() / sr)
@@ -2422,7 +2422,8 @@ private:
     {
         return PL ("Muzyka ") + juce::String (-mixBedParams.musicDb, 0) + PL (" dB pod głosem")
              + (mixBedParams.duck ? PL (", ściszana pod mową") : juce::String())
-             + PL (". Całość stereo, do końca muzyki.");
+             + PL (". Całość stereo; po głosie muzyka gra jeszcze do ") + juce::String (mixBedParams.tailSec, 0)
+             + PL (" s i łagodnie cichnie.");
     }
 
     void updateMusicButtons()

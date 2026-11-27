@@ -376,6 +376,15 @@ public:
         preview = previewSec > 0.0 && (double) before.size() / sr > previewSec * 2.0;
         if (! (reuseDecision && decided))
             decision = mix::Decide::listen (preview ? sampleOf (before, sr) : before, sr, wish);
+        if (preview && ! (reuseDecision && decided))
+        {
+            // Decyzja z wycinkow: czas i liczba miejsc przesteru z calego nagrania.
+            auto& why = decision.because;
+            why.erase (std::remove_if (why.begin(), why.end(), [] (const std::string& l)
+                       { return l.rfind ("Nagranie jest przesterowane", 0) == 0; }), why.end());
+            const auto clip = mix::Decide::clipNote (before, sr);
+            if (! clip.empty()) why.push_back (clip);
+        }
         decided = true;
 
         prog.store (0.35);
