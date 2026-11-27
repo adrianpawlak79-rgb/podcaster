@@ -88,6 +88,11 @@ struct Decision
     double quietPct    = 0.0;
     double noiseFloorDb = -140.0;
     double speechDb     = -140.0;
+    /** Typowy poziom ramek bez mowy (mediana ramek 15 dB i wiecej pod glosna
+        mowa). noiseFloorDb to najcichsze 10 % — przy tle, ktore samo ma
+        przerwy (telewizor, rozmowa za sciana), lezy pod nim o 20 dB i wiecej. */
+    double pauseDb      = -140.0;
+    double pausePeakDb  = -140.0;   ///< 90. percentyl szczytow w tych ramkach
 
     double freeTargetLufs = -16.0;  ///< najglosniej bez ruszania szczytu
     double squashDb       = 0.0;    ///< ile trzeba bedzie sciagnac przy celu
@@ -158,6 +163,7 @@ public:
 
         d.noiseFloorDb = percentileBlock (in, sr, 0.10);
         d.speechDb     = percentileBlock (in, sr, 0.95);
+        pauseLevel (in, sr, d);
 
         d.tameWouldDb = tameDepth (in, sr);
 
@@ -329,7 +335,9 @@ public:
         }
 
         // ---- 5. szum i brama --------------------------------------------------
-        const double headroom = d.speechDb - d.noiseFloorDb;
+        // Odstep tla liczony od TYPOWEJ pauzy, nie od najcichszej ramki:
+        // telewizor 25 dB pod mowa dawal tu "45 dB" (raport audio 27.11, B1).
+        const double headroom = d.speechDb - std::max (d.noiseFloorDb, d.pauseDb);
 
         if (d.noiseFloorDb < -100.0)
         {
@@ -482,7 +490,43 @@ public:
             d.because.insert (d.because.end(), roomLines.begin(), roomLines.end());
         }
 
+        // Przester na koncu, po stylach, ktore pisza uzasadnienie od nowa.
+        const auto clip = clipNote (in, sr);
+        if (! clip.empty()) d.because.push_back (clip);
+
         return d;
+    }
+
+    /** Przester: seria co najmniej 3 probek z rzedu przy |x| >= 0,985 (plaski
+        szczyt — wejscie bylo za glosno). Serie blizej niz 0,5 s od siebie to
+        jedno miejsce. Pusto, gdy nie ma. Miks tego nie naprawi (nie ma tu
+        declippingu), wiec zdanie prosi o nagranie jeszcze raz. */
+    static std::string clipNote (const std::vector<float>& in, double sr)
+    {
+        if (sr <= 0.0) return {};
+        int places = 0, run = 0;
+        size_t first = 0, lastAt = 0;
+        bool any = false;
+        const size_t gap = (size_t) (0.5 * sr);
+        for (size_t i = 0; i < in.size(); ++i)
+        {
+            if (std::fabs (in[i]) >= 0.985f) ++run; else run = 0;
+            if (run == 3)
+            {
+                const size_t at = i - 2;
+                if (! any || at > lastAt + gap) { ++places; if (! any) first = at; }
+                any = true;
+            }
+            if (run >= 3) lastAt = i;
+        }
+        if (places == 0) return {};
+        const int sec = (int) ((double) first / sr);
+        char b[400];
+        std::snprintf (b, sizeof (b),
+            "Nagranie jest przesterowane w %d %s (pierwsze w %d:%02d) i miks tego nie naprawi "
+            "— nagraj te fragmenty jeszcze raz, trochę ciszej.",
+            places, places == 1 ? "miejscu" : "miejscach", sec / 60, sec % 60);
+        return b;
     }
 
     /** Miks studyjny — patrz Wish::studio. Liczby z lancucha v3 (0026):
@@ -533,7 +577,21 @@ public:
         p.useTame = false; p.useDeEsser = false; p.useTiltMatch = false; p.useSaturation = false;
         p.deHum = false;
         p.lowDb = p.mudDb = p.presenceDb = p.airDb = 0.0f;
-        why.push_back ("Bez ekspandera, de-essera i korekty barwy — głos zostaje taki, jak go nagrałeś, tylko równiejszy.");
+        if (loudPauses (d))
+        {
+            // Kompresja 2:1 podnosi pauzy razem z tlem: telewizor 25 dB pod
+            // mowa wychodzil o 1,4 dB glosniej wzgledem glosu (tlo-test).
+            p.useGate = true; p.autoGate = false;
+            p.gateThreshDb = (float) expanderThreshold (d);
+            p.gateRatio = 2.0f; p.gateFloorDb = -12.0f;
+            p.gateAttackMs = 10.0; p.gateHoldMs = 120.0; p.gateReleaseMs = 300.0; p.gateLookaheadMs = 2.0;
+            std::snprintf (b, sizeof (b), "Tło w pauzach tylko %.0f dB pod mową: lekki ekspander od %.0f dBFS, "
+                           "najwyżej −12 dB, żeby kompresja go nie podniosła. Bez de-essera i korekty barwy.",
+                           d.speechDb - d.pauseDb, p.gateThreshDb);
+            why.push_back (b);
+        }
+        else
+            why.push_back ("Bez ekspandera, de-essera i korekty barwy — głos zostaje taki, jak go nagrałeś, tylko równiejszy.");
         d.because = why;
     }
 
@@ -611,7 +669,7 @@ public:
         // ekspander zamiast bramy: lagodnie, z przytrzymaniem, zeby nie zatrzaskiwal ciszy miedzy slowami
         const bool canExpand = headroom > 12.0 && d.noiseFloorDb > -100.0;
         p.useGate = canExpand; p.autoGate = false;
-        p.gateThreshDb = (float) std::max (d.speechDb - 25.5, d.noiseFloorDb + 6.0);
+        p.gateThreshDb = expanderThreshold (d);
         p.gateRatio = 2.0f; p.gateFloorDb = -18.0f;
         p.gateAttackMs = 10.0; p.gateHoldMs = 120.0; p.gateReleaseMs = 300.0; p.gateLookaheadMs = 2.0;
         if (canExpand)
@@ -1046,6 +1104,66 @@ private:
         dc.render (part, out);
 
         return (double) dc.repaired / (part.size() / sr / 60.0);
+    }
+
+    /** Poziom pauz: mediana RMS i 90. percentyl szczytow ramek 50 ms w
+        prawdziwych pauzach — ciagach co najmniej 300 ms lezacych 15 dB i
+        wiecej pod glosna mowa, bez dwoch ramek z kazdego brzegu (koncowki i
+        wejscia slow). Ciche gloski w srodku slowa trwaja krocej i sie tu nie
+        licza. Gdy takich pauz prawie nie ma, oba = noiseFloor. */
+    static void pauseLevel (const std::vector<float>& v, double sr, Decision& d)
+    {
+        d.pauseDb = d.pausePeakDb = d.noiseFloorDb;
+        const size_t block = (size_t) std::max (1, (int) (sr * 0.05));
+        std::vector<double> rms, peak;
+        for (size_t i = 0; i + block <= v.size(); i += block)
+        {
+            double s = 0.0; float m = 0.0f;
+            for (size_t k = 0; k < block; ++k)
+            {
+                const float x = v[i + k];
+                s += (double) x * x; m = std::max (m, std::fabs (x));
+            }
+            rms.push_back (10.0 * std::log10 (s / (double) block + 1.0e-20));
+            peak.push_back (20.0 * std::log10 (m + 1.0e-10));
+        }
+        std::vector<double> lv, pk;
+        const size_t minRun = 6, edge = 2;
+        for (size_t a = 0; a < rms.size();)
+        {
+            if (rms[a] >= d.speechDb - 15.0) { ++a; continue; }
+            size_t b = a;
+            while (b < rms.size() && rms[b] < d.speechDb - 15.0) ++b;
+            if (b - a >= minRun)
+                for (size_t k = a + edge; k + edge < b; ++k) { lv.push_back (rms[k]); pk.push_back (peak[k]); }
+            a = b;
+        }
+        if (lv.size() < 20) return;
+        std::nth_element (lv.begin(), lv.begin() + (long) (lv.size() / 2), lv.end());
+        std::nth_element (pk.begin(), pk.begin() + (long) (pk.size() * 9 / 10), pk.end());
+        d.pauseDb     = std::max (d.noiseFloorDb, lv[lv.size() / 2]);
+        d.pausePeakDb = std::max (d.noiseFloorDb, pk[pk.size() * 9 / 10]);
+    }
+
+    /** Tlo blisko mowy i nierowne: typowa pauza mniej niz 35 dB pod glosna
+        mowa i ponad 6 dB nad najcichszymi ramkami (telewizor, rozmowa obok —
+        samo ma przerwy). Rowny szum pokoju zostaje odszumianiu. */
+    static bool loudPauses (const Decision& d)
+    {
+        return d.noiseFloorDb > -100.0 && d.speechDb - d.pauseDb < 35.0
+            && d.pauseDb - d.noiseFloorDb > 6.0;
+    }
+
+    /** Prog ekspandera. Zwykle 25,5 dB pod glosna mowa. Gdy tlo jest blisko
+        (telewizor, rozmowa za sciana), prog idzie nad SZCZYTY tla w pauzach —
+        ekspander patrzy na szczyty, a telewizor 25 dB pod mowa ma je ok.
+        16 dB nad swoim RMS, wiec prog liczony od RMS pauz zostawial go
+        otwartym (raport audio 27.11, B1). Najwyzej 12 dB pod glosna mowa. */
+    static double expanderThreshold (const Decision& d)
+    {
+        double t = std::max (d.speechDb - 25.5, d.noiseFloorDb + 6.0);
+        if (loudPauses (d)) t = std::max (t, std::min (d.pausePeakDb + 2.0, d.speechDb - 12.0));
+        return t;
     }
 
     static double percentileBlock (const std::vector<float>& v, double sr, double p)
