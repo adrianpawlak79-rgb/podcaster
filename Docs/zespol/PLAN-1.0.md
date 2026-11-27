@@ -7,7 +7,15 @@ Stan: główna ścieżka „nagraj → popraw → zmiksuj → zapisz” działa 
 - jakości miksu przy hałasie w tle;
 - formalności wydania.
 
-## Decyzje Adriana (czekają)
+## Decyzje Adriana
+
+Ustalone 27.11:
+- D1 = B: ekran „Made with JUCE”. Najpierw sprawdzić warunki JUCE 8; jeśli przesiadka jest prosta i wymogu nie ma, przesiąść się.
+- D2 = stereo −16 LUFS.
+- D3: do wyjaśnienia Adrianowi; rekomendacja: bez certyfikatu na start.
+- D4: docelowo własna strona do sprzedaży. GitHub Release tylko jako miejsce, z którego plik trafia na stronę.
+
+Pierwotne pytania:
 | # | Pytanie | Rekomendacja zespołu |
 |---|---|---|
 | D1 | Licencja JUCE: A GPLv3 (kod publiczny) / B ekran „Made with JUCE” / C licencja Indie (płatna) | A, jeśli repo może być publiczne; inaczej B na 1.0 |
