@@ -2,7 +2,9 @@
     podklad-miks-test.cpp — glos z podkladem w jeden plik (Source/DSP/Mix/MusicBed.h).
 
     Sztuczne dane: glos = trzy "frazy" (szum pasmowy 1,5 s) z przerwami 1 s,
-    muzyka = akord stereo przez cale 10 s (dluzsza niz glos).
+    muzyka = akord stereo przez cale 10 s (dluzsza niz glos, ale krotsza niz
+    glos + domyslny ogon 8 s — wiec gra do konca; ucinanie dlugiej muzyki
+    sprawdza podklad-ogon-test).
 */
 
 #include "../Source/DSP/Mix/MusicBed.h"
@@ -50,7 +52,13 @@ int main()
     std::printf ("1. Dlugosc, glosnosc, szczyt\n");
     mix::MusicBed::Params p;
     const auto r = mix::MusicBed::render (voice, mL, mR, sr, p);
-    check (r.left.size() == mL.size() && r.right.size() == mL.size(), "dlugosc = muzyka (dluzsza od glosu)");
+    check (r.left.size() == mL.size() && r.right.size() == mL.size(), "dlugosc = muzyka (krotsza niz glos + ogon)");
+    {
+        // dawniej: dlugosc = dluzsze z dwojga; teraz glos + tailSec (27.11)
+        mix::MusicBed::Params q; q.tailSec = 1.0f;
+        const auto s = mix::MusicBed::render (voice, mL, mR, sr, q);
+        check (s.left.size() == voice.size() + (size_t) sr, "z ogonem 1 s: dlugosc = glos + 1 s, nie muzyka");
+    }
     const auto part = [&] (const mix::MusicBed::Result& x, size_t len)
     { return mix::MusicBed::lufsOf ({ x.left.begin(), x.left.begin() + (long) len }, { x.right.begin(), x.right.begin() + (long) len }, sr); };
     check (std::abs (part (r, voice.size()) - p.targetLufs) < 0.5, "czesc z glosem na -16 LUFS", f1 (part (r, voice.size())));

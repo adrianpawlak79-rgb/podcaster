@@ -6,8 +6,10 @@
     lezy tam, gdzie wypadl w czasie nagrania (BackingEdit.h). Tu tylko
     skladamy:
 
-    1. Dlugosc = dluzsze z dwojga. Muzyka gra do konca, nawet gdy glos
-       skonczyl wczesniej; glos po koncu muzyki tez zostaje.
+    1. Dlugosc = glos + tailSec (domyslnie 8 s), ale nie dluzej niz muzyka;
+       ostatnie fadeSec (3 s) muzyki schodza do zera (cos^2), gdy ja ucinamy.
+       Dawniej muzyka grala do konca utworu i urywala sie w pol dzwieku
+       (raport audio 27.11, B2). Glos po koncu muzyki zostaje.
     2. Poziom muzyki wzgledem glosu w LUFS (oba mierzone jako stereo, glos
        jako dual-mono w srodku). Domyslnie muzyka 11 dB pod glosem — jak
        podklad pod czytany tekst; "glosniej" to 6 dB, "ciszej" 16 dB.
@@ -42,6 +44,8 @@ struct MusicBed
         float duckDb     = 4.0f;
         float targetLufs = -16.0f;   ///< calosc, stereo
         float ceilingDb  = -1.0f;    ///< dBTP
+        float tailSec    = 8.0f;     ///< ile muzyki po koncu glosu (nie dluzej niz muzyka)
+        float fadeSec    = 3.0f;     ///< wyciszenie muzyki do zera na koncu ogona
     };
 
     struct Result
@@ -110,6 +114,15 @@ struct MusicBed
         return g;
     }
 
+    /** Dlugosc wyniku: glos + ogon, nie dluzej niz muzyka; bez muzyki albo
+        z muzyka krotsza od glosu — glos. */
+    static size_t bedLength (size_t voiceLen, size_t musicLen, double sr, const Params& p)
+    {
+        if (musicLen <= voiceLen) return voiceLen;
+        const size_t tail = (size_t) (std::max (0.0f, p.tailSec) * sr);
+        return std::min (musicLen, voiceLen + tail);
+    }
+
     /** voice: zmiksowany glos (mono). musicL/musicR: muzyka w tej samej
         czestotliwosci, od probki 0 nagrania (musicR puste = mono). */
     /** measure = false: bez koncowego pomiaru glosnosci i szczytu (wersja tylko
@@ -120,7 +133,7 @@ struct MusicBed
     {
         Result res;
         const auto& mR = musicR.empty() ? musicL : musicR;
-        const size_t len = std::max (voice.size(), musicL.size());
+        const size_t len = bedLength (voice.size(), musicL.size(), sr, p);
         if (len == 0 || sr <= 0.0) return res;
 
         const double voiceLufs = lufsOf (voice, {}, sr);
@@ -134,7 +147,17 @@ struct MusicBed
         res.musicGainDb = gDb;
         const float gm = (float) std::pow (10.0, gDb / 20.0);
         auto pd = p; if (voiceSilent) pd.duck = false;
-        const auto duck = duckCurve (voice, len, sr, voiceLufs, pd);
+        auto duck = duckCurve (voice, len, sr, voiceLufs, pd);
+        if (len < musicL.size())
+        {
+            // ucinamy muzyke: lagodne zejscie do zera, nie w glos
+            const size_t fade = std::min (len - std::min (len, voice.size()), (size_t) (std::max (0.0f, p.fadeSec) * sr));
+            for (size_t k = 0; k < fade; ++k)
+            {
+                const double c = std::cos (0.5 * M_PI * (double) (k + 1) / (double) fade);
+                duck[len - fade + k] *= (float) (c * c);
+            }
+        }
 
         res.left.assign (len, 0.0f);
         res.right.assign (len, 0.0f);

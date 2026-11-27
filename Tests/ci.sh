@@ -29,6 +29,12 @@ wiec slychac kazdy oddech. Czytam dalej rowno i spokojnie, az do konca strony. P
 przerwe, pije wode i wracam do tekstu. Najtrudniejsze sa dlugie zdania, w ktorych trzeba \
 rozlozyc oddech na kilka fraz."
 ffmpeg -hide_banner -loglevel error -y -i /tmp/mowa/mowa-22k.wav -ar 48000 /tmp/mowa/mowa-czysta.wav
+# "telewizor" w tle do tlo-test: inna mowa (angielska), 48 kHz
+espeak-ng -v en -s 160 -w /tmp/mowa/tv-22k.wav \
+  "Good evening and welcome to the news. Tonight we look at the weather across the country, \
+the latest results from the football league, and a story about a cat who learned to open the \
+fridge. Stay with us after the break for the interview."
+ffmpeg -hide_banner -loglevel error -y -i /tmp/mowa/tv-22k.wav -ar 48000 /tmp/mowa/telewizor.wav
 
 # ---- testy: nazwa i argumenty ------------------------------------------------
 TESTY=(
@@ -68,6 +74,9 @@ TESTY=(
   "podklad-montaz-test"
   "podmiana-fragmentu-test"
   "podklad-miks-test"
+  "tlo-test /tmp/mowa/mowa-czysta.wav /tmp/mowa/telewizor.wav"
+  "podklad-ogon-test"
+  "przester-test /tmp/mowa.wav"
 )
 
 ZNANE=$(grep -v '^#' znane-bledy.txt 2>/dev/null | awk '{print $1}')
