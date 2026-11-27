@@ -163,6 +163,7 @@ public:
         refreshControls(); repaint();
         tRecord.setButtonText (PL ("Nagraj poprawkę"));
         tRecord.setTooltip (PL ("Nagraj zaznaczony fragment jeszcze raz"));
+        layoutTransport();      // dluzszy napis — szerszy przycisk
     }
     void clearReplacement()
     {
@@ -625,6 +626,7 @@ public:
         tRepeat.setEnabled (rec && ! pz.resuming && ! spans.empty());
         zs::Look::setKind (tRecord, (! rec || pz.on) ? zs::ui::ButtonKind::Primary : zs::ui::ButtonKind::Secondary);
         zs::Look::setKind (tPause, zs::ui::ButtonKind::Primary);
+        layoutTransport();      // napis glownego przycisku mogl sie zmienic
     }
 
     void layoutTransport()
@@ -632,14 +634,37 @@ public:
         auto row = transportRow();
         // Trzy grupy jak w konsolecie: nawigacja tekstu, jedna akcja glowna,
         // odsluch/powtorzenie/stop. Glowna akcja jest stale na srodku.
-        constexpr int gap = 8, groupGap = 14;
-        const int centreW = juce::jmin (148, juce::jmax (116, row.getWidth() / 5));
-        const int sideW = juce::jmax (0, (row.getWidth() - centreW - 2 * groupGap) / 2);
-        auto left = row.removeFromLeft (sideW);
-        row.removeFromLeft (groupGap);
-        auto centre = row.removeFromLeft (centreW);
-        row.removeFromLeft (groupGap);
-        auto right = row;
+        // Szerokosci licza sie z napisow, zeby w oknie 960x640 nic nie bylo
+        // uciete: najpierw tracą napis ▶ i ■ (ikony same w sobie czytelne),
+        // potem „Powtórz wers” skraca sie do „Powtórz”; ↻ ma zawsze podpis.
+        constexpr int gap = 8, groupGap = 14, iconW = 52;
+        const juce::Font buttonFont (zs::type::body, juce::Font::bold);
+        const auto textW = [&] (const juce::String& s) { return buttonFont.getStringWidth (s) + 32; };
+        const auto widthOf = [&] (juce::Button& b) { return textW (b.getButtonText()) + zs::Look::iconSpace; };
+
+        const int W = row.getWidth();
+        const int centreNeed = juce::jmax (widthOf (tRecord), widthOf (tPause));
+        const int centreW = juce::jlimit (116, juce::jmax (116, W / 3), centreNeed);
+        const int rest = juce::jmax (0, W - centreW - 2 * groupGap);
+        const int minLeft = juce::jmax (textW (previousButton.getButtonText()), textW (nextButton.getButtonText())) * 2 + gap;
+
+        const juce::String repeatLong = PL ("Powtórz wers"), repeatShort = PL ("Powtórz");
+        const int playNeed = widthOf (tPlay), endNeed = widthOf (tEnd);
+        const int fullNeed = playNeed + endNeed + textW (repeatLong) + zs::Look::iconSpace + 2 * gap;
+        const int iconsNeedLong = 2 * iconW + textW (repeatLong) + zs::Look::iconSpace + 2 * gap;
+        const int iconsNeedShort = 2 * iconW + textW (repeatShort) + zs::Look::iconSpace + 2 * gap;
+        const int rightMax = juce::jmax (0, rest - minLeft);
+        const int want = rest / 2 >= fullNeed ? rest / 2
+                       : fullNeed <= rightMax ? fullNeed
+                       : iconsNeedLong <= rightMax ? iconsNeedLong
+                       : iconsNeedShort;
+        const int rightTotal = juce::jlimit (0, rest, juce::jmax (rest / 2, juce::jmin (want, juce::jmax (rightMax, iconsNeedShort))));
+
+        auto right = row.removeFromRight (rightTotal);
+        row.removeFromRight (groupGap);
+        auto centre = row.removeFromRight (juce::jmin (centreW, row.getWidth()));
+        row.removeFromRight (groupGap);
+        auto left = row;
 
         const int navW = juce::jmax (0, (left.getWidth() - gap) / 2);
         previousButton.setBounds (left.removeFromLeft (navW)); left.removeFromLeft (gap);
@@ -648,22 +673,24 @@ public:
         const bool compactNav = navW < 88;
         zs::Look::setCompact (previousButton, compactNav);
         zs::Look::setCompact (nextButton, compactNav);
-        const bool compactMain = centreW < zs::Look::iconSpace + 100;
+        const bool compactMain = centre.getWidth() < centreNeed;
         zs::Look::setCompact (tRecord, compactMain);
         zs::Look::setCompact (tPause, compactMain);
         tRecord.setBounds (centre);
         tPause.setBounds (centre);
 
-        const int rightW = juce::jmax (0, (right.getWidth() - 2 * gap) / 3);
-        const juce::Font buttonFont (zs::type::body, juce::Font::bold);
-        const auto widthOf = [&] (juce::Button& b)
-        { return buttonFont.getStringWidth (b.getButtonText()) + 32 + zs::Look::iconSpace; };
-        for (auto* b : { &tPlay, &tRepeat, &tEnd })
-        {
-            zs::Look::setCompact (*b, rightW < widthOf (*b));
-            b->setBounds (b == &tEnd ? right : right.removeFromLeft (rightW));
-            if (b != &tEnd) right.removeFromLeft (gap);
-        }
+        const int R = right.getWidth();
+        const bool sideText = R >= fullNeed;
+        const bool longRepeat = sideText || R >= iconsNeedLong;
+        tRepeat.setButtonText (longRepeat ? repeatLong : repeatShort);
+        const int playW = sideText ? playNeed + (R - fullNeed) / 3 : iconW;
+        const int endW  = sideText ? endNeed  + (R - fullNeed) / 3 : iconW;
+        zs::Look::setCompact (tPlay, ! sideText);
+        zs::Look::setCompact (tEnd, ! sideText);
+        zs::Look::setCompact (tRepeat, R < iconsNeedShort);
+        tPlay.setBounds (right.removeFromLeft (playW)); right.removeFromLeft (gap);
+        tEnd.setBounds (right.removeFromRight (endW));  right.removeFromRight (gap);
+        tRepeat.setBounds (right);
     }
 
     //==========================================================================
@@ -1907,12 +1934,14 @@ private:
 
         if (! running || ! recorder.isRecording())
                                         { label = PL ("CZEKA");        col = Ink::textDim(); }
+        else if (pz.on)                 { label = PL ("PAUZA");        col = Ink::yellow(); }
         else if (follower.waitingToResume())
                                         { label = PL ("CZEKAM NA GŁOS"); col = Ink::textNext(); }
         else if (! follower.hasStarted())
                                         { label = PL ("ZACZNIJ CZYTAĆ"); col = Ink::textNext(); }
         else if (follower.isLost())     { label = PL ("SZUKAM");       col = Ink::lostText(); }
-        else if (clock.pauseLength() > 0.3) { label = PL ("PAUZA");    col = Ink::textNext(); }
+        // cisza miedzy zdaniami to nie pauza nagrania (PAUZA zostaje dla pauzy)
+        else if (clock.pauseLength() > 0.3) { label = PL ("CZEKAM NA GŁOS"); col = Ink::textNext(); }
         else                            { label = PL ("JEDZIE");       col = Ink::green(); }
 
         // Skad prompter wie, gdzie jestes: ze slow czy z sylab. Male, ale
