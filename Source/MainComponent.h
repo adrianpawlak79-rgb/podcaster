@@ -125,6 +125,8 @@ public:
         (audyt 14.10: zielony ma znaczyc "dobrze", a nie "czekam"). */
     void setWaiting(bool value) { if (waiting != value) { waiting = value; repaint(); } }
     void setCompact (bool value) { if (compact != value) { compact = value; repaint(); } }
+    /** Pauza nagrania: lampka mowi PAUZA, jak zegar, a nie SLUCHAM. */
+    void setPaused (bool value) { if (paused != value) { paused = value; repaint(); } }
     void setState (int severity, const juce::String& msg, bool dimmed = false)
     {
         state = severity;
@@ -136,13 +138,6 @@ public:
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds().reduced (8);
-        // specyfikacja E: lampka do 132 px, poswiata tylko, gdy cos mowi
-        const int d = compact ? juce::jmax (0, juce::jmin (56, r.getWidth() - 24, r.getHeight() - 10))
-                              : juce::jmax (0, juce::jmin (132, r.getWidth() - 40, r.getHeight() - 70));
-        // lampka i zdanie pod nia razem, na srodku miejsca (zdanie nie odjezdza na dol)
-        const int block = compact ? d : d + 10 + 18 + 48;
-        const int top = r.getY() + juce::jmax (0, (r.getHeight() - block) / 2);
-        auto circle = juce::Rectangle<int> (d, d).withCentre ({ r.getCentreX(), top + 5 + d / 2 });
 
         juce::Colour c;
         juce::String label;
@@ -158,33 +153,67 @@ public:
         if(!recording && state==0) { label=PL("GOTOWY"); c=zs::Ink::textDim(); }
         const bool listening = recording && state==0 && waiting;
         if(listening) { label=PL("SŁUCHAM"); c=zs::Ink::textDim(); }
+        if (recording && paused) { label = PL ("PAUZA"); c = zs::Ink::yellow(); }
 
         if (dim && state == 0)
             c = c.withMultipliedBrightness (0.72f);
 
-        const bool idle = (! recording && state == 0) || listening;
-        const auto cf = circle.toFloat();
-        if (! idle) zs::Depth::glow (g, cf, cf.getWidth() / 2, c, 12.0f, dim && state == 0 ? 0.12f : 0.24f);
+        const bool idle = (! recording && state == 0) || listening || (recording && paused);
+
+        // Niskie miejsce (okno 960x640, muzyka w panelu): zamiast kolka, ktore
+        // zapadalo sie do kropki z litera, poziomy "guzik" z calym napisem.
+        const bool pill = compact || r.getHeight() < 150;
+        if (pill) r = getLocalBounds().reduced (8, 0);
+        const juce::Font pillFont (zs::type::body, juce::Font::bold);
+        juce::Rectangle<int> shape;
+        int messageTop = 0;
+        if (pill)
+        {
+            const int h = juce::jmin (40, juce::jmax (0, r.getHeight() - 10));   // 10: obwodka i poswiata
+            const int w = juce::jmin (r.getWidth() - 12, juce::jmax (140, pillFont.getStringWidth (label) + 48));
+            const bool withMessage = ! compact && r.getHeight() >= h + 10 + 40;
+            const int block = withMessage ? h + 10 + 40 : h;
+            const int top = r.getY() + juce::jmax (0, (r.getHeight() - block) / 2);
+            shape = juce::Rectangle<int> (w, h).withCentre ({ r.getCentreX(), top + h / 2 });
+            messageTop = withMessage ? shape.getBottom() + 10 : -1;
+        }
+        else
+        {
+            // specyfikacja E: lampka do 132 px, poswiata tylko, gdy cos mowi
+            const int d = juce::jmax (0, juce::jmin (132, r.getWidth() - 40, r.getHeight() - 70));
+            // lampka i zdanie pod nia razem, na srodku miejsca (zdanie nie odjezdza na dol)
+            const int block = d + 10 + 18 + 48;
+            const int top = r.getY() + juce::jmax (0, (r.getHeight() - block) / 2);
+            shape = juce::Rectangle<int> (d, d).withCentre ({ r.getCentreX(), top + 5 + d / 2 });
+            messageTop = shape.getBottom() + 18;
+        }
+
+        const auto cf = shape.toFloat();
+        const float radius = cf.getHeight() / 2;
+        const auto fillShape = [&] (juce::Rectangle<float> f)
+        { if (pill) g.fillRoundedRectangle (f, f.getHeight() / 2); else g.fillEllipse (f); };
+        if (! idle) zs::Depth::glow (g, cf, radius, c, 12.0f, dim && state == 0 ? 0.12f : 0.24f);
         // pierscien: ciemna szczelina i obwodka w kolorze stanu (makieta "Wtyczka")
         g.setColour (zs::Ink::bg());
-        g.fillEllipse (cf.expanded (5.0f));
-        g.setColour (idle ? zs::Ink::edge() : c.withAlpha (0.85f));
-        g.drawEllipse (cf.expanded (4.0f), 2.0f);
+        fillShape (cf.expanded (5.0f));
+        g.setColour (recording && paused ? c.withAlpha (0.85f) : idle ? zs::Ink::edge() : c.withAlpha (0.85f));
+        const auto ring = cf.expanded (4.0f);
+        if (pill) g.drawRoundedRectangle (ring, ring.getHeight() / 2, 2.0f); else g.drawEllipse (ring, 2.0f);
         // dysk: swiatlo z gory po lewej
         const auto lit = idle ? juce::Colour (0xff2a3542) : c;
         g.setGradientFill (juce::ColourGradient (lit.brighter (0.45f), cf.getX() + cf.getWidth() * 0.38f, cf.getY() + cf.getHeight() * 0.3f,
                                                  lit.darker (0.25f), cf.getRight(), cf.getBottom(), true));
-        g.fillEllipse (cf);
+        fillShape (cf);
 
-        g.setColour (idle ? zs::Ink::textNext() : juce::Colour (0xff06140c));
-        g.setFont (juce::Font (compact ? 10.5f : juce::jmax (14.0f, d * (recording && ! listening ? 0.22f : 0.15f)), juce::Font::bold));
-        g.drawText (label, circle, juce::Justification::centred);
+        g.setColour (recording && paused ? c : idle ? zs::Ink::textNext() : juce::Colour (0xff06140c));
+        g.setFont (pill ? pillFont : juce::Font (juce::jmax (14.0f, cf.getWidth() * (recording && ! listening ? 0.22f : 0.15f)), juce::Font::bold));
+        g.drawText (label, shape, juce::Justification::centred);
 
         g.setColour (zs::Ink::textNext());
         g.setFont (juce::Font (zs::type::body));
-        if (! compact)
+        if (messageTop >= 0 && ! (recording && paused))   // w pauzie stary komunikat wejscia mylil
             g.drawFittedText (message,
-                              juce::Rectangle<int> (r.getX(), circle.getBottom() + 18, r.getWidth(), 48).reduced (4, 0),
+                              juce::Rectangle<int> (r.getX(), messageTop, r.getWidth(), 48).reduced (4, 0),
                               juce::Justification::centredTop, 2);
     }
 
@@ -192,6 +221,7 @@ private:
     bool recording=false;
     bool waiting=false;
     bool compact=false;
+    bool paused=false;
     int state = 0;
     bool dim = false;
     juce::String message = PL ("Naciśnij Nagraj, kiedy będziesz gotowy.");
@@ -818,6 +848,9 @@ public:
         lamp.setRecording (true);
         lamp.setState (0, PL ("Nagrywasz. Mów spokojnie."), false);
         timerCallback();
+        // przyciski promptera jak po jego pierwszym tyknieciu (inaczej zrzut
+        // pokazywal „Nagraj” w trakcie nagrania)
+        if (prompter != nullptr) prompter->updateTransport();
         resized();
     }
 
@@ -839,13 +872,14 @@ public:
             prompter->setBackingEnvelope (std::move (envelope), previewBackingPosition);
         }
         if (pause && prompter != nullptr) prompter->spacePressed();
+        lamp.setPaused (prompter != nullptr && prompter->isPausedView());
         resized();
         repaint();
     }
 
     /** --preview-ui ... prompter-znaczki: znaczki przy wersach i odliczanie po R. */
     void previewMarks() { if (prompter != nullptr) prompter->previewMarks(); }
-    void previewAim()   { if (prompter != nullptr) prompter->previewAimScreen(); }
+    void previewAim()   { if (prompter != nullptr) { prompter->previewAimScreen(); lamp.setPaused (prompter->isPausedView()); } }
     void previewLive()  { if (prompter != nullptr) prompter->previewLiveScreen(); }
     void previewReplacementRecording()
     {
@@ -926,23 +960,26 @@ private:
     {
         PrompterSide L;
         auto s = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 22);
+        // niski panel (okno 960x640): ciasniej, zeby lampka nie zapadla sie do kropki
+        const bool tight = s.getHeight() < 480;
+        const int gapS = tight ? 6 : 12;
         L.nameCap = s.removeFromTop (18);
-        L.name = s.removeFromTop (26);     s.removeFromTop (12);
+        L.name = s.removeFromTop (26);     s.removeFromTop (gapS);
         L.clockCap = s.removeFromTop (18); s.removeFromTop (6);
-        L.clock = s.removeFromTop (64);    s.removeFromTop (4);
+        L.clock = s.removeFromTop (tight ? 48 : 64); s.removeFromTop (4);
         L.limit = s.removeFromTop (18);    s.removeFromTop (4);
         if (previewBackingEnabled || recorder.hasBacking())
         {
             L.musicCap = s.removeFromTop (16); s.removeFromTop (3);
             L.musicName = s.removeFromTop (20); s.removeFromTop (2);
             L.musicPosition = s.removeFromTop (18); s.removeFromTop (4);
-            L.musicBar = s.removeFromTop (4); s.removeFromTop (10);
+            L.musicBar = s.removeFromTop (4); s.removeFromTop (tight ? 6 : 10);
         }
         L.bar = s.removeFromBottom (6);    s.removeFromBottom (6);
         L.text = s.removeFromBottom (20);
-        L.textCap = s.removeFromBottom (18); s.removeFromBottom (18);
+        L.textCap = s.removeFromBottom (18); s.removeFromBottom (tight ? 8 : 18);
         L.meter = s.removeFromBottom (SegMeter::height); s.removeFromBottom (6);
-        L.meterCap = s.removeFromBottom (18); s.removeFromBottom (12);
+        L.meterCap = s.removeFromBottom (18); s.removeFromBottom (gapS);
         L.lamp = s;
         return L;
     }
@@ -1884,6 +1921,7 @@ private:
             offerRecovered();
 
         lamp.setRecording(recorder.isRecording());
+        lamp.setPaused (recorder.isRecording() && inPrompter && prompter != nullptr && prompter->isPausedView());
         // Kreator potrzebuje czestotliwosci probkowania, a ta jest znana dopiero
         // wtedy, gdy urzadzenie ruszy — stad start z opoznieniem, a nie w
         // konstruktorze.

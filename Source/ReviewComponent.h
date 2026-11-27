@@ -94,6 +94,14 @@ private:
 //==============================================================================
 namespace plr
 {
+    /** Liczba z jedną cyfrą po przecinku, z prawdziwym minusem (−) zamiast łącznika. */
+    inline juce::String plNumber (double v)
+    {
+        auto s = juce::String (v, 1).replace (".", ",");
+        if (s.startsWithChar ('-')) s = juce::String::charToString ((juce::juce_wchar) 0x2212) + s.substring (1);
+        return s;
+    }
+
     /** Nazwa rodzaju zdarzenia. Ta sama co na liscie w trakcie nagrywania —
         czlowiek ma rozpoznac na osi to, co widzial przed chwila. */
     inline juce::String kind (tw::Kind k)
@@ -992,13 +1000,14 @@ public:
         else { main.removeFromTop (6); row = main.removeFromTop (L::buttons); }
         {
             const int w = juce::jmax (0, (row.getWidth() - 2 * 6) / 3);
+            const int cardH = getHeight() < 720 ? 64 : 70;
             for (int i = 0; i < 3; ++i)
             {
                 auto card = row.removeFromLeft (w); row.removeFromLeft (6);
                 styleCards[i].setVisible (true);
-                styleCards[i].setBounds (card.withHeight (getHeight() < 720 ? 64 : 70));
+                styleCards[i].setBounds (card.withHeight (cardH));
             }
-            main.removeFromTop ((getHeight() < 720 ? 64 : 70) - L::buttons);
+            main.removeFromTop (cardH - L::buttons);
         }
         if (hasMusic())
         {
@@ -1019,9 +1028,20 @@ public:
         detailsToggle.setBounds (tools.removeFromLeft (toolW));
         // obok "Ukryj zaawansowane", nie w rogu nad kaflami - tam nikt go nie widzial (Adrian 25.10)
         defaultsButton.setVisible (detailsMode);
-        if (detailsMode) { tools.removeFromLeft (10); defaultsButton.setBounds (tools.removeFromLeft (juce::jmin (250, tools.getWidth() / 2))); defaultsButton.setEnabled (chainView.canReset()); }
         folderButton.setBounds (tools.removeFromRight (juce::jmin (172, tools.getWidth()))); folderButton.setVisible (true);
+        if (detailsMode)
+        {
+            // caly napis; gdy sie nie miesci (960x640) — krotszy, nadal jasny
+            tools.removeFromLeft (10); tools.removeFromRight (10);
+            const juce::Font bf (zs::type::body, juce::Font::bold);
+            const juce::String full = PL ("Przywróć ustawienia domyślne"), shortText = PL ("Ustawienia domyślne");
+            const bool fits = bf.getStringWidth (full) + 32 <= tools.getWidth();
+            defaultsButton.setButtonText (fits ? full : shortText);
+            defaultsButton.setBounds (tools.removeFromLeft (juce::jmin (tools.getWidth(), bf.getStringWidth (defaultsButton.getButtonText()) + 32)));
+            defaultsButton.setEnabled (chainView.canReset());
+        }
         tools.removeFromLeft (12); tools.removeFromRight (12); feedbackArea = tools;
+        if (detailsMode) main.removeFromBottom (8);     // kafle nie dochodza do przyciskow
         main.removeFromTop (getHeight() < 720 ? 4 : 8);
         if (detailsMode)
         {
@@ -1111,22 +1131,27 @@ private:
         side.removeFromTop (40 + 24);
         savedName.setBounds (side.removeFromTop (44)); savedName.setVisible (true);
         side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24);
-        auto actions = side.removeFromBottom (124);
-        newProjectButton.setBounds (actions.removeFromBottom (36)); actions.removeFromBottom (8);
-        newTakeButton.setBounds (actions.removeFromBottom (36)); actions.removeFromBottom (8);
-        doneEditButton.setBounds (actions.removeFromBottom (36));
+        // w niskim oknie (960x640) nizsze przyciski, zeby "Gotowa glosnosc" sie miescila
+        const int bh = doneButtonH(), bg = doneButtonGap();
+        auto actions = side.removeFromBottom (3 * bh + 2 * bg);
+        newProjectButton.setBounds (actions.removeFromBottom (bh)); actions.removeFromBottom (bg);
+        newTakeButton.setBounds (actions.removeFromBottom (bh)); actions.removeFromBottom (bg);
+        doneEditButton.setBounds (actions.removeFromBottom (bh));
         newTakeButton.setVisible (true); doneEditButton.setVisible (true); newProjectButton.setVisible (true);
         // nad nimi: wzorzec brzmienia dla kolejnych odcinkow
         side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24);
-        side.removeFromBottom (124 + 8);
-        profileButton.setBounds (side.removeFromBottom (36));
+        side.removeFromBottom (3 * bh + 2 * bg + bg);
+        profileButton.setBounds (side.removeFromBottom (bh));
         profileButton.setVisible (true);
         profileButton.setButtonText (profileRemembered ? PL("Brzmienie zapamiętane ✓")
                                    : wish.profile.valid() ? PL("Ustaw to brzmienie jako wzorzec")
                                                           : PL("Zapamiętaj to brzmienie"));
         profileButton.setEnabled (! profileRemembered && saved.existsAsFile());
-        profileButton.setTooltip (PL("Następne odcinki dostaną tę barwę — seria brzmi jak z jednego studia. Usunąć wzorzec można w „Mikrofon i sprzęt”."));
+        profileButton.setTooltip (PL("Następne odcinki dostaną tę barwę — seria brzmi jak z jednego studia. Wzorzec można usunąć w Ustawieniach."));
     }
+    bool doneTight() const { return getHeight() < 720; }
+    int doneButtonH() const { return doneTight() ? 32 : 36; }
+    int doneButtonGap() const { return doneTight() ? 6 : 8; }
     void paintDone (juce::Graphics& g) {
         g.fillAll (Ink::bg());
         zs::ScreenFrame::paint (g, getLocalBounds(), file.getFileNameWithoutExtension(), PL("Plik zapisany na dysku · Esc — wróć do miksu"));
@@ -1156,30 +1181,31 @@ private:
         g.setFont (juce::Font (zs::type::small)); g.setColour (Ink::textDim());
         // rowny rytm: etykieta, wartosc, odstep (nazwa pliku w polu do zaznaczenia, 2 wiersze)
         g.drawText (PL("Nazwa"), side.removeFromTop (24), juce::Justification::centredLeft);
-        side.removeFromTop (44 + 14);
+        const bool tight = doneTight();
+        side.removeFromTop (44 + (tight ? 4 : 14));
         // Zarezerwuj miejsce na profil i trzy przyciski. Bez tego szczegoly
         // pliku schodzily pod akcje w niskim oknie (np. 960x640).
-        side.removeFromBottom (124 + 8 + 36 + 8);
+        side.removeFromBottom (4 * doneButtonH() + 4 * doneButtonGap());
         const auto row = [&] (const juce::String& label, const juce::String& value, int height) {
-            auto r = side.removeFromTop (height);
-            g.setColour (Ink::textDim()); g.drawText (label, r.removeFromTop (18), juce::Justification::centredLeft);
-            g.setColour (Ink::textNow()); g.drawText (value, r.removeFromTop (22), juce::Justification::centredLeft);
+            auto r = side.removeFromTop (tight ? 38 : height);
+            g.setColour (Ink::textDim()); g.drawText (label, r.removeFromTop (tight ? 16 : 18), juce::Justification::centredLeft);
+            g.setColour (Ink::textNow()); g.drawText (value, r.removeFromTop (tight ? 20 : 22), juce::Justification::centredLeft);
         };
         // jeden wiersz na oba pliki — miejsce na przycisk wzorca brzmienia w 960x640
         row (PL("Pliki"), savedMp3 != juce::File() ? PL("WAV 24-bit i MP3 ") + juce::String (mp3Kbps) + " kbit/s"
                                                    : PL("WAV 24-bit (MP3 nie powstał)"), 54);
         const bool withBed = ! bed.left.empty();
         const double length = withBed ? (double) bed.left.size() / sr : review.seconds();
-        row (PL("Długość"), plr::clock (length) + " (" + juce::String (length, 1) + " s)", 54);
+        row (PL("Długość"), plr::clock (length) + " (" + plr::plNumber (length) + " s)", 54);
         // Audyt 14.10: "LUFS" i "dBTP" na glownym ekranie wymagaja wiedzy audio.
         row (PL("Gotowa głośność"), withBed ? PL("Jak w podcastach (stereo, z muzyką)") : PL("Jak w podcastach (mono)"), 42);
         g.setColour (Ink::textDim());
-        g.drawText (juce::String (withBed ? bed.lufs : review.whatIDid().lufsAfter, 1) + PL(" LUFS · szczyt ")
-                        + juce::String (withBed ? bed.peakDbtp : review.whatIDid().peakAfter, 1) + " dBTP",
-                    side.removeFromTop (20), juce::Justification::centredLeft);
-        if (wish.profile.valid())
+        g.drawText (plr::plNumber (withBed ? bed.lufs : review.whatIDid().lufsAfter) + PL(" LUFS · szczyt ")
+                        + plr::plNumber (withBed ? bed.peakDbtp : review.whatIDid().peakAfter) + " dBTP",
+                    side.removeFromTop (tight ? 18 : 20), juce::Justification::centredLeft);
+        if (wish.profile.valid() && side.getHeight() >= (tight ? 42 : 56))
         {
-            side.removeFromTop (14);
+            side.removeFromTop (tight ? 4 : 14);
             row (PL("Wzorzec brzmienia"), juce::String::fromUTF8 (wish.profile.label.c_str()), 42);
         }
     }
@@ -1964,7 +1990,7 @@ private:
         else if (review.nearlySilent())
         {
             v = 1;
-            line = PL ("Nagranie jest prawie ciche — mikrofon chyba nie dochodził. Sprawdź „Mikrofon i sprzęt” i nagraj jeszcze raz.");
+            line = PL ("Nagranie jest prawie ciche — mikrofon chyba nie dochodził. Sprawdź mikrofon w Ustawieniach i nagraj jeszcze raz.");
         }
         else if (! review.toRedo().empty())
         {

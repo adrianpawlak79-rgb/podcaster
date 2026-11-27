@@ -145,7 +145,7 @@ public:
         g.drawFittedText (withPrompter ? (musicMode ? PL ("W przygotowaniu dodasz tekst i plik z muzyką.")
                                                     : PL ("W przygotowaniu dodasz tekst do promptera."))
                                        : (musicMode ? PL ("W przygotowaniu dodasz plik z muzyką.")
-                                                    : PL ("Po Starcie przejdziesz do krótkiego przygotowania.")),
+                                                    : PL ("Po kliknięciu Start przejdziesz do krótkiego przygotowania.")),
                           L.startHint, juce::Justification::centredLeft, 2);
 
         if (equipment.isNotEmpty())
@@ -192,8 +192,8 @@ public:
         startButton.setBounds (L.start);
         otherButton.setBounds (L.other);
         auto equipmentBounds = L.equipment;
-        equipmentBounds.removeFromRight (compactEquipmentWidth());
-        equipmentButton.setBounds (equipmentBounds.withSizeKeepingCentre (compactEquipmentWidth(), 32));
+        const auto buttonArea = equipmentBounds.removeFromRight (compactEquipmentWidth());
+        equipmentButton.setBounds (buttonArea.withSizeKeepingCentre (compactEquipmentWidth(), 32));
     }
 
     void mouseMove (const juce::MouseEvent& e) override
@@ -278,7 +278,7 @@ private:
         // z prompterem / bez: dwa przelaczniki w jednym rzedzie pod kartami
         a.removeFromTop (compact ? 8 : 14);
         auto textRow = a.removeFromTop (compact ? 34 : 38);
-        L.textLabel = textRow.removeFromLeft (52);
+        L.textLabel = textRow.removeFromLeft (juce::Font (zs::type::small).getStringWidth (PL ("Prompter")) + 14);
         const int w = juce::jmin (180, (textRow.getWidth() - 8) / 2);
         L.withText = textRow.removeFromLeft (w);
         textRow.removeFromLeft (8);

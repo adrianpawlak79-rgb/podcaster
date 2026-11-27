@@ -402,7 +402,7 @@ private:
                        "zdejmuj ich — sprawdzam, ile z tego wraca do mikrofonu.";
             case tw::SetupStep::Monitor:
                 return "Usłyszysz swoje dwa zdania sprzed chwili. Kręć głośnością, aż "
-                       "będą brzmiały tak głośno, jak sam mówiłeś — nie ciszej, nie "
+                       "będą brzmiały tak głośno, jak mówisz na co dzień — nie ciszej, nie "
                        "głośniej. To jedyna głośność, którą znasz na pamięć, więc to "
                        "ona jest tu miarą.";
             default:
