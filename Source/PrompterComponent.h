@@ -1831,7 +1831,7 @@ private:
         {
             g.setColour (Ink::textDim());
             g.setFont (juce::Font (fontElse() * 0.6f));
-            g.drawText (PL ("Wczytaj tekst, zeby czytac z promptera."),
+            g.drawText (PL ("Wczytaj tekst, żeby czytać z promptera."),
                         r, juce::Justification::centred);
             return;
         }
