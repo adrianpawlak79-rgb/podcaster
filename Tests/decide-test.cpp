@@ -378,7 +378,9 @@ int main (int argc, char** argv)
         const auto d = mix::Decide::listen (x, sr, zs_podcast());
         const auto& p = d.params;
 
-        check (p.targetLufs == -19.0, "podcast: -19 LUFS", num (p.targetLufs, " LUFS"));
+        // tor liczy w mono; plik bez podkladu jest dual-mono stereo = -16 LUFS
+        check (p.targetLufs == -19.0, "podcast: tor mono -19 LUFS", num (p.targetLufs, " LUFS"));
+        check (says (d, "-16.0 LUFS (plik stereo)"), "opis miksu podaje glosnosc pliku: -16", "");
         check (p.highpassHz == 75.0 && p.steepHighpass && p.preEq.size() == 3, "filtr dolu 75 Hz 24 dB/okt i trzy pasma odejmowania", "");
         check (p.useGate && p.gateRatio == 2.0f && p.gateHoldMs >= 100.0 && p.gateThreshDb < d.speechDb - 20.0,
                "ekspander lagodny, ponad 20 dB pod mowa", num (p.gateThreshDb - d.speechDb));

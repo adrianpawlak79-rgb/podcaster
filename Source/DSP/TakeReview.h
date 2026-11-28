@@ -786,7 +786,7 @@ private:
         if (silenceIsTheMaterial())
             plain.push_back ("Długie fragmenty są zupełnie ciche. Sprawdź, czy nie zginęły tam słowa.");
 
-        plain.push_back ("Głośność ustawiona dla nagrania mono, jak w podcastach. Odsłuchaj całość przed publikacją.");
+        plain.push_back ("Głośność jak w podcastach (plik stereo). Odsłuchaj całość przed publikacją.");
     }
 
     //==========================================================================
@@ -802,8 +802,8 @@ private:
         char b[400];
 
         std::snprintf (b, sizeof (b),
-            "Wynik: było %.1f LUFS, jest %.1f LUFS. Szczyt %.1f dBTP przy suficie %.1f dBTP.",
-            report.lufsBefore, report.lufsAfter, report.peakAfter, (double) decision.params.ceilingDbTp);
+            "Wynik (plik stereo): było %.1f LUFS, jest %.1f LUFS. Szczyt %.1f dBTP przy suficie %.1f dBTP.",
+            mix::dualMonoLufs (report.lufsBefore), mix::dualMonoLufs (report.lufsAfter), report.peakAfter, (double) decision.params.ceilingDbTp);
         lines.push_back (b);
 
         // Sufit jest DEKLARACJA, nie zyczeniem. Jesli go przekroczylismy, to

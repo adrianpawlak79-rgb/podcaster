@@ -5,12 +5,13 @@
 #include "BinaryData.h"
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "MainComponent.h"
+#include "Version.h"
 
 class ZieloneSwiatloApplication : public juce::JUCEApplication
 {
 public:
     const juce::String getApplicationName() override       { return juce::String::fromUTF8 ("Zielone światło"); }
-    const juce::String getApplicationVersion() override    { return "0.4.0-test"; }
+    const juce::String getApplicationVersion() override    { return zs::versionString(); }
     bool moreThanOneInstanceAllowed() override { return getCommandLineParameters().startsWith("--preview-ui"); }
 
     void initialise (const juce::String& commandLine) override

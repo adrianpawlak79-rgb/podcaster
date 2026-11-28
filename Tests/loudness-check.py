@@ -53,5 +53,21 @@ for path in files:
     print(f"{name:<24} {ours:9.2f} {theirs:11.2f} {diff:+9.2f}  {'OK' if ok else 'BLAD'}")
 
 print("-" * 56)
+
+# Glos bez podkladu zapisujemy jako stereo z tym samym sygnalem w obu kanalach
+# (Loudness.h: dualMonoLufs = mono + 3,01). Sprawdzamy to niezaleznym miernikiem.
+mono_p = os.path.join(directory, "mowa-z-pauzami.wav")
+dual_p = os.path.join(directory, "mowa-dual-mono.wav")
+if os.path.exists(mono_p) and os.path.exists(dual_p):
+    m = pyln.Meter(sf.read(mono_p)[1])
+    lift = m.integrated_loudness(sf.read(dual_p)[0]) - m.integrated_loudness(sf.read(mono_p)[0])
+    ok = abs(lift - 3.0103) <= TOL
+    if not ok:
+        bad += 1
+    print(f"dual-mono wzgledem mono: {lift:+.2f} LU (ma byc +3,01)  {'OK' if ok else 'BLAD'}")
+else:
+    bad += 1
+    print("brak pary mowa-z-pauzami / mowa-dual-mono  BLAD")
+
 print("zgodne" if bad == 0 else f"{bad} rozbieznosci ponad {TOL} LU")
 sys.exit(0 if bad == 0 else 1)
