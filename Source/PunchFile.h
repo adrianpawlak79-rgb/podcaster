@@ -39,6 +39,8 @@ struct PunchResult
     double      removedSec = 0.0;
     int         audibleSeams = 0;   ///< szwy, przy ktorych tlo rozni sie o > 1,5 dB
     juce::File  rawCopy;            ///< gdzie trafilo surowe nagranie
+    juce::File  correctionCopy;     ///< podmiana: gdzie trafilo nagranie poprawki (surowe)
+    int         staleMixes = 0;     ///< podmiana: ile starych miksow przeniesiono do surowe
     std::vector<tw::Removal> plan;  ///< co wycieto (czas surowego nagrania)
     std::vector<tw::SkippedCut> skipped;   ///< R, po ktorych NIE wycielismy — i dlaczego
     std::vector<tw::CutProposal> proposals;  ///< cala lista dla ekranu Odsluch (pewne + do wskazania)
@@ -325,6 +327,32 @@ inline PunchResult replaceRecordedRange (const juce::File& wav, const juce::File
     cutListFile (wav).deleteFile();
     res.applied = true;
     res.removedSec = to - from - (double) replacementSamples / fresh.sr;
+
+    // Porzadki po podmianie (QA W2, W3). Stary miks jest sprzed poprawki:
+    // do "surowe", zeby lista nagran nie pokazywala "gotowy plik" dla
+    // zmienionego nagrania. Plik poprawki i jego pliki pomocnicze tez do
+    // "surowe" — inaczej ekran startowy pokazuje go jako osobne nagranie.
+    // Bledy tu nie cofaja podmiany (nagranie jest juz poprawne).
+    const auto base = wav.getFileNameWithoutExtension();
+    for (const auto& f : wav.getParentDirectory().findChildFiles (juce::File::findFiles, false, base + "__miks*"))
+    {
+        const auto rest = f.getFileNameWithoutExtension().substring (base.length());
+        const auto target = rawDir.getNonexistentChildFile (res.rawCopy.getFileNameWithoutExtension() + rest,
+                                                            f.getFileExtension(), false);
+        if (f.moveFileTo (target)) ++res.staleMixes;
+    }
+    if (correction.existsAsFile() && correction.getParentDirectory() != rawDir)
+    {
+        const auto corrBase = correction.getFileNameWithoutExtension();
+        res.correctionCopy = rawDir.getNonexistentChildFile (corrBase, ".wav", false);
+        for (const auto& suffix : { ".wersy.txt", ".dziennik.txt", ".ciecia.tsv", ".podklad.txt", ".tekst.txt" })
+        {
+            const auto side = correction.getSiblingFile (corrBase + suffix);
+            if (side.existsAsFile())
+                side.moveFileTo (res.correctionCopy.getSiblingFile (res.correctionCopy.getFileNameWithoutExtension() + suffix));
+        }
+        if (! correction.moveFileTo (res.correctionCopy)) res.correctionCopy = juce::File();
+    }
     return res;
 }
 

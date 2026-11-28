@@ -667,7 +667,7 @@ public:
         prompter=std::make_unique<PrompterComponent>(recorder,settings);
         prompter->onClose=[this]{showPrompter(false);};
         prompter->setSpeech(&speech);
-        prompter->onStopRequest=[this]{ if(recorder.isRecording()) toggleRecord(); else if (correctionMode) cancelReplacement(); };
+        prompter->onStopRequest=[this]{ stopRequested(); };
         prompter->onStartStop=[this]{ startStop(); };
         prompter->onRetake=[this]{ logic.afterCut(); };
         addAndMakeVisible(*prompter);
@@ -1151,7 +1151,14 @@ private:
         recButton.setVisible(!inWizard && !inReview && !preparation && !settingsOpen && !inPrompter);
         repeatButton.setVisible(false);
         hints.setVisible((inPrompter || rec) && !inWizard && !inReview);
-        hintsFull = PL(zs::ui::hintLine(rec, hasScript).c_str()); fitHintsLabel();
+        // Poprawka fragmentu ma wlasne klawisze (QA W1): spacja konczy, a z
+        // podkladem poprawka konczy sie sama po dlugosci fragmentu.
+        hintsFull = correctionMode
+            ? (rec ? (correctionFixedLength ? PL("Poprawka skończy się sama po długości fragmentu   ·   Esc — przerwij poprawkę")
+                                            : PL("Spacja albo Esc — zakończ poprawkę"))
+                   : PL("Spacja albo „Nagraj poprawkę” — rozbieg i nagranie   ·   Esc — wróć do montażu"))
+            : PL(zs::ui::hintLine(rec, hasScript).c_str());
+        fitHintsLabel();
         hints.setJustificationType(inPrompter ? juce::Justification::centred : juce::Justification::centredLeft);
     }
 
@@ -1482,7 +1489,9 @@ private:
     {
         if (correctionMode)
         {
-            if (recorder.isRecording()) finishReplacement();
+            // z podkladem poprawka ma stala dlugosc i konczy sie sama
+            // (timerCallback); spacja jej nie urywa — podpowiedz mowi to samo
+            if (recorder.isRecording()) { if (! correctionFixedLength) finishReplacement(); }
             else startReplacement();
             return;
         }
@@ -1496,6 +1505,14 @@ private:
 
         preparation = false;
         startRecording();
+    }
+
+    /** Esc albo "Zakoncz" w prompterze. */
+    void stopRequested()
+    {
+        if (correctionMode && correctionFixedLength && recorder.isRecording()) { cancelReplacement(); return; }
+        if (recorder.isRecording()) toggleRecord();
+        else if (correctionMode) cancelReplacement();
     }
 
     void beginReplacement (double from, double to, const std::vector<float>& audio, double rate)
@@ -1516,12 +1533,9 @@ private:
         const auto scriptFile = correctionSource.getSiblingFile (correctionSource.getFileNameWithoutExtension() + ".tekst.txt");
         auto script = scriptFile.existsAsFile() ? scriptFile.loadFileAsString()
                                                 : (reviewCameFromPrompter ? prompter->sourceTextUtf8() : juce::String());
-        if (script.trim().isEmpty())
-        {
-            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::InfoIcon, PL ("Brak tekstu"),
-                PL ("Nie mam tekstu przypisanego do tego nagrania. Poprawka wymaga właściwego tekstu; oryginał pozostaje bez zmian."));
-            return;
-        }
+        // Bez tekstu (tryb bez promptera, QA B2): poprawka i tak dziala — ekran
+        // nagrania pokazuje fale z zaznaczonym miejscem, rozbieg i nagranie.
+        if (script.trim().isEmpty()) script = {};
         int firstWord = 0;
         const auto marksFile = correctionSource.getSiblingFile (correctionSource.getFileNameWithoutExtension() + ".wersy.txt");
         if (marksFile.existsAsFile())
@@ -1612,7 +1626,8 @@ private:
         }
         pendingReplacement = juce::File();
         correctionUndo = result.rawCopy;
-        append (PL ("--- podmieniono fragment; poprzednia wersja w folderze surowe"));
+        append (PL ("--- podmieniono fragment; poprzednia wersja w folderze surowe")
+                + (result.staleMixes > 0 ? PL ("; stary miks też tam (był sprzed poprawki)") : juce::String()));
         if (prompter != nullptr) prompter->clearReplacement();
         showPrompter (false); openReview (correctionSource, true, true);
         if (review != nullptr)
@@ -1638,7 +1653,16 @@ private:
 
     void cancelReplacement()
     {
-        if (recorder.isRecording()) { recorder.stop(); recorder.playPreRoll ({}); }
+        if (recorder.isRecording())
+        {
+            const auto partial = recorder.currentFile();
+            recorder.stop(); recorder.playPreRoll ({});
+            // niedokonczona poprawka nie zostaje w folderze nagran (QA D3)
+            for (const auto* suffix : { ".wersy.txt", ".dziennik.txt" })
+                partial.getSiblingFile (partial.getFileNameWithoutExtension() + suffix).deleteFile();
+            partial.getSiblingFile (partial.getFileName() + ".problem.txt").deleteFile();
+            partial.deleteFile();
+        }
         correctionWaitingStart = false; correctionMode = false;
         if (prompter != nullptr) prompter->clearReplacement();
         showPrompter (false); openReview (correctionSource, true, true);
@@ -1913,7 +1937,7 @@ private:
             juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::InfoIcon, PL ("Sesja ma 60 minut"),
                 PL ("Tyle program sprawdził w jednej sesji, więc nagrywanie zatrzymało się samo. ")
                 + PL ("Wszystko jest zapisane — za chwilę możesz to odsłuchać.\n\n")
-                + PL ("Dalszą część nagraj jako nową sesję („Wróć do nagrywania”)."));
+                + PL ("Dalszą część nagraj jako nowe podejście („Nagraj nowe podejście” w montażu)."));
             finishStoppedTake (justRecorded);
             return;
         }
@@ -2362,7 +2386,7 @@ private:
             prompter = std::make_unique<PrompterComponent> (recorder, settings);
             prompter->onClose = [this] { if (correctionMode) cancelReplacement(); else showPrompter (false); };
             prompter->setSpeech (&speech);
-            prompter->onStopRequest = [this] { if (recorder.isRecording()) toggleRecord(); else if (correctionMode) cancelReplacement(); };
+            prompter->onStopRequest = [this] { stopRequested(); };
             prompter->onStartStop = [this] { startStop(); };
             addChildComponent (*prompter);
         }
