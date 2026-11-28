@@ -729,7 +729,7 @@ public:
                              T::T ("Tu jest Twój tekst. Po pauzie kliknij wers albo falę — przycisk zmieni się na „Nagraj od linii” i wznowisz od tego miejsca.")));
                 s.push_back (T::of (p->tPause, T::T ("„Pauza” (spacja): nagranie czeka, aż je wznowisz.")));
                 s.push_back (T::of (p->tRepeat, T::T ("„Powtórz wers” (R): pomyłka? Przeczytaj wers jeszcze raz — nagranie leci dalej.")));
-                s.push_back (T::of (p->tEnd, T::T ("„Zakończ” (Esc) kończy nagranie i przenosi do odsłuchu.")));
+                s.push_back (T::of (p->tEnd, T::T ("„Zakończ nagranie” (Esc) kończy nagranie i przenosi do odsłuchu.")));
             }
             s.push_back (T::of (lamp, T::T ("Lampka pokazuje, czy nagranie się nadaje. Gdy zmieni kolor, program podpowie, co poprawić.")));
         }

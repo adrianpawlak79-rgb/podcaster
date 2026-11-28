@@ -50,7 +50,7 @@ namespace help
             { "Nagranie",
               "Naciśnij Nagraj albo spację i czytaj tekst z promptera. Zielona lampka mówi, że jest dobrze. "
               "Pomyłka? Naciśnij R albo „Powtórz wers” i przeczytaj wers jeszcze raz — nagranie leci dalej. "
-              "Pauza to spacja; kliknij wers albo falę i wybierz „Nagraj od linii”. Koniec: „Zakończ” albo Esc." },
+              "Pauza to spacja; kliknij wers albo falę i wybierz „Nagraj od linii”. Koniec: „Zakończ nagranie” albo Esc." },
             { "Odsłuch i montaż",
               "Po nagraniu słuchasz surowego nagrania, jeszcze bez miksu. Kliknij falę, żeby posłuchać od tego miejsca; "
               "przeciągnij po fali, żeby zaznaczyć fragment, i kliknij „Wytnij zaznaczenie”. "
