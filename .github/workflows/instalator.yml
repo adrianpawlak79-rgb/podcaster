@@ -4,12 +4,16 @@
 # JUCE 7.0.12), potem Tools/instalator.sh dokleja biblioteke Vosk i polski
 # model i sklada instalator NSIS. Gotowy plik: zakladka Actions -> ten
 # przebieg -> Artifacts -> "instalator".
+#
+# Tag v* (np. v1.0.0): dodatkowo robocze (draft) wydanie na GitHubie z tym
+# instalatorem. Kierownik sprawdza je i klika "Publish".
 
 name: Instalator
 
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     paths:
       - "Installer/**"
@@ -67,3 +71,26 @@ jobs:
           name: instalator
           path: ${{ runner.temp }}/Zielone-swiatlo-*-instalator.exe
           retention-days: 30
+
+  # Tylko przy tagu v*: robocze wydanie GitHub z instalatorem. Przy push na main
+  # i w PR to zadanie sie nie uruchamia.
+  wydanie:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: instalator
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: instalator
+          path: wydanie
+
+      - name: Robocze wydanie (draft)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" wydanie/Zielone-swiatlo-*-instalator.exe \
+            --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+            --title "Zielone swiatlo ${GITHUB_REF_NAME#v}" \
+            --notes "Instalator dla Windows. Jesli SmartScreen pokaze ostrzezenie: Wiecej informacji, Uruchom mimo to (program nie jest jeszcze podpisany)."

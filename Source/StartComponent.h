@@ -24,6 +24,7 @@
 #include "Look.h"
 #include "ScreenFrame.h"
 #include "StepBar.h"
+#include "Version.h"
 
 class StartComponent : public juce::Component
 {
@@ -120,6 +121,10 @@ public:
         g.fillAll (I::bg());
         zs::ScreenFrame::paint (g, getLocalBounds(), PL ("Nagrywanie głosu"),
                                 PL ("Enter — start  ·  klik w nagranie — odsłuch"));
+        g.setColour (I::textDim()); g.setFont (juce::Font (zs::type::small));
+        g.drawText (juce::String (PL ("wersja ")) + zs::versionString(),
+                    getLocalBounds().removeFromTop (zs::ui::frame::header).reduced (22, 0),
+                    juce::Justification::centredRight);
         const auto L = layout();
 
         // ---- nowy projekt --------------------------------------------------
