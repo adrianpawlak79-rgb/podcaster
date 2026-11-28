@@ -6,7 +6,7 @@ Ten plik czytają wszyscy, którzy tu pracują. `CLAUDE.md` odsyła do niego.
 Zielone światło: Windows, C++17 + JUCE 7. Lampka nagrania, prompter, miks z głosu. Opis i założenia: `0-PRZECZYTAJ-NAJPIERW.md`.
 
 ## Twarde ograniczenia (nie do negocjacji)
-- Całe DSP jest napisane od zera w nagłówkach w `Source/DSP/`. Żadnych zewnętrznych bibliotek DSP, żadnych SDK wtyczek. Jedyna zależność to JUCE. Wyjątek do omówienia: Vosk (rozpoznawanie mowy w prompterze), tylko jako osobna DLL obok .exe.
+- Całe DSP jest napisane od zera w nagłówkach w `Source/DSP/`. Żadnych zewnętrznych bibliotek DSP, żadnych SDK wtyczek. Jedyna zależność to JUCE. Wyjątek do omówienia: Vosk (rozpoznawanie mowy w prompterze), tylko jako osobna DLL obok .exe. Drugi wyjatek (decyzja wlasciciela, listopad 2026): RNNoise (BSD-3) do "Usuwania tla (AI)" — kod C i model w `ThirdParty/rnnoise/`, statycznie w .exe (`CMakeLists.txt`, testy: `Tests/rnnoise-lib.sh`), licencja w `LICENCJE.txt` (`Tools/instalator.sh`). Nowe zewnetrzne biblioteki tylko za zgoda wlasciciela.
 - Program ma być jednym plikiem .exe, bez płatnych wtyczek.
 - Interfejs i komunikaty po polsku.
 - Każda zmiana w DSP ma test w `Tests/`. Przed wypchnięciem: `cd Tests && ./wszystko.sh` (bez mikrofonu i karty dźwiękowej).

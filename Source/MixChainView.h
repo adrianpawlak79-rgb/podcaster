@@ -202,7 +202,7 @@ private:
     int headerH() const { return compact ? 0 : header; }
     int tileHeight() const { return compact ? tileH - 20 - 4 : tileH; }
 
-    /** Dwa wiersze (5 + 4), bez przewijania w bok (Adrian 25.10); gdy kafel
+    /** Dwa wiersze (5 + 5), bez przewijania w bok (Adrian 25.10); gdy kafel
         bylby wezszy niz minTileW — trzy wiersze. */
     static int columnsFor (int width)
     {

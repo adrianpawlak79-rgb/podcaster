@@ -57,6 +57,7 @@
 #include "Tame.h"
 #include "Loudness.h"
 #include "Restore.h"
+#include "AiDenoise.h"
 
 #include <algorithm>
 #include <cmath>
@@ -99,6 +100,9 @@ struct ChainReport
     /** Ile barwy dociagnieto do wzorca brzmienia (te same cztery pasma). */
     float  profileDb[4]   = { 0, 0, 0, 0 };
     bool   profileUsed    = false;
+
+    /** Usuwanie tla (AI, AiDenoise.h) zadzialalo jako pierwszy krok. */
+    bool   aiDenoised     = false;
 };
 
 //==============================================================================
@@ -107,6 +111,10 @@ class SpeechChain
 public:
     struct Params
     {
+        // ---- usuwanie tla (AI): RNNoise przed calym torem (AiDenoise.h)
+        bool   useAiDenoise = false;
+        float  aiDryDb      = -100.0f;  ///< domieszka oryginalu; ponizej -90 = bez
+
         // ---- naprawa
         bool   useDeClick   = true;
         bool   useDenoise   = true;
@@ -335,8 +343,27 @@ public:
         return y;
     }
 
-    /** Caly przebieg, mono. */
+    /** Caly przebieg, mono. Usuwanie tla (AI) idzie pierwsze, przed
+        pomiarami toru — brama i odszumianie widza juz oczyszczony material.
+        Glosnosc i szczyt "przed" zostaja z oryginalu. */
     ChainReport render (const std::vector<float>& in, std::vector<float>& out)
+    {
+        if (params.useAiDenoise && ai::available())
+        {
+            std::vector<float> clean = in;
+            if (ai::denoise (clean, sr, params.aiDryDb))
+            {
+                auto r = renderCore (clean, out);
+                r.lufsBefore = measureLufs (in);
+                r.peakBefore = measurePeak (in);
+                r.aiDenoised = true;
+                return r;
+            }
+        }
+        return renderCore (in, out);
+    }
+
+    ChainReport renderCore (const std::vector<float>& in, std::vector<float>& out)
     {
         // ---- najpierw poznaj material, potem go ustawiaj ---------------------
         // Prog bramy jako stala liczba jest zgadywaniem: -45 dBFS jest w sam

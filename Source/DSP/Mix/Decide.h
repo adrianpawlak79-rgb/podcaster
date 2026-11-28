@@ -490,11 +490,39 @@ public:
             d.because.insert (d.because.end(), roomLines.begin(), roomLines.end());
         }
 
+        aiBackground (wish, headroom, d);
+
         // Przester na koncu, po stylach, ktore pisza uzasadnienie od nowa.
         const auto clip = clipNote (in, sr);
         if (! clip.empty()) d.because.push_back (clip);
 
         return d;
+    }
+
+    /** Usuwanie tla (AI, AiDenoise.h) wlacza sie samo, gdy typowa pauza
+        lezy blizej niz aiBelowSpeechDb pod glosna mowa (telewizor, rozmowa
+        za sciana, wentylator) — w Studyjnym i Mocnym. Delikatny zostawia glos
+        jak nagrany; tam mozna je wlaczyc recznie na torze. Przy ciszy
+        cyfrowej nie ma czego usuwac. Prog: badania AI 1.1 — tlo 25-30 dB pod
+        mowa nasz tor zostawia slyszalne (pauzy -26..-34 dB wzgledem glosu
+        po miksie), RNNoise zdejmuje je o kolejne 8-25 dB; przy 45 dB i wiecej
+        nasz tor juz nie odszumia wcale. Tor z AI wobec toru bez niego
+        (Tests/ai-tlo-test.cpp, telewizor 25 dB pod mowa): tlo w pauzach
+        nizej o 2,9 dB (glos espeak), 6,3 i ponad 10 dB (prawdziwe czytanie). */
+    static constexpr double aiBelowSpeechDb = 35.0;
+
+    static void aiBackground (const Wish& wish, double headroom, Decision& d)
+    {
+        auto& p = d.params;
+        p.useAiDenoise = false;
+        if (! ai::available() || ! wish.studio || wish.style == Style::Delikatny) return;
+        if (d.noiseFloorDb < -100.0 || headroom >= aiBelowSpeechDb) return;
+        p.useAiDenoise = true;
+        char b[300];
+        std::snprintf (b, sizeof (b),
+            "Usuwanie tła (AI) przed całym torem: tło w pauzach jest tylko %.0f dB pod mową "
+            "(włączam poniżej %.0f dB).", headroom, aiBelowSpeechDb);
+        d.because.insert (d.because.begin(), b);
     }
 
     /** Przester: seria co najmniej 3 probek z rzedu przy |x| >= 0,985 (plaski
