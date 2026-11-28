@@ -1822,10 +1822,12 @@ private:
             auto t = r.reduced (24, 10);
             g.setColour (Ink::textNow());
             g.setFont (juce::Font (zs::type::heading, juce::Font::bold));
-            g.drawText (PL ("Nagranie bez tekstu — mów swobodnie"), t.removeFromTop (t.getHeight() / 2), juce::Justification::bottomLeft);
+            g.drawText (replacementMode ? PL ("Poprawka fragmentu — mów swobodnie") : PL ("Nagranie bez tekstu — mów swobodnie"),
+                        t.removeFromTop (t.getHeight() / 2), juce::Justification::bottomLeft);
             g.setColour (Ink::textNext());
             g.setFont (juce::Font (zs::type::small));
-            g.drawText (PL ("Pomyłka? Pauza (spacja), kliknij falę tam, skąd chcesz nagrać od nowa, i Nagraj od linii."),
+            g.drawText (replacementMode ? PL ("Zaznaczone miejsce jest na czerwono. Najpierw usłyszysz rozbieg, potem nagrywasz poprawkę.")
+                                        : PL ("Pomyłka? Pauza (spacja), kliknij falę tam, skąd chcesz nagrać od nowa, i Nagraj od linii."),
                         t, juce::Justification::topLeft);
             return;
         }

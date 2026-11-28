@@ -685,7 +685,7 @@ public:
         const bool rec = recorder.isRecording();
         const auto name = recordingName();
         zs::ScreenFrame::paint (g, getLocalBounds(), inPrompter ? juce::String() : name,
-            inPrompter ? PL ("Spacja — nagraj / pauza  ·  R — powtórz wers  ·  Esc — zakończ")
+            inPrompter ? (correctionMode ? correctionHint() : PL ("Spacja — nagraj / pauza  ·  R — powtórz wers  ·  Esc — zakończ"))
             : rec ? PL ("Spacja albo Esc — zakończ i oceń") : preparation ? PL("Wybierz mikrofon i przygotuj tekst") : PL ("Nagraj, a potem odsłuchaj podejście"),
             inPrompter);
         auto side = zs::ScreenFrame::sidebar (getLocalBounds());
@@ -1153,11 +1153,7 @@ private:
         hints.setVisible((inPrompter || rec) && !inWizard && !inReview);
         // Poprawka fragmentu ma wlasne klawisze (QA W1): spacja konczy, a z
         // podkladem poprawka konczy sie sama po dlugosci fragmentu.
-        hintsFull = correctionMode
-            ? (rec ? (correctionFixedLength ? PL("Poprawka skończy się sama po długości fragmentu   ·   Esc — przerwij poprawkę")
-                                            : PL("Spacja albo Esc — zakończ poprawkę"))
-                   : PL("Spacja albo „Nagraj poprawkę” — rozbieg i nagranie   ·   Esc — wróć do montażu"))
-            : PL(zs::ui::hintLine(rec, hasScript).c_str());
+        hintsFull = correctionMode ? correctionHint() : PL(zs::ui::hintLine(rec, hasScript).c_str());
         fitHintsLabel();
         hints.setJustificationType(inPrompter ? juce::Justification::centred : juce::Justification::centredLeft);
     }
@@ -1505,6 +1501,16 @@ private:
 
         preparation = false;
         startRecording();
+    }
+
+    /** Podpowiedz klawiszy w trybie poprawki — ta sama w dolnym pasku i pod
+        prompterem (QA W1: spacja konczy poprawke, nie pauzuje). */
+    juce::String correctionHint() const
+    {
+        if (recorder.isRecording())
+            return correctionFixedLength ? PL ("Poprawka skończy się sama po długości fragmentu  ·  Esc — przerwij poprawkę")
+                                         : PL ("Spacja albo Esc — zakończ poprawkę");
+        return PL ("Spacja — rozbieg i nagranie poprawki  ·  Esc — wróć do montażu");
     }
 
     /** Esc albo "Zakoncz" w prompterze. */
