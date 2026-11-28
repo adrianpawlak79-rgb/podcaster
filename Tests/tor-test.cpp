@@ -117,7 +117,7 @@ int main()
                "wlaczona barwa + suwak wiecej: od studyjnego w gore", mix::stageValue (p, Stage::Barwa));
         check (p.levelerRatio == 2.0f && ! p.useGate, "pozostale moduly bez zmian");
         const auto d = mix::describeTweaks (gentle(), t);
-        check (d == "Twoje zmiany w torze miksu: Korektor — włączone, De-esser — włączone, Barwa — włączone, więcej.",
+        check (d == "Twoje zmiany w miksie: czystszy głos — włączone, łagodniejsze „s” i „sz” — włączone, jaśniejszy i bliższy głos — włączone, więcej.",
                "opis recznie wlaczonych", d);
 
         auto q = gentle();
@@ -137,7 +137,7 @@ int main()
     {
         mix::Tweaks t; t.off[(size_t) Stage::DeEsser] = true; t.amount[(size_t) Stage::Odszumianie] = -0.5f;
         const auto d = mix::describeTweaks (studio(), t);
-        check (d == "Twoje zmiany w torze miksu: Odszumianie — mniej, De-esser — wyłączone.", "opis zmian", d);
+        check (d == "Twoje zmiany w miksie: ciszej szum tła — mniej, łagodniejsze „s” i „sz” — wyłączone.", "opis zmian", d);
         const auto p = studio();
         check (mix::stageValue (p, Stage::Korektor) == "3 pasma, do 3 dB", "korektor: liczba pasm", mix::stageValue (p, Stage::Korektor));
         check (mix::stageValue (p, Stage::Kompresja) == "2,5:1 i 4:1", "kompresja: przecinek", mix::stageValue (p, Stage::Kompresja));

@@ -72,6 +72,8 @@ public:
     void setText (juce::String title, juce::String description)
     { heading = std::move (title); detail = std::move (description); repaint(); }
     void setSelected (bool s) { selected = s; repaint(); }
+    /** Sama nazwa, bez opisu — gdy brak miejsca (960x640 z zaawansowanymi). */
+    void setCompact (bool c) { if (c != compact) { compact = c; repaint(); } }
     void mouseUp (const juce::MouseEvent& e) override
     { if (e.mouseWasClicked() && isEnabled() && onClick) onClick(); }
     void paint (juce::Graphics& g) override
@@ -84,15 +86,71 @@ public:
         g.fillRoundedRectangle (r, 8.0f);
         g.setColour (selected ? I::accent() : I::edge());
         g.drawRoundedRectangle (r.reduced (0.5f), 8.0f, selected ? 2.0f : 1.0f);
-        auto copy = getLocalBounds().reduced (12, 8);
+        auto copy = getLocalBounds().reduced (12, compact ? 0 : 8);
         g.setColour (I::textNow()); g.setFont (juce::Font (zs::type::small, juce::Font::bold));
+        if (compact) { g.drawText (heading, copy, juce::Justification::centred, true); return; }
         g.drawText (heading, copy.removeFromTop (24), juce::Justification::centredLeft, true);
         g.setColour (I::textNext()); g.setFont (juce::Font (zs::type::small));
         g.drawFittedText (detail, copy, juce::Justification::topLeft, 2);
     }
 private:
     juce::String heading, detail;
-    bool selected = false;
+    bool selected = false, compact = false;
+};
+
+/** Przelacznik "Przed miksem | Po miksie": dwa segmenty, wybrany podswietlony
+    jak karta brzmienia. Klik w segment wybiera go; Tab przelacza (ReviewComponent).
+    Zamiast napisu "slychac: po miksie", ktory nie wygladal na przycisk (UX W3). */
+class MixAbSwitch : public juce::TextButton
+{
+public:
+    void setAfter (bool a) { if (a != after) { after = a; repaint(); } }
+    bool isAfter() const { return after; }
+    /** Ktory segment kliknieto ostatnio myszka (-1: klawiatura). */
+    int takePicked() { return std::exchange (picked, -1); }
+    void mouseDown (const juce::MouseEvent& e) override
+    { picked = segments().second.contains (e.getPosition()) ? 1 : 0; juce::TextButton::mouseDown (e); }
+    void paintButton (juce::Graphics& g, bool over, bool) override
+    {
+        using I = zs::Ink;
+        auto [before, afterR] = segments();
+        const auto mouse = getMouseXYRelative();
+        for (int i = 0; i < 2; ++i)
+        {
+            const auto seg = (i == 0 ? before : afterR);
+            const bool sel = (i == 1) == after;
+            auto rf = seg.toFloat();
+            const bool hot = over && isEnabled() && ! sel && seg.contains (mouse);
+            g.setColour (sel ? I::panel().brighter (0.08f) : hot ? I::panel().brighter (0.03f) : I::bg());
+            g.fillRoundedRectangle (rf, 7.0f);
+            g.setColour (sel && isEnabled() ? I::accent() : I::edge());
+            g.drawRoundedRectangle (rf.reduced (sel ? 1.0f : 0.5f), 7.0f, sel ? 2.0f : 1.0f);
+            g.setColour ((sel ? I::textNow() : I::textNext()).withMultipliedAlpha (isEnabled() ? 1.0f : 0.5f));
+            g.setFont (juce::Font (zs::type::small, sel ? juce::Font::bold : juce::Font::plain));
+            g.drawText (i == 0 ? PL ("Przed miksem") : PL ("Po miksie"), seg, juce::Justification::centred, true);
+        }
+        auto key = keyArea();
+        if (! key.isEmpty())
+        {
+            g.setColour (I::textDim());
+            g.drawRoundedRectangle (key.toFloat().reduced (0.5f, 6.5f), 4.0f, 1.0f);
+            g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
+            g.drawText ("Tab", key, juce::Justification::centred);
+        }
+    }
+private:
+    bool after = true;
+    int picked = -1;
+    juce::Rectangle<int> keyArea() const
+    { return getWidth() >= 236 ? getLocalBounds().removeFromRight (40).withTrimmedLeft (6) : juce::Rectangle<int>(); }
+    std::pair<juce::Rectangle<int>, juce::Rectangle<int>> segments() const
+    {
+        auto r = getLocalBounds();
+        if (! keyArea().isEmpty()) r.removeFromRight (40);
+        auto left = r.removeFromLeft (r.getWidth() / 2);
+        left.removeFromRight (2); r.removeFromLeft (2);
+        return { left, r };
+    }
 };
 
 //==============================================================================
@@ -196,7 +254,14 @@ public:
         playButton.onClick = [this] { togglePlay(); };
         addAndMakeVisible (playButton);
 
-        abButton.onClick = [this] { toggleAb(); };
+        abButton.setTooltip (PL ("Porównaj: surowe nagranie albo gotowy miks (klawisz Tab)"));
+        abButton.setWantsKeyboardFocus (false);      // Tab i spacja zostaja dla ekranu
+        abButton.onClick = [this]
+        {
+            const int seg = abButton.takePicked();
+            if (seg >= 0 && (seg == 1) == player.showingAfter()) return;   // juz wybrany
+            toggleAb();
+        };
         addAndMakeVisible (abButton);
 
         // Trzy brzmienia (Decide::Style), wszystkie do tej samej glosnosci —
@@ -503,7 +568,7 @@ public:
 
         undoAudio.clear(); replacementUndoAvailable = false; replacementSeams.clear(); cutFrom=cutTo=-1;editMode=detailsMode=middleMode=correctionSelectionMode=doneMode=false;
         words.clear(); assessment.clear(); reviewSummary.clear(); resized();
-        for (auto* b : { &playButton, &abButton, &saveButton, &editToggle, &nextButton,
+        for (auto* b : std::initializer_list<juce::Button*> { &playButton, &abButton, &saveButton, &editToggle, &nextButton,
                          &markStart, &markEnd, &cutButton, &undoButton }) b->setEnabled (false);
         cutPanel.load(wavFile, {}, 48000);
         file  = wavFile;
@@ -568,7 +633,7 @@ public:
                          : out->error == "size" ? PL ("Plik jest pusty lub za duży do wczytania.")
                                                 : PL ("Nie udało się odczytać całego nagrania.");
                     review.setTake ({}, 48000.0, {});
-                    editMode = false;
+                    editMode = false; detailsMode = false;
                     resized(); repaint();
                     return;
                 }
@@ -705,7 +770,7 @@ public:
         {
             s.push_back (T::both (styleCards[0], styleCards[2],
                          T::T ("Trzy brzmienia głosu. Ta sama głośność, więc porównasz je uczciwie. Kliknij, żeby przeliczyć miks.")));
-            s.push_back (T::of (abButton, T::T ("Przełącznik „przed” i „po” (klawisz Tab): usłyszysz, co zmienił miks.")));
+            s.push_back (T::of (abButton, T::T ("Przełącznik „Przed miksem” i „Po miksie” (klawisz Tab): usłyszysz, co zmienił miks.")));
             s.push_back (T::of (detailsToggle, T::T ("Zaawansowane ustawienia — dla ciekawych. Zwykle nie trzeba ich ruszać.")));
             s.push_back (T::of (saveButton, T::T ("Brzmi dobrze? „Zapisz miks” zrobi pliki WAV i MP3.")));
         }
@@ -1059,20 +1124,21 @@ public:
         // Style obok przed/po, gdy sie mieszcza (3 x 96 px); w malym oknie w osobnym
         // wierszu — inaczej przy 960 px byly to puste kafelki po 19 px (przeglad 14.10, nr 4).
         const int styleW = 3 * 104 + 2 * 6, abMin = 200;
-        const bool styleInRow = getWidth() >= 1240 && row.getWidth() >= abMin + 16 + styleW;
-        abButton.setBounds (row.removeFromLeft (juce::jmin (240, styleInRow ? row.getWidth() - 16 - styleW : row.getWidth())));
-        if (styleInRow) row.removeFromLeft (16);
+        const bool styleInRow = tightDetails() || (getWidth() >= 1240 && row.getWidth() >= abMin + 16 + styleW);
+        abButton.setBounds (row.removeFromLeft (tightDetails() ? 210 : juce::jmin (styleInRow ? 240 : 290, styleInRow ? row.getWidth() - 16 - styleW : row.getWidth())));
+        if (styleInRow) row.removeFromLeft (tightDetails() ? 10 : 16);
         else { main.removeFromTop (6); row = main.removeFromTop (L::buttons); }
         {
             const int w = juce::jmax (0, (row.getWidth() - 2 * 6) / 3);
-            const int cardH = getHeight() < 720 ? 64 : 70;
+            const int cardH = tightDetails() ? L::buttons : getHeight() < 720 ? 64 : 70;
             for (int i = 0; i < 3; ++i)
             {
                 auto card = row.removeFromLeft (w); row.removeFromLeft (6);
                 styleCards[i].setVisible (true);
+                styleCards[i].setCompact (tightDetails());
                 styleCards[i].setBounds (card.withHeight (cardH));
             }
-            main.removeFromTop (cardH - L::buttons);
+            main.removeFromTop (juce::jmax (0, cardH - L::buttons));
         }
         if (hasMusic())
         {
@@ -1111,6 +1177,7 @@ public:
         if (detailsMode)
         {
             // w malym oknie tor sie przewija; tekst pod nim znika, gdy brak miejsca
+            chainView.setCompact (tightDetails());
             const int need = chainView.heightFor (main.getWidth());
             const int h = juce::jmin (main.getHeight(), need);
             chainPort.setVisible (true);
@@ -1619,7 +1686,7 @@ private:
 
     void startMix() {
         player.pause(); recorder.attachPlayer (nullptr); ready.store (false); player.clear();
-        for (auto* b : { &playButton, &abButton, &saveButton, &editToggle }) b->setEnabled (false);
+        for (auto* b : std::initializer_list<juce::Button*> { &playButton, &abButton, &saveButton, &editToggle }) b->setEnabled (false);
         afterEnv = {}; words.clear(); assessment.clear();
         busySinceMs = juce::jmax (1u, juce::Time::getMillisecondCounter());
         mixTweaks = tweaks;                     // watek czyta tylko te kopie
@@ -1796,11 +1863,12 @@ private:
     }
     //==========================================================================
     /** Rosnie z oknem — liczby i uzasadnienie w zs::ui::review (UiRules.h). */
-    int waveHeight() const { if(!cutPanel.empty() && editMode) return 80; const int h=juce::jmax(zs::ui::review::waveMin,zs::ui::review::waveHeight(getHeight())-juce::jmax(0,headH()-78)); return editMode ? juce::jmax(120,h-(middleMode?72:16)) : detailsMode ? juce::jmin(h,getHeight()<720?56:64) : hasMusic() && getHeight()<720 ? h-44 : h; }   // wiersz MUZYKA w malym oknie
+    int waveHeight() const { if(!cutPanel.empty() && editMode) return 80; const int h=juce::jmax(zs::ui::review::waveMin,zs::ui::review::waveHeight(getHeight())-juce::jmax(0,headH()-78)); return editMode ? juce::jmax(120,h-(middleMode?72:16)) : detailsMode ? juce::jmin(h,getHeight()<720?56:64) : getHeight()<720 ? h-(hasMusic()?44:24) : h; }   // wiersz MUZYKA w malym oknie
 
     /** Podtytul ekranu: montaz (z decyzjami po R albo bez) albo miks. */
     juce::String subtitle() const
     {
+        if (! editMode && tightDetails()) return {};   // miejsce na kafle w 960x640
         if (! editMode) return PL("Delikatny — naturalnie · Studyjny — wyrównany · Mocny — radiowy. Ta sama głośność, porównaj przed i po.");
         return cutPanel.empty() ? PL("Surowe nagranie, jeszcze bez miksu. Kliknij falę, aby posłuchać; przeciągnij, aby zaznaczyć fragment.")
                                 : PL("Surowe nagranie, jeszcze bez miksu. Najpierw zdecyduj o powtórkach po R.");
@@ -1813,7 +1881,9 @@ private:
             return PL("Nagranie na dysku ma już poprawkę. Wersja sprzed poprawki leży w folderze „surowe” (oryginały) obok nagrania. Cięcia w montażu dotyczą kopii.");
         return PL("Oryginalne nagranie zostaje bez zmian na dysku. Zmiany dotyczą kopii, z której powstanie miks.");
     }
-    int headH() const { return zs::ScreenFrame::headHeight (getLocalBounds(), subtitle()); }
+    /** Zaawansowane rozwiniete w niskim oknie: chowamy podtytul i opisy brzmien. */
+    bool tightDetails() const { return detailsMode && ! editMode && ! doneMode && getHeight() < 720; }
+    int headH() const { return subtitle().isEmpty() ? 18 + 40 + 6 : zs::ScreenFrame::headHeight (getLocalBounds(), subtitle()); }
 
     juce::Rectangle<int> waveArea() const
     {
@@ -1946,8 +2016,7 @@ private:
 
     void updateAbText()
     {
-        abButton.setButtonText (player.showingAfter() ? PL ("słychać: po miksie")
-                                                      : PL ("słychać: przed miksem"));
+        abButton.setAfter (player.showingAfter());
 
         // Bez osobnego koloru napisu: zielony "PO" i zolty "PRZED" robily z
         // jednego przycisku trzeci i czwarty rodzaj, a zielen i zolcien
@@ -2092,7 +2161,7 @@ private:
                 folderButton.setTooltip (pathTip);
                 savedName.setText (saved.getFileName(), false);
                 profileRemembered = false;       // nowy plik: wzorca z niego jeszcze nie ma
-                doneMode = true;
+                doneMode = true; detailsMode = false;   // powrot do miksu: zaawansowane zwiniete
                 resized();
                 repaint();
             },
@@ -2611,7 +2680,8 @@ private:
     std::atomic<bool> ready { false };
     bool wasPlaying = false;
 
-    juce::TextButton playButton, abButton, saveButton, backButton, settingsButton, helpButton;
+    juce::TextButton playButton, saveButton, backButton, settingsButton, helpButton;
+    MixAbSwitch abButton;
     MixStyleCard styleCards[3];
     bool styleNote = false;                 ///< note to "Miks ... liczy się…" z chooseStyle
     int takeVersion = 0, mixedVersion = -1; ///< ktora wersja montazu jest zmiksowana...
