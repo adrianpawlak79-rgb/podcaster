@@ -1,0 +1,16 @@
+# Pliki, ktore w repozytorium maja koncowki CRLF (AGENTS.md, "Konce wierszy").
+# "-text" = git niczego w nich nie zamienia przy commicie ani checkoucie
+# (takze przy core.autocrlf), wiec CRLF zostaje CRLF, a LF zostaje LF.
+# Nowy plik CRLF dopisz tutaj.
+/CMakeLists.txt                  -text
+/GEMINI.md                       -text
+/README-NOWA-WERSJA.md           -text
+/Source/CutReviewPanel.h         -text
+/Source/DSP/Mix/Colour.h         -text
+/Source/Main.cpp                 -text
+/Source/MainComponent.h          -text
+/Source/PrompterComponent.h      -text
+/Source/ReviewComponent.h        -text
+/Source/WizardComponent.h        -text
+/Tests/ciecia-panel-test.cpp     -text
+/Tests/loudness-test.cpp         -text
