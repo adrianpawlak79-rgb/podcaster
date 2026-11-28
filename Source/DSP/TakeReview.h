@@ -736,8 +736,8 @@ private:
 
         if (report.lufsBefore < silentLufs)
         {
-            std::snprintf (b, sizeof (b), "Nagranie jest prawie ciche (%.0f LUFS): mikrofon chyba nie dochodził do programu. "
-                           "Sprawdź mikrofon w Ustawieniach i nagraj od nowa.", report.lufsBefore);
+            std::snprintf (b, sizeof (b), "Nagranie jest prawie ciche: mikrofon chyba nie dochodził do programu. "
+                           "Sprawdź mikrofon w Ustawieniach i nagraj od nowa.");
             plain.push_back (b);
         }
 
