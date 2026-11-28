@@ -11,9 +11,9 @@ namespace tw
 {
 
 /** Sample-domain replacement of [from,to). Outside the replaced interval,
-    audio is copied bit-for-bit. The replacement fades across its first and
-    last 10 ms using the adjacent original samples as the other side of each
-    crossfade. */
+    audio is copied bit-for-bit. Across the first and last 10 ms of the
+    replacement there is an equal-length crossfade with the continuous
+    original signal ([a, a+fade) at the start, [b-fade, b) at the end). */
 struct ReplaceRange
 {
     /** Convert the same time interval to rounded sample boundaries everywhere
@@ -41,26 +41,33 @@ struct ReplaceRange
             || replacement.empty() || b - a == original.size()) return false;
         if (fixedLength && replacement.size() != b - a) return false;
 
-        const auto fade = std::min ({ (size_t) std::llround (sampleRate * 0.010),
-                                      replacement.size() / 2,
-                                      a == 0 ? replacement.size() : (size_t) (sampleRate * 0.010),
-                                      b == original.size() ? replacement.size() : (size_t) (sampleRate * 0.010) });
+        // Przenikanie z ciaglym oryginalem (QA W5): na poczatku poprawka
+        // narasta, a oryginal [a, a+fade) wygasa; na koncu poprawka wygasa,
+        // a oryginal [b-fade, b) narasta i przechodzi prosto w original[b].
+        // Dawniej mieszano ze stala probka original[a-1] / original[b], co
+        // dawalo 10-milisekundowa rampe stalej wartosci (stuk).
+        const size_t tenMs = (size_t) std::llround (sampleRate * 0.010);
+        const size_t fade = std::min ({ tenMs, replacement.size() / 2, b });
+        const bool fadeIn = fade > 0 && a > 0;
+        const bool fadeOut = fade > 0 && b < original.size();
         std::vector<float> result;
         result.reserve (original.size() - (b - a) + replacement.size());
         result.insert (result.end(), original.begin(), original.begin() + (long) a);
 
-        for (size_t i = 0; i < replacement.size(); ++i)
+        const size_t m = replacement.size();
+        for (size_t i = 0; i < m; ++i)
         {
             float value = replacement[i];
-            if (fade > 0 && i < fade && a > 0)
+            if (fadeIn && i < fade && a + i < original.size())
             {
                 const float t = (float) (i + 1) / (float) (fade + 1);
-                value = original[a - 1] * (1.0f - t) + value * t;
+                value = original[a + i] * (1.0f - t) + value * t;
             }
-            if (fade > 0 && replacement.size() - i <= fade && b < original.size())
+            if (fadeOut && m - i <= fade)
             {
-                const float t = (float) (replacement.size() - i) / (float) (fade + 1);
-                value = value * t + original[b] * (1.0f - t);
+                const size_t k = m - i;                 // 1..fade probek przed b
+                const float t = (float) k / (float) (fade + 1);
+                value = value * t + original[b - k] * (1.0f - t);
             }
             result.push_back (value);
         }

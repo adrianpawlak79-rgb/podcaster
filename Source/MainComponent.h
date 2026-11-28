@@ -667,7 +667,7 @@ public:
         prompter=std::make_unique<PrompterComponent>(recorder,settings);
         prompter->onClose=[this]{showPrompter(false);};
         prompter->setSpeech(&speech);
-        prompter->onStopRequest=[this]{ if(recorder.isRecording()) toggleRecord(); else if (correctionMode) cancelReplacement(); };
+        prompter->onStopRequest=[this]{ stopRequested(); };
         prompter->onStartStop=[this]{ startStop(); };
         prompter->onRetake=[this]{ logic.afterCut(); };
         addAndMakeVisible(*prompter);
@@ -685,7 +685,7 @@ public:
         const bool rec = recorder.isRecording();
         const auto name = recordingName();
         zs::ScreenFrame::paint (g, getLocalBounds(), inPrompter ? juce::String() : name,
-            inPrompter ? PL ("Spacja — nagraj / pauza  ·  R — powtórz wers  ·  Esc — zakończ")
+            inPrompter ? (correctionMode ? correctionHint() : PL ("Spacja — nagraj / pauza  ·  R — powtórz wers  ·  Esc — zakończ"))
             : rec ? PL ("Spacja albo Esc — zakończ i oceń") : preparation ? PL("Wybierz mikrofon i przygotuj tekst") : PL ("Nagraj, a potem odsłuchaj podejście"),
             inPrompter);
         auto side = zs::ScreenFrame::sidebar (getLocalBounds());
@@ -1151,7 +1151,10 @@ private:
         recButton.setVisible(!inWizard && !inReview && !preparation && !settingsOpen && !inPrompter);
         repeatButton.setVisible(false);
         hints.setVisible((inPrompter || rec) && !inWizard && !inReview);
-        hintsFull = PL(zs::ui::hintLine(rec, hasScript).c_str()); fitHintsLabel();
+        // Poprawka fragmentu ma wlasne klawisze (QA W1): spacja konczy, a z
+        // podkladem poprawka konczy sie sama po dlugosci fragmentu.
+        hintsFull = correctionMode ? correctionHint() : PL(zs::ui::hintLine(rec, hasScript).c_str());
+        fitHintsLabel();
         hints.setJustificationType(inPrompter ? juce::Justification::centred : juce::Justification::centredLeft);
     }
 
@@ -1482,7 +1485,9 @@ private:
     {
         if (correctionMode)
         {
-            if (recorder.isRecording()) finishReplacement();
+            // z podkladem poprawka ma stala dlugosc i konczy sie sama
+            // (timerCallback); spacja jej nie urywa — podpowiedz mowi to samo
+            if (recorder.isRecording()) { if (! correctionFixedLength) finishReplacement(); }
             else startReplacement();
             return;
         }
@@ -1496,6 +1501,24 @@ private:
 
         preparation = false;
         startRecording();
+    }
+
+    /** Podpowiedz klawiszy w trybie poprawki — ta sama w dolnym pasku i pod
+        prompterem (QA W1: spacja konczy poprawke, nie pauzuje). */
+    juce::String correctionHint() const
+    {
+        if (recorder.isRecording())
+            return correctionFixedLength ? PL ("Poprawka skończy się sama po długości fragmentu  ·  Esc — przerwij poprawkę")
+                                         : PL ("Spacja albo Esc — zakończ poprawkę");
+        return PL ("Spacja — rozbieg i nagranie poprawki  ·  Esc — wróć do montażu");
+    }
+
+    /** Esc albo "Zakoncz" w prompterze. */
+    void stopRequested()
+    {
+        if (correctionMode && correctionFixedLength && recorder.isRecording()) { cancelReplacement(); return; }
+        if (recorder.isRecording()) toggleRecord();
+        else if (correctionMode) cancelReplacement();
     }
 
     void beginReplacement (double from, double to, const std::vector<float>& audio, double rate)
@@ -1516,12 +1539,9 @@ private:
         const auto scriptFile = correctionSource.getSiblingFile (correctionSource.getFileNameWithoutExtension() + ".tekst.txt");
         auto script = scriptFile.existsAsFile() ? scriptFile.loadFileAsString()
                                                 : (reviewCameFromPrompter ? prompter->sourceTextUtf8() : juce::String());
-        if (script.trim().isEmpty())
-        {
-            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::InfoIcon, PL ("Brak tekstu"),
-                PL ("Nie mam tekstu przypisanego do tego nagrania. Poprawka wymaga właściwego tekstu; oryginał pozostaje bez zmian."));
-            return;
-        }
+        // Bez tekstu (tryb bez promptera, QA B2): poprawka i tak dziala — ekran
+        // nagrania pokazuje fale z zaznaczonym miejscem, rozbieg i nagranie.
+        if (script.trim().isEmpty()) script = {};
         int firstWord = 0;
         const auto marksFile = correctionSource.getSiblingFile (correctionSource.getFileNameWithoutExtension() + ".wersy.txt");
         if (marksFile.existsAsFile())
@@ -1550,6 +1570,16 @@ private:
         if (correctionFixedLength)
         {
             backingFile = zs::BackingTrack::musicFor (correctionSource);
+            // Muzyka dekoduje sie w tle (#146), nie na watku okna: poprawka
+            // rusza z onBackingLoaded, gdy praca skonczy.
+            preloadBacking();
+            if (backingLoading())
+            {
+                replacementAfterBacking = true;
+                zs::trace ("Poprawka: czekam na podklad (w tle)");
+                refreshBackingUi();
+                return;
+            }
             if (! prepareBacking() || ! recorder.hasBacking())
             { juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, PL ("Nie mogę odtworzyć podkładu"), PL ("Poprawka nie została rozpoczęta. Oryginalne nagranie pozostaje bez zmian.")); return; }
         }
@@ -1558,6 +1588,7 @@ private:
             const auto err = recorder.start (sessionFolder, recordingName() + PL (" poprawka"));
             if (err.isNotEmpty()) { append (PL ("--- nie udało się rozpocząć poprawki: ") + err); return; }
             prompter->startReplacementMusicCue();
+            correctionLead = -1;
             correctionWaitingStart = false;
         }
         else
@@ -1573,6 +1604,7 @@ private:
     {
         if (! correctionMode || ! recorder.isRecording()) return;
         pendingReplacement = recorder.currentFile();
+        pendingLead = correctionFixedLength ? juce::jmax ((juce::int64) 0, replacementLead()) : 0;
         recorder.stop(); correctionWaitingStart = false;
         if (prompter != nullptr)
         {
@@ -1600,7 +1632,8 @@ private:
     {
         if (! pendingReplacement.existsAsFile()) return;
         const auto result = zs::replaceRecordedRange (correctionSource, pendingReplacement,
-                                                       correctionFrom, correctionTo, correctionFixedLength);
+                                                       correctionFrom, correctionTo, correctionFixedLength,
+                                                       (size_t) pendingLead);
         if (! result.applied)
         {
             if (prompter != nullptr) prompter->clearReplacement();
@@ -1612,7 +1645,8 @@ private:
         }
         pendingReplacement = juce::File();
         correctionUndo = result.rawCopy;
-        append (PL ("--- podmieniono fragment; poprzednia wersja w folderze surowe"));
+        append (PL ("--- podmieniono fragment; poprzednia wersja w folderze surowe")
+                + (result.staleMixes > 0 ? PL ("; stary miks też tam (był sprzed poprawki)") : juce::String()));
         if (prompter != nullptr) prompter->clearReplacement();
         showPrompter (false); openReview (correctionSource, true, true);
         if (review != nullptr)
@@ -1638,8 +1672,17 @@ private:
 
     void cancelReplacement()
     {
-        if (recorder.isRecording()) { recorder.stop(); recorder.playPreRoll ({}); }
-        correctionWaitingStart = false; correctionMode = false;
+        if (recorder.isRecording())
+        {
+            const auto partial = recorder.currentFile();
+            recorder.stop(); recorder.playPreRoll ({});
+            // niedokonczona poprawka nie zostaje w folderze nagran (QA D3)
+            for (const auto* suffix : { ".wersy.txt", ".dziennik.txt" })
+                partial.getSiblingFile (partial.getFileNameWithoutExtension() + suffix).deleteFile();
+            partial.getSiblingFile (partial.getFileName() + ".problem.txt").deleteFile();
+            partial.deleteFile();
+        }
+        correctionWaitingStart = false; correctionMode = false; replacementAfterBacking = false;
         if (prompter != nullptr) prompter->clearReplacement();
         showPrompter (false); openReview (correctionSource, true, true);
         if (review != nullptr) review->setEditMode (true);
@@ -1892,7 +1935,8 @@ private:
         }
         if (correctionMode && correctionFixedLength && recorder.isRecording() && ! recorder.isPaused()
             && ! recorder.cueRunning()
-            && recorder.recordedSeconds() >= correctionTo - correctionFrom)
+            && recorder.recordedSeconds() * recorder.currentSampleRate()
+                   >= (correctionTo - correctionFrom) * recorder.currentSampleRate() + (double) replacementLead())
         { finishReplacement(); return; }
 
         // "Usun wzorzec" chodzi razem z ekranem Mikrofon i sprzet (jak "Folder
@@ -1924,7 +1968,7 @@ private:
             juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::InfoIcon, PL ("Sesja ma 60 minut"),
                 PL ("Tyle program sprawdził w jednej sesji, więc nagrywanie zatrzymało się samo. ")
                 + PL ("Wszystko jest zapisane — za chwilę możesz to odsłuchać.\n\n")
-                + PL ("Dalszą część nagraj jako nową sesję („Wróć do nagrywania”)."));
+                + PL ("Dalszą część nagraj jako nowe podejście („Nagraj nowe podejście” w montażu)."));
             finishStoppedTake (justRecorded);
             return;
         }
@@ -2103,6 +2147,33 @@ private:
     int recoveredProposals = 0;           ///< miejsca po R czekajace w montazu
     Recorder recorder;
     bool correctionMode = false, correctionWaitingStart = false, correctionFixedLength = false;
+    juce::int64 correctionLead = -1, pendingLead = 0;      ///< poprawka z podkladem: probki w pliku przed probka muzyki "from" (QA W6)
+
+    /** QA W6: recorder.start() nagrywa od razu, a pauze pod rozbieg robi
+        dopiero startReplacementMusicCue(). Blok audio z tej chwili trafia na
+        poczatek pliku poprawki i przesuwa ja wzgledem muzyki. Po rozbiegu
+        Recorder ustawia: muzyka = probki - przesuniecie, a w probce "from"
+        poprawki muzyka jest w replacementFrom — stad ile probek jest za duzo.
+        Liczone bez zmian w Recorder.h. */
+    juce::int64 replacementLead()
+    {
+        if (correctionLead >= 0) return correctionLead;
+        if (! recorder.isRecording() || recorder.isPaused() || recorder.cueRunning()) return 0;
+        const double rate = recorder.currentSampleRate();
+        const auto cueTo = (juce::int64) std::llround (correctionFrom * rate);
+        for (int attempt = 0; attempt < 4; ++attempt)
+        {
+            const auto music = recorder.backingIndexNow();
+            const auto written = (juce::int64) std::llround (recorder.recordedSeconds() * rate);
+            if (music == recorder.backingIndexNow())   // ten sam blok audio
+            {
+                correctionLead = juce::jmax ((juce::int64) 0, written - (music - cueTo));
+                if (correctionLead > 0) zs::trace ("Poprawka: " + juce::String (correctionLead) + " probek przed rozbiegiem (pomijam)");
+                return correctionLead;
+            }
+        }
+        return 0;
+    }
     double correctionFrom = 0.0, correctionTo = 0.0;
     juce::File correctionSource, correctionUndo, pendingReplacement;
 
@@ -2378,7 +2449,7 @@ private:
             prompter = std::make_unique<PrompterComponent> (recorder, settings);
             prompter->onClose = [this] { if (correctionMode) cancelReplacement(); else showPrompter (false); };
             prompter->setSpeech (&speech);
-            prompter->onStopRequest = [this] { if (recorder.isRecording()) toggleRecord(); else if (correctionMode) cancelReplacement(); };
+            prompter->onStopRequest = [this] { stopRequested(); };
             prompter->onStartStop = [this] { startStop(); };
             addChildComponent (*prompter);
         }
@@ -2618,6 +2689,7 @@ private:
     };
     std::shared_ptr<BackingPreload> backingPreload;
     bool startAfterBacking = false;       ///< Nagraj klikniete w trakcie wczytywania
+    bool replacementAfterBacking = false; ///< "Nagraj poprawke" klikniete w trakcie wczytywania
     juce::ThreadPool backingPool { 1 };
 
     juce::String currentBackingKey()
@@ -2656,6 +2728,10 @@ private:
         if (start && job->key == currentBackingKey() && ! recorder.isRecording()
             && ! inReview && ! correctionMode)
             startRecording();
+        const bool replacement = replacementAfterBacking;
+        replacementAfterBacking = false;
+        if (replacement && correctionMode && job->key == currentBackingKey() && ! recorder.isRecording())
+            startReplacement();
     }
 
     void preloadBacking()

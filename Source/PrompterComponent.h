@@ -233,7 +233,7 @@ public:
         // ocenia. Pomylka palca nic nie niszczy: plik zostaje na dysku, a
         // "Nagrywaj dalej" wraca prosto do promptera.
         switch (zs::ui::keyAction (c == juce::KeyPress::escapeKey, (char32_t) k.getTextCharacter(),
-                                   recorder.isRecording(), hasText()))
+                                   recorder.isRecording(), hasText() && ! replacementMode))
         {
             case zs::ui::KeyAction::StopAndReview: if (onStopRequest) onStopRequest(); return true;
             case zs::ui::KeyAction::RepeatLine:    repeatLine(); return true;
@@ -538,7 +538,9 @@ public:
     /** Spacja: start, pauza albo wznowienie. */
     void spacePressed()
     {
-        if (! recorder.isRecording()) { if (onStartStop) onStartStop(); return; }
+        // Poprawka fragmentu: spacja to start/koniec poprawki (MainComponent::
+        // toggleRecord), nie pauza — tak mowi podpowiedz pod prompterem (QA W1).
+        if (replacementMode || ! recorder.isRecording()) { if (onStartStop) onStartStop(); return; }
         if (pz.resuming) return;
         if (pz.on) resumeRecording(); else pauseRecording();
     }
@@ -1820,10 +1822,12 @@ private:
             auto t = r.reduced (24, 10);
             g.setColour (Ink::textNow());
             g.setFont (juce::Font (zs::type::heading, juce::Font::bold));
-            g.drawText (PL ("Nagranie bez tekstu — mów swobodnie"), t.removeFromTop (t.getHeight() / 2), juce::Justification::bottomLeft);
+            g.drawText (replacementMode ? PL ("Poprawka fragmentu — mów swobodnie") : PL ("Nagranie bez tekstu — mów swobodnie"),
+                        t.removeFromTop (t.getHeight() / 2), juce::Justification::bottomLeft);
             g.setColour (Ink::textNext());
             g.setFont (juce::Font (zs::type::small));
-            g.drawText (PL ("Pomyłka? Pauza (spacja), kliknij falę tam, skąd chcesz nagrać od nowa, i Nagraj od linii."),
+            g.drawText (replacementMode ? PL ("Zaznaczone miejsce jest na czerwono. Najpierw usłyszysz rozbieg, potem nagrywasz poprawkę.")
+                                        : PL ("Pomyłka? Pauza (spacja), kliknij falę tam, skąd chcesz nagrać od nowa, i Nagraj od linii."),
                         t, juce::Justification::topLeft);
             return;
         }

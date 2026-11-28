@@ -184,6 +184,77 @@ int main()
         ok (! zs::applyBackingCuts (bw, {}, nullptr).applied, "podklad bez wznowien od linii: plik nietkniety");
     }
 
+    // ---- podmiana fragmentu na plikach (zs::replaceRecordedRange, QA: brak testu, W2, W3)
+    {
+        const auto writeWav = [&] (const juce::File& f, const std::vector<float>& v)
+        {
+            juce::WavAudioFormat fmt;
+            std::unique_ptr<juce::AudioFormatWriter> w (fmt.createWriterFor (f.createOutputStream().release(), sr, 1, 32, {}, 0));
+            const float* p[1] = { v.data() };
+            w->writeFromFloatArrays (p, 1, (int) v.size());
+        };
+        std::vector<float> orig ((size_t) (sr * 3.0)), corr ((size_t) (sr * 1.5));
+        for (size_t i = 0; i < orig.size(); ++i) orig[i] = (float) (0.4 * std::sin (2 * M_PI * 220.0 * i / sr));
+        for (size_t i = 0; i < corr.size(); ++i) corr[i] = (float) (0.2 * std::sin (2 * M_PI * 220.0 * i / sr));
+        const auto ow = dir.getChildFile ("Odcinek_2026-11-27.wav");
+        const auto cw = dir.getChildFile ("Odcinek poprawka_2026-11-27.wav");
+        writeWav (ow, orig); writeWav (cw, corr);
+        const auto origBytes = ow.getSize();
+        dir.getChildFile ("Odcinek_2026-11-27.wersy.txt").replaceWithText ("");
+        cw.getSiblingFile ("Odcinek poprawka_2026-11-27.wersy.txt").replaceWithText ("");
+        dir.getChildFile ("Odcinek_2026-11-27__miks.wav").replaceWithText ("stary miks");
+        dir.getChildFile ("Odcinek_2026-11-27__miks.mp3").replaceWithText ("stary miks");
+
+        // z podkladem dlugosc musi sie zgadzac: 1,5 s poprawki na 2,0 s fragmentu -> odmowa, nic nie ruszone
+        const auto refused = zs::replaceRecordedRange (ow, cw, 0.5, 2.5, true);
+        ok (refused.applied == false && ow.getSize() == origBytes && cw.existsAsFile()
+                && dir.getChildFile ("Odcinek_2026-11-27__miks.wav").existsAsFile(),
+            "podmiana: poprawka krotsza niz fragment przy podkladzie -> odmowa, pliki nietkniete");
+
+        const auto r = zs::replaceRecordedRange (ow, cw, 1.0, 2.0, false);
+        zs::LoadedTake t; juce::String err;
+        const bool loaded = zs::loadTake (ow, t, err);
+        ok (r.applied && loaded && t.mono.size() == orig.size() - (size_t) sr + corr.size(),
+            "podmiana: dlugosc = 3,0 - 1,0 + 1,5 s");
+        bool head = loaded;
+        for (size_t i = 0; head && i < (size_t) sr; ++i) head = t.mono[i] == orig[i];
+        bool tail = loaded;
+        for (size_t i = 0; tail && i < (size_t) sr; ++i) tail = t.mono[t.mono.size() - 1 - i] == orig[orig.size() - 1 - i];
+        ok (head && tail, "podmiana: przed i po fragmencie probki bit w bit");
+        ok (std::abs (r.removedSec - (-0.5)) < 1e-6, "podmiana: removedSec = -0,5 s");
+        ok (r.rawCopy.existsAsFile() && r.rawCopy.getParentDirectory().getFileName() == "surowe"
+                && r.rawCopy.getSize() == origBytes,
+            "podmiana: oryginal w 'surowe', ten sam rozmiar");
+        ok (r.rawCopy.getSiblingFile (r.rawCopy.getFileNameWithoutExtension() + ".wersy.txt").existsAsFile(),
+            "podmiana: zapis wersow oryginalu w 'surowe'");
+        ok (! cw.existsAsFile() && ! cw.getSiblingFile ("Odcinek poprawka_2026-11-27.wersy.txt").existsAsFile()
+                && r.correctionCopy.existsAsFile() && r.correctionCopy.getParentDirectory().getFileName() == "surowe",
+            "podmiana: plik poprawki przeniesiony do 'surowe' (nie ma go na liscie nagran)");
+        ok (r.staleMixes == 2 && ! dir.getChildFile ("Odcinek_2026-11-27__miks.wav").existsAsFile()
+                && ! dir.getChildFile ("Odcinek_2026-11-27__miks.mp3").existsAsFile(),
+            "podmiana: stary miks (wav i mp3) przeniesiony do 'surowe'");
+        ok (dir.findChildFiles (juce::File::findFiles, false, "*.tmp*").isEmpty(), "podmiana: brak plikow tymczasowych");
+        ok (dir.findChildFiles (juce::File::findFiles, false, "Odcinek*").size() == 2,
+            "podmiana: w folderze nagran zostaje tylko nagranie i jego zapis wersow");
+
+        // z podkladem (stala dlugosc): blok nagrany przed rozbiegiem (QA W6)
+        // pomijany — poprawka = ten sam sinus po 512 probkach smieci
+        const auto lw = dir.getChildFile ("Lead_2026-11-27.wav");
+        const auto lc = dir.getChildFile ("Lead poprawka_2026-11-27.wav");
+        std::vector<float> lcorr (512, 0.9f);
+        lcorr.insert (lcorr.end(), orig.begin() + (long) sr, orig.begin() + (long) (2 * sr));
+        writeWav (lw, orig); writeWav (lc, lcorr);
+        const auto lr = zs::replaceRecordedRange (lw, lc, 1.0, 2.0, true, 512);
+        zs::LoadedTake lt; juce::String lerr;
+        double worst = 1.0;
+        if (lr.applied && zs::loadTake (lw, lt, lerr) && lt.mono.size() == orig.size())
+        {
+            worst = 0.0;
+            for (size_t i = 0; i < orig.size(); ++i) worst = std::max (worst, (double) std::abs (lt.mono[i] - orig[i]));
+        }
+        ok (worst < 1e-5, "podmiana z podkladem: probki sprzed rozbiegu pominiete, wynik = oryginal");
+    }
+
     dir.deleteRecursively();
     std::cout << "\n" << (errors == 0 ? "wszystko przeszlo" : "SA BLEDY") << " (" << checks << " sprawdzen)\n\n";
     return errors;

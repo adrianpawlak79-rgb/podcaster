@@ -39,6 +39,8 @@ struct PunchResult
     double      removedSec = 0.0;
     int         audibleSeams = 0;   ///< szwy, przy ktorych tlo rozni sie o > 1,5 dB
     juce::File  rawCopy;            ///< gdzie trafilo surowe nagranie
+    juce::File  correctionCopy;     ///< podmiana: gdzie trafilo nagranie poprawki (surowe)
+    int         staleMixes = 0;     ///< podmiana: ile starych miksow przeniesiono do surowe
     std::vector<tw::Removal> plan;  ///< co wycieto (czas surowego nagrania)
     std::vector<tw::SkippedCut> skipped;   ///< R, po ktorych NIE wycielismy — i dlaczego
     std::vector<tw::CutProposal> proposals;  ///< cala lista dla ekranu Odsluch (pewne + do wskazania)
@@ -223,9 +225,12 @@ inline PunchResult applyCutList (const juce::File& wav, const std::vector<tw::Cu
 }
 
 /** Replace one recorded interval with a separate take. The old full take and
-    its timing sidecars are copied to "surowe" before the new WAV is installed. */
+    its timing sidecars are copied to "surowe" before the new WAV is installed.
+    skipLead (tylko fixedLength): tyle probek z poczatku poprawki pominac —
+    nagrane, zanim muzyka doszla do "from" (QA W6). */
 inline PunchResult replaceRecordedRange (const juce::File& wav, const juce::File& correction,
-                                         double from, double to, bool fixedLength)
+                                         double from, double to, bool fixedLength,
+                                         size_t skipLead = 0)
 {
     PunchResult res;
     LoadedTake original, fresh;
@@ -237,9 +242,10 @@ inline PunchResult replaceRecordedRange (const juce::File& wav, const juce::File
     if (! tw::ReplaceRange::sampleBounds (original.mono.size(), original.sr, from, to,
                                           firstSample, lastSample))
     { res.error = "zaznaczony fragment wykracza poza nagranie"; return res; }
+    const size_t lead = fixedLength ? skipLead : 0;
     const auto replacementSamples = fixedLength ? lastSample - firstSample : fresh.mono.size();
-    if (replacementSamples == 0 || fresh.mono.size() < replacementSamples
-        || (original.channels > 1 && fresh.buf.getNumSamples() < (int) replacementSamples))
+    if (replacementSamples == 0 || fresh.mono.size() < lead + replacementSamples
+        || (original.channels > 1 && fresh.buf.getNumSamples() < (int) (lead + replacementSamples)))
     { res.error = "poprawka jest krótsza niż zaznaczony fragment"; return res; }
 
     const auto replace = [&] (const std::vector<float>& a, const std::vector<float>& b,
@@ -248,7 +254,7 @@ inline PunchResult replaceRecordedRange (const juce::File& wav, const juce::File
     std::vector<std::vector<float>> rendered ((size_t) original.channels);
     if (original.channels == 1)
     {
-        std::vector<float> correctionMono (fresh.mono.begin(), fresh.mono.begin() + (long) replacementSamples);
+        std::vector<float> correctionMono (fresh.mono.begin() + (long) lead, fresh.mono.begin() + (long) (lead + replacementSamples));
         if (! replace (original.mono, correctionMono, rendered[0]))
         { res.error = "nie można podmienić zaznaczonego fragmentu"; return res; }
     }
@@ -259,7 +265,7 @@ inline PunchResult replaceRecordedRange (const juce::File& wav, const juce::File
             const auto n = (size_t) original.buf.getNumSamples();
             const auto m = replacementSamples;
             std::vector<float> a (original.buf.getReadPointer (ch), original.buf.getReadPointer (ch) + n);
-            std::vector<float> b (fresh.buf.getReadPointer (ch), fresh.buf.getReadPointer (ch) + m);
+            std::vector<float> b (fresh.buf.getReadPointer (ch) + lead, fresh.buf.getReadPointer (ch) + lead + m);
             if (! replace (a, b, rendered[(size_t) ch]))
             { res.error = "nie można podmienić zaznaczonego fragmentu"; return res; }
         }
@@ -325,6 +331,32 @@ inline PunchResult replaceRecordedRange (const juce::File& wav, const juce::File
     cutListFile (wav).deleteFile();
     res.applied = true;
     res.removedSec = to - from - (double) replacementSamples / fresh.sr;
+
+    // Porzadki po podmianie (QA W2, W3). Stary miks jest sprzed poprawki:
+    // do "surowe", zeby lista nagran nie pokazywala "gotowy plik" dla
+    // zmienionego nagrania. Plik poprawki i jego pliki pomocnicze tez do
+    // "surowe" — inaczej ekran startowy pokazuje go jako osobne nagranie.
+    // Bledy tu nie cofaja podmiany (nagranie jest juz poprawne).
+    const auto base = wav.getFileNameWithoutExtension();
+    for (const auto& f : wav.getParentDirectory().findChildFiles (juce::File::findFiles, false, base + "__miks*"))
+    {
+        const auto rest = f.getFileNameWithoutExtension().substring (base.length());
+        const auto target = rawDir.getNonexistentChildFile (res.rawCopy.getFileNameWithoutExtension() + rest,
+                                                            f.getFileExtension(), false);
+        if (f.moveFileTo (target)) ++res.staleMixes;
+    }
+    if (correction.existsAsFile() && correction.getParentDirectory() != rawDir)
+    {
+        const auto corrBase = correction.getFileNameWithoutExtension();
+        res.correctionCopy = rawDir.getNonexistentChildFile (corrBase, ".wav", false);
+        for (const auto& suffix : { ".wersy.txt", ".dziennik.txt", ".ciecia.tsv", ".podklad.txt", ".tekst.txt" })
+        {
+            const auto side = correction.getSiblingFile (corrBase + suffix);
+            if (side.existsAsFile())
+                side.moveFileTo (res.correctionCopy.getSiblingFile (res.correctionCopy.getFileNameWithoutExtension() + suffix));
+        }
+        if (! correction.moveFileTo (res.correctionCopy)) res.correctionCopy = juce::File();
+    }
     return res;
 }
 

@@ -144,7 +144,7 @@ public:
     std::function<void()> onClose;
     std::function<void(double, double, const std::vector<float>&, double)> onReplaceSelection;
     std::function<void()> onUndoReplacement;
-    void setReplacementUndoAvailable (bool available) { replacementUndoAvailable = available; updateMontageButtons(); }
+    void setReplacementUndoAvailable (bool available) { replacementUndoAvailable = available; updateMontageButtons(); resized(); repaint(); }
     void showReplacementSeams (double from, double to)
     {
         replacementSeams = { juce::jmax (0.0, from), juce::jmax (from, to) };
@@ -388,6 +388,13 @@ public:
             updateSelectionPrompt();
             resized(); repaint();
         };
+        // Nowe nagranie tego samego projektu (ten sam tekst i podklad) — wraca
+        // na ekran nagrywania jak przed #142 (QA B1). Poprawka fragmentu to
+        // osobna droga ("Popraw fragment").
+        retakeButton.setButtonText (PL("Nagraj nowe podejście"));
+        retakeButton.setTooltip (PL("Nagraj ten sam tekst jeszcze raz od początku. To nagranie zostaje na dysku."));
+        retakeButton.onClick = [this] { if (job == nullptr && onClose) onClose(); };
+        addChildComponent (retakeButton);
         newProjectButton.setButtonText (PL("Nowy projekt"));
         newProjectButton.setTooltip (PL("Ekran startowy: inna nazwa, inny rodzaj nagrania. Ten projekt zostaje na dysku."));
         newProjectButton.onClick = [this] { if (job == nullptr && onNewProject) onNewProject(); };
@@ -669,8 +676,15 @@ public:
         if (cutPanel.isVisible() && cutPanel.keyPressed(k)) return true;
         if (c == juce::KeyPress::spaceKey)     { togglePlay(); return true; }
         if (c == juce::KeyPress::tabKey)       { if (! editMode) toggleAb(); return true; }
-        // Esc cofa o krok: z miksu do montazu, z montazu do miksu.
-        if (c == juce::KeyPress::escapeKey)    { if (! editMode) setEditMode (true); else setEditMode (false); return true; }
+        // Esc cofa o krok: z miksu do montazu, z wyboru poprawki do montazu,
+        // z montazu do nagrywania (jak przed #142, QA B1).
+        if (c == juce::KeyPress::escapeKey)
+        {
+            if (! editMode) setEditMode (true);
+            else if (correctionSelectionMode) { correctionSelectionMode = middleMode = false; updateSelectionPrompt(); resized(); repaint(); }
+            else if (job == nullptr && onClose) onClose();
+            return true;
+        }
 
         if (editMode && (c == juce::KeyPress::deleteKey || c == juce::KeyPress::backspaceKey)
             && cutFrom >= 0 && cutTo > cutFrom && cutButton.onClick) { cutButton.onClick(); return true; }
@@ -971,7 +985,7 @@ public:
         for (auto* b : { &zoomIn, &zoomOut, &zoomAllButton }) b->setVisible (false);   // tylko w montazu
         withMusicButton.setVisible (false);
         if (doneMode) { layoutDone(); return; }
-        doneEditButton.setVisible (false); newTakeButton.setVisible (false); profileButton.setVisible (false); newProjectButton.setVisible (false);
+        doneEditButton.setVisible (false); newTakeButton.setVisible (false); retakeButton.setVisible (false); profileButton.setVisible (false); newProjectButton.setVisible (false);
         savedPath.setVisible (false); savedName.setVisible (false);
         playButton.setVisible (true); abButton.setVisible (true);
         saveButton.setVisible (true); editToggle.setVisible (true);
@@ -1133,14 +1147,15 @@ private:
         side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24);
         // w niskim oknie (960x640) nizsze przyciski, zeby "Gotowa glosnosc" sie miescila
         const int bh = doneButtonH(), bg = doneButtonGap();
-        auto actions = side.removeFromBottom (3 * bh + 2 * bg);
+        auto actions = side.removeFromBottom (4 * bh + 3 * bg);
         newProjectButton.setBounds (actions.removeFromBottom (bh)); actions.removeFromBottom (bg);
+        retakeButton.setBounds (actions.removeFromBottom (bh)); actions.removeFromBottom (bg);
         newTakeButton.setBounds (actions.removeFromBottom (bh)); actions.removeFromBottom (bg);
         doneEditButton.setBounds (actions.removeFromBottom (bh));
-        newTakeButton.setVisible (true); doneEditButton.setVisible (true); newProjectButton.setVisible (true);
+        newTakeButton.setVisible (true); retakeButton.setVisible (true); doneEditButton.setVisible (true); newProjectButton.setVisible (true);
         // nad nimi: wzorzec brzmienia dla kolejnych odcinkow
         side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24);
-        side.removeFromBottom (3 * bh + 2 * bg + bg);
+        side.removeFromBottom (4 * bh + 3 * bg + bg);
         profileButton.setBounds (side.removeFromBottom (bh));
         profileButton.setVisible (true);
         profileButton.setButtonText (profileRemembered ? PL("Brzmienie zapamiętane ✓")
@@ -1185,7 +1200,7 @@ private:
         side.removeFromTop (44 + (tight ? 4 : 14));
         // Zarezerwuj miejsce na profil i trzy przyciski. Bez tego szczegoly
         // pliku schodzily pod akcje w niskim oknie (np. 960x640).
-        side.removeFromBottom (4 * doneButtonH() + 4 * doneButtonGap());
+        side.removeFromBottom (5 * doneButtonH() + 5 * doneButtonGap());
         const auto row = [&] (const juce::String& label, const juce::String& value, int height) {
             auto r = side.removeFromTop (tight ? 38 : height);
             g.setColour (Ink::textDim()); g.drawText (label, r.removeFromTop (tight ? 16 : 18), juce::Justification::centredLeft);
@@ -1379,7 +1394,9 @@ private:
             summaryArea = noteH <= main.getHeight() ? main.removeFromTop (noteH) : juce::Rectangle<int>();
         }
         auto side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24); side.removeFromTop (40);
-        auto actions = side.removeFromBottom (124);
+        auto actions = side.removeFromBottom (correctionSelectionMode ? 124 : 168);
+        retakeButton.setVisible (! correctionSelectionMode);
+        if (! correctionSelectionMode) { retakeButton.setBounds (actions.removeFromBottom (36)); actions.removeFromBottom (8); }
         backButton.setVisible (true); backButton.setBounds (actions.removeFromBottom (36)); actions.removeFromBottom (8);
         saveButton.setBounds (actions.removeFromBottom (36)); actions.removeFromBottom (8);
         folderButton.setBounds (actions.removeFromBottom (36)); folderButton.setVisible (true);
@@ -1668,7 +1685,14 @@ private:
         return cutPanel.empty() ? PL("Surowe nagranie, jeszcze bez miksu. Kliknij falę, aby posłuchać; przeciągnij, aby zaznaczyć fragment.")
                                 : PL("Surowe nagranie, jeszcze bez miksu. Najpierw zdecyduj o poprawkach po R.");
     }
-    static juce::String safeNote() { return PL("Oryginalne nagranie zostaje bez zmian na dysku. Zmiany dotyczą kopii, z której powstanie miks."); }
+    /** Zielona notka pod montazem. Po podmianie fragmentu nagranie na dysku
+        JEST juz zmienione — mowimy, gdzie lezy poprzednia wersja (QA W4). */
+    juce::String safeNote() const
+    {
+        if (replacementUndoAvailable)
+            return PL("Nagranie na dysku ma już poprawkę. Wersja sprzed poprawki leży w folderze „surowe” obok nagrania. Cięcia w montażu dotyczą kopii.");
+        return PL("Oryginalne nagranie zostaje bez zmian na dysku. Zmiany dotyczą kopii, z której powstanie miks.");
+    }
     int headH() const { return zs::ScreenFrame::headHeight (getLocalBounds(), subtitle()); }
 
     juce::Rectangle<int> waveArea() const
@@ -2477,7 +2501,7 @@ private:
     zs::StepBar flow;
     juce::TextButton markStart,markEnd,cutButton,undoButton,replaceButton,editToggle,detailsToggle,nextButton;
     bool editMode=false,detailsMode=false,middleMode=false,correctionSelectionMode=false,doneMode=false,replacementUndoAvailable=false;
-    juce::TextButton doneEditButton,newTakeButton,newProjectButton;
+    juce::TextButton doneEditButton,newTakeButton,retakeButton,newProjectButton;
     juce::TextButton profileButton;           ///< "Zapamietaj to brzmienie" (ekran Gotowe)
     bool profileRemembered = false;           ///< wzorzec wziety z tego miksu
 
