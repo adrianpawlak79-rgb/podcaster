@@ -225,9 +225,12 @@ inline PunchResult applyCutList (const juce::File& wav, const std::vector<tw::Cu
 }
 
 /** Replace one recorded interval with a separate take. The old full take and
-    its timing sidecars are copied to "surowe" before the new WAV is installed. */
+    its timing sidecars are copied to "surowe" before the new WAV is installed.
+    skipLead (tylko fixedLength): tyle probek z poczatku poprawki pominac —
+    nagrane, zanim muzyka doszla do "from" (QA W6). */
 inline PunchResult replaceRecordedRange (const juce::File& wav, const juce::File& correction,
-                                         double from, double to, bool fixedLength)
+                                         double from, double to, bool fixedLength,
+                                         size_t skipLead = 0)
 {
     PunchResult res;
     LoadedTake original, fresh;
@@ -239,9 +242,10 @@ inline PunchResult replaceRecordedRange (const juce::File& wav, const juce::File
     if (! tw::ReplaceRange::sampleBounds (original.mono.size(), original.sr, from, to,
                                           firstSample, lastSample))
     { res.error = "zaznaczony fragment wykracza poza nagranie"; return res; }
+    const size_t lead = fixedLength ? skipLead : 0;
     const auto replacementSamples = fixedLength ? lastSample - firstSample : fresh.mono.size();
-    if (replacementSamples == 0 || fresh.mono.size() < replacementSamples
-        || (original.channels > 1 && fresh.buf.getNumSamples() < (int) replacementSamples))
+    if (replacementSamples == 0 || fresh.mono.size() < lead + replacementSamples
+        || (original.channels > 1 && fresh.buf.getNumSamples() < (int) (lead + replacementSamples)))
     { res.error = "poprawka jest krótsza niż zaznaczony fragment"; return res; }
 
     const auto replace = [&] (const std::vector<float>& a, const std::vector<float>& b,
@@ -250,7 +254,7 @@ inline PunchResult replaceRecordedRange (const juce::File& wav, const juce::File
     std::vector<std::vector<float>> rendered ((size_t) original.channels);
     if (original.channels == 1)
     {
-        std::vector<float> correctionMono (fresh.mono.begin(), fresh.mono.begin() + (long) replacementSamples);
+        std::vector<float> correctionMono (fresh.mono.begin() + (long) lead, fresh.mono.begin() + (long) (lead + replacementSamples));
         if (! replace (original.mono, correctionMono, rendered[0]))
         { res.error = "nie można podmienić zaznaczonego fragmentu"; return res; }
     }
@@ -261,7 +265,7 @@ inline PunchResult replaceRecordedRange (const juce::File& wav, const juce::File
             const auto n = (size_t) original.buf.getNumSamples();
             const auto m = replacementSamples;
             std::vector<float> a (original.buf.getReadPointer (ch), original.buf.getReadPointer (ch) + n);
-            std::vector<float> b (fresh.buf.getReadPointer (ch), fresh.buf.getReadPointer (ch) + m);
+            std::vector<float> b (fresh.buf.getReadPointer (ch) + lead, fresh.buf.getReadPointer (ch) + lead + m);
             if (! replace (a, b, rendered[(size_t) ch]))
             { res.error = "nie można podmienić zaznaczonego fragmentu"; return res; }
         }

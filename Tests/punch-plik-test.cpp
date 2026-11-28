@@ -205,8 +205,8 @@ int main()
         dir.getChildFile ("Odcinek_2026-11-27__miks.wav").replaceWithText ("stary miks");
         dir.getChildFile ("Odcinek_2026-11-27__miks.mp3").replaceWithText ("stary miks");
 
-        // z podkladem dlugosc musi sie zgadzac: 1,5 s na 1,0 s -> odmowa, nic nie ruszone
-        const auto refused = zs::replaceRecordedRange (ow, cw, 1.0, 2.0, true);
+        // z podkladem dlugosc musi sie zgadzac: 1,5 s poprawki na 2,0 s fragmentu -> odmowa, nic nie ruszone
+        const auto refused = zs::replaceRecordedRange (ow, cw, 0.5, 2.5, true);
         ok (refused.applied == false && ow.getSize() == origBytes && cw.existsAsFile()
                 && dir.getChildFile ("Odcinek_2026-11-27__miks.wav").existsAsFile(),
             "podmiana: poprawka krotsza niz fragment przy podkladzie -> odmowa, pliki nietkniete");
@@ -236,6 +236,23 @@ int main()
         ok (dir.findChildFiles (juce::File::findFiles, false, "*.tmp*").isEmpty(), "podmiana: brak plikow tymczasowych");
         ok (dir.findChildFiles (juce::File::findFiles, false, "Odcinek*").size() == 2,
             "podmiana: w folderze nagran zostaje tylko nagranie i jego zapis wersow");
+
+        // z podkladem (stala dlugosc): blok nagrany przed rozbiegiem (QA W6)
+        // pomijany — poprawka = ten sam sinus po 512 probkach smieci
+        const auto lw = dir.getChildFile ("Lead_2026-11-27.wav");
+        const auto lc = dir.getChildFile ("Lead poprawka_2026-11-27.wav");
+        std::vector<float> lcorr (512, 0.9f);
+        lcorr.insert (lcorr.end(), orig.begin() + (long) sr, orig.begin() + (long) (2 * sr));
+        writeWav (lw, orig); writeWav (lc, lcorr);
+        const auto lr = zs::replaceRecordedRange (lw, lc, 1.0, 2.0, true, 512);
+        zs::LoadedTake lt; juce::String lerr;
+        double worst = 1.0;
+        if (lr.applied && zs::loadTake (lw, lt, lerr) && lt.mono.size() == orig.size())
+        {
+            worst = 0.0;
+            for (size_t i = 0; i < orig.size(); ++i) worst = std::max (worst, (double) std::abs (lt.mono[i] - orig[i]));
+        }
+        ok (worst < 1e-5, "podmiana z podkladem: probki sprzed rozbiegu pominiete, wynik = oryginal");
     }
 
     dir.deleteRecursively();
