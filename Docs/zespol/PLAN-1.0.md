@@ -61,3 +61,17 @@ Pierwotne pytania:
 - **Gałęzie:** każde zadanie na osobnej gałęzi `claude/<temat>`.
 - **Warunki scalenia:** `Tests/ci.sh` = 0, zrzuty przed i po przy zmianach wyglądu, liczby z pomiaru przy zmianach dźwięku.
 - **Scalanie:** kierownik przegląda każdą gałąź, scala ją i buduje instalator do testów dla Adriana.
+
+## Wersja 1.1: AI (decyzja Adriana 27.11)
+Tylko darmowe, otwarte rozwiązania, albo własna sieć neuronowa, jeśli da się ją sensownie napisać. Każda zmiana najpierw jako badanie z pomiarem.
+
+1. **Rozpoznawanie mowy po nagraniu.** whisper.cpp działa lokalnie i ma licencję MIT. Badanie:
+   - jakość po polsku;
+   - wykrywanie powtórek i „yyy”;
+   - czas liczenia na laptopie;
+   - rozmiar modelu.
+
+   Cel: podpowiedzi w montażu, a potem montaż przez tekst i transkrypcja.
+2. **Odszumianie neuronowe.** Kandydaci: RNNoise (BSD), DeepFilterNet (MIT/Apache) albo własna mała sieć. Porównanie z naszym odszumianiem na nagraniu z telewizorem: liczby i pliki do odsłuchu.
+
+Start badań po scaleniu fali 2. Badania nie mogą blokować wydania 1.0.
