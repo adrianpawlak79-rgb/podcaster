@@ -586,7 +586,7 @@ public:
         tRecord.setButtonText (PL ("Nagraj"));   zs::Look::setIcon (tRecord, zs::Look::Icon::Record);
         tPause.setButtonText (PL ("Pauza"));     zs::Look::setIcon (tPause, zs::Look::Icon::Pause);
         tPlay.setButtonText (PL ("Odtwórz"));    zs::Look::setIcon (tPlay, zs::Look::Icon::Play);
-        tEnd.setButtonText (PL ("Zakończ"));     zs::Look::setIcon (tEnd, zs::Look::Icon::Stop);
+        tEnd.setButtonText (PL ("Zakończ nagranie"));     zs::Look::setIcon (tEnd, zs::Look::Icon::Stop);
         // R byl tylko pod klawiszem (przeglad ekranu nagrania 24.10)
         tRepeat.setButtonText (PL ("Powtórz wers")); zs::Look::setIcon (tRepeat, zs::Look::Icon::Loop);
         tRepeat.setTooltip (PL ("Wróć na początek wersu i przeczytaj go jeszcze raz — nagranie trwa dalej (R)"));

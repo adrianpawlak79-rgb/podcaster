@@ -211,6 +211,38 @@ public:
         props.saveIfNeeded();
     }
 
+    //==========================================================================
+    // ---- pomoc i przewodniki -------------------------------------------------
+
+    /** Komunikat powitalny pokazujemy raz, przy pierwszym uruchomieniu. */
+    bool welcomeShown() const
+    {
+        return props.getUserSettings()->getBoolValue ("welcomeShown", false);
+    }
+
+    void setWelcomeShown()
+    {
+        props.getUserSettings()->setValue ("welcomeShown", true);
+        props.saveIfNeeded();
+    }
+
+    /** Ktore przewodniki po ekranach juz obejrzano (id: start, prep, nagranie,
+        montaz, miks, gotowe). Przewodnik sam sie nie wlacza — pamietamy to,
+        zeby okno pomocy moglo powiedziec "obejrzany". */
+    bool tourSeen (const juce::String& id) const
+    {
+        return juce::StringArray::fromTokens (props.getUserSettings()->getValue ("toursSeen"), ",", {}).contains (id);
+    }
+
+    void setTourSeen (const juce::String& id)
+    {
+        auto seen = juce::StringArray::fromTokens (props.getUserSettings()->getValue ("toursSeen"), ",", {});
+        if (seen.contains (id)) return;
+        seen.add (id);
+        props.getUserSettings()->setValue ("toursSeen", seen.joinIntoString (","));
+        props.saveIfNeeded();
+    }
+
     bool punchAutoCut() const
     {
         return props.getUserSettings()->getBoolValue ("punchAutoCut", false);

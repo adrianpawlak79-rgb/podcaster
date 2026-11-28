@@ -39,4 +39,4 @@ Cross-kompilacja Linux→Windows: `mingw-toolchain.cmake`.
 Pliki z końcówkami CRLF zostają w CRLF (m.in. `Source/MainComponent.h`, `Source/PrompterComponent.h`, `Source/ReviewComponent.h`, `Source/Main.cpp`, `CMakeLists.txt`). Nie zmieniaj końcówek całego pliku przy małej zmianie.
 
 ## Podgląd ekranów bez mikrofonu
-`"Zielone swiatlo" --preview-ui plik.png <tryb> [nagranie.wav]`. Tryby: `witaj`, `settings`, `wizard`, `prompter`, `prompter-rec`, `prompter-znaczki`, `prompter-wskazanie`, `review`, `review-ciecia`, `edit`, `tor`, `done`; dopisek `-small` daje okno 960×640. Zmiany wyglądu pokazuj w PR zrzutami w obu rozmiarach.
+`"Zielone swiatlo" --preview-ui plik.png <tryb> [nagranie.wav]`. Tryby: `witaj`, `settings`, `wizard`, `prompter`, `prompter-rec`, `prompter-znaczki`, `prompter-wskazanie`, `review`, `review-ciecia`, `edit`, `tor`, `done`, `pomoc`, `pomoc-skroty`, `pomoc-awaria`, `powitanie`, `przewodnik-start`, `przewodnik-przygotowanie`, `przewodnik-nagranie`, `przewodnik-montaz`, `przewodnik-miks`, `przewodnik-gotowe`; dopisek `-small` daje okno 960×640. Zmiany wyglądu pokazuj w PR zrzutami w obu rozmiarach.
