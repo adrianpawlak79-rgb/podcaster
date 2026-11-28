@@ -1743,8 +1743,9 @@ private:
         juce::String err;
         if (backingPreload != nullptr && backingPreload->key == key)
         {
-            // wczytywane w tle od Startu (preloadBacking); zwykle juz gotowe
-            while (! backingPreload->done.load()) juce::Thread::sleep (10);
+            // wczytywane w tle od Startu (preloadBacking). Watek okna NIE czeka:
+            // startRecording nie dochodzi tu, dopoki praca nie skonczy (onBackingLoaded).
+            if (! backingPreload->done.load()) return false;
             t = std::move (backingPreload->track);
             err = backingPreload->error;
             backingPreload.reset();
@@ -1785,6 +1786,16 @@ private:
                     PL ("Program nie widzi żadnego wejścia dźwięku. Podłącz mikrofon albo interfejs, a potem kliknij „Sprawdź sprzęt”."));
                 return;
             }
+        }
+        // Podklad jeszcze sie dekoduje: nie czekamy na watku okna (dlugi MP3
+        // zamrazal okno), tylko startujemy z onBackingLoaded, gdy praca skonczy.
+        preloadBacking();
+        if (backingLoading())
+        {
+            startAfterBacking = true;
+            zs::trace ("Nagraj: czekam na podklad (w tle)");
+            refreshBackingUi();
+            return;
         }
         if (! prepareBacking()) return;
         const auto err = recorder.start (previewFolder != juce::File() ? previewFolder : sessionFolder, recordingName());
@@ -2036,6 +2047,11 @@ private:
                               + PL ("%  \xe2\x80\x94 m\xc3\xb3w normalnie"), false);
         else
             lamp.setState (v.state, PL (v.msg), v.dim);
+        {   // zmiana pliku/projektu w trakcie wczytywania odblokowuje Nagraj od razu
+            const bool loading = ! recorder.isRecording() && backingLoading();
+            if (recButton.isEnabled() == loading) recButton.setEnabled (! loading);
+            if (loading) lamp.setState (0, PL ("Wczytuję muzykę…"), true);
+        }
         {
             const juce::String m (v.msg);
             lamp.setWaiting (m.startsWith ("Sprawdzam wej") || m.startsWith ("Nic nie s"));
@@ -2598,9 +2614,49 @@ private:
         juce::String key, error;
         zs::BackingTrack track;
         std::atomic<bool> done { false };
+        std::atomic<bool> cancelled { false };   ///< nowszy plik albo projekt: wyniku nie uzywac
     };
     std::shared_ptr<BackingPreload> backingPreload;
+    bool startAfterBacking = false;       ///< Nagraj klikniete w trakcie wczytywania
     juce::ThreadPool backingPool { 1 };
+
+    juce::String currentBackingKey()
+    {
+        const double rate = recorder.currentSampleRate();
+        if (backingFile == juce::File() || rate <= 0.0) return {};
+        return backingFile.getFullPathName() + "@" + juce::String (rate);
+    }
+
+    /** Trwa wczytywanie podkladu, ktory jest teraz wybrany. */
+    bool backingLoading()
+    {
+        return backingPreload != nullptr && ! backingPreload->done.load()
+               && ! backingPreload->cancelled.load() && backingPreload->key == currentBackingKey();
+    }
+
+    /** Przycisk Nagraj zablokowany i napis na lampce, dopoki muzyka sie wczytuje. */
+    void refreshBackingUi()
+    {
+        const bool loading = backingLoading() && ! recorder.isRecording();
+        recButton.setEnabled (! loading);
+        if (loading) lamp.setState (0, PL ("Wczytuję muzykę…"), true);
+        repaint();
+    }
+
+    /** Watek okna, po zakonczeniu pracy w tle (callAsync). */
+    void onBackingLoaded (const std::shared_ptr<BackingPreload>& job)
+    {
+        zs::trace ("Podklad: koniec wczytywania " + job->key
+                   + (job->error.isNotEmpty() ? " BLAD: " + job->error : juce::String())
+                   + (job->cancelled.load() || job != backingPreload ? " (anulowane)" : ""));
+        if (job != backingPreload || job->cancelled.load()) { refreshBackingUi(); return; }
+        const bool start = startAfterBacking;
+        startAfterBacking = false;
+        refreshBackingUi();
+        if (start && job->key == currentBackingKey() && ! recorder.isRecording()
+            && ! inReview && ! correctionMode)
+            startRecording();
+    }
 
     void preloadBacking()
     {
@@ -2608,14 +2664,24 @@ private:
         if (backingFile == juce::File() || rate <= 0.0) return;
         const auto key = backingFile.getFullPathName() + "@" + juce::String (rate);
         if ((key == loadedBackingKey && recorder.hasBacking()) || (backingPreload != nullptr && backingPreload->key == key)) return;
+        if (backingPreload != nullptr) backingPreload->cancelled.store (true);   // stary plik: wynik do kosza
+        startAfterBacking = false;
         auto job = std::make_shared<BackingPreload>();
         job->key = key;
         backingPreload = job;
-        backingPool.addJob ([job, file = backingFile, rate]
+        zs::trace ("Podklad: start wczytywania " + key);
+        backingPool.addJob ([job, file = backingFile, rate,
+                             safe = juce::Component::SafePointer<MainComponent> (this)]
         {
-            job->error = job->track.load (file, rate);
+            if (! job->cancelled.load())   // w kolejce za starym plikiem: nie dekoduj na darmo
+                job->error = job->track.load (file, rate);
             job->done.store (true);
+            juce::MessageManager::callAsync ([safe, job]
+            {
+                if (auto* self = safe.getComponent()) self->onBackingLoaded (job);
+            });
         });
+        refreshBackingUi();
     }
     bool inReview = false, reviewCameFromPrompter = false;
     bool closeAsked = false;              ///< okno "czy zamknac" juz pokazane
