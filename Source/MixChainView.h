@@ -76,18 +76,26 @@ public:
 
     void setBusy (bool b) { busy = b; refreshControls(); repaint(); }
 
+    /** Niskie okno (960x640): kafle nizsze, bez naglowka i wiersza z liczbami
+        (liczby w podpowiedzi kafla) — zeby bylo widac co najmniej dwa rzedy. */
+    void setCompact (bool c)
+    {
+        if (c == compact) return;
+        compact = c; refreshControls(); resized(); repaint();
+    }
+
     /** Wysokosc potrzebna przy danej szerokosci. */
     int heightFor (int width) const
     {
         const int cols = columnsFor (width);
         const int rows = (mix::stageCount + cols - 1) / cols;
-        return header + rows * tileH + (rows - 1) * gap;
+        return headerH() + rows * tileHeight() + (rows - 1) * gap;
     }
 
     void resized() override
     {
         auto r = getLocalBounds();
-        auto head = r.removeFromTop (header);
+        auto head = r.removeFromTop (headerH());
         resetButton.setBounds (head.removeFromRight (230).withSizeKeepingCentre (230, 26));
         for (int i = 0; i < mix::stageCount; ++i)
         {
@@ -95,7 +103,7 @@ public:
             auto in = tile.reduced (10, 8);
             auto top = in.removeFromTop (22);
             tiles[(size_t) i].power.setBounds (top.removeFromRight (36).withSizeKeepingCentre (34, 18));
-            in.removeFromTop (20 + 4 + helpHeight);
+            in.removeFromTop ((compact ? 0 : 20) + 4 + helpHeight);
             tiles[(size_t) i].amount.setBounds (in.removeFromTop (22).reduced (14, 0));
         }
     }
@@ -103,9 +111,9 @@ public:
     void paint (juce::Graphics& g) override
     {
         using I = zs::Ink;
-        auto head = getLocalBounds().removeFromTop (header);
+        auto head = getLocalBounds().removeFromTop (headerH());
         g.setColour (I::textDim()); g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
-        g.drawText (PL ("ZAAWANSOWANE USTAWIENIA — dźwięk idzie od lewej do prawej"), head.withTrimmedRight (176),
+        if (! compact) g.drawText (PL ("ZAAWANSOWANE USTAWIENIA — dźwięk idzie od lewej do prawej"), head.withTrimmedRight (176),
                     juce::Justification::centredLeft, true);
 
         for (int i = 0; i < mix::stageCount; ++i)
@@ -130,13 +138,14 @@ public:
             g.setFont (juce::Font (zs::type::small, juce::Font::bold));
             g.drawText (PL (mix::stageName (s)), top, juce::Justification::centredLeft, true);
 
-            auto valueRow = in.removeFromTop (20);
+            auto valueRow = in.removeFromTop (compact ? 0 : 20);
             g.setFont (juce::Font (zs::type::tiny));
             g.setColour (on ? I::textNext() : I::textDim());
             g.drawText (! known ? juce::String() : on ? PL (mix::stageValue (mixedParams, s).c_str())
                                  : used (i) ? PL ("wyłączone") : PL ("nie w tym brzmieniu"),
                         valueRow, juce::Justification::centredLeft, true);
 
+            if (compact) in.removeFromTop (4);
             auto help = in.removeFromTop (helpHeight);
             g.setFont (juce::Font (zs::type::tiny));
             g.setColour (I::textNext());
@@ -189,7 +198,9 @@ private:
     juce::TextButton resetButton;
     mix::SpeechChain::Params decidedParams, mixedParams;
     mix::Tweaks tweaks;
-    bool known = false, busy = false;
+    bool known = false, busy = false, compact = false;
+    int headerH() const { return compact ? 0 : header; }
+    int tileHeight() const { return compact ? tileH - 20 - 4 : tileH; }
 
     /** Dwa wiersze (5 + 4), bez przewijania w bok (Adrian 25.10); gdy kafel
         bylby wezszy niz minTileW — trzy wiersze. */
@@ -204,7 +215,7 @@ private:
         const int cols = columnsFor (getWidth());
         const int w = (getWidth() - (cols - 1) * gap) / cols;
         const int c = i % cols, row = i / cols;
-        return { c * (w + gap), header + row * (tileH + gap), w, tileH };
+        return { c * (w + gap), headerH() + row * (tileHeight() + gap), w, tileHeight() };
     }
 
     /** Automat uzyl modulu (przed poprawkami). */
@@ -223,6 +234,10 @@ private:
             t.power.setTooltip (used (i) ? PL ("Włącz / wyłącz: ") + PL (mix::stageName ((mix::Stage) i))
                                          : PL ("Włącz — od ustawień brzmienia Studyjnego"));
             t.amount.setValue (tweaks.amount[(size_t) i], juce::dontSendNotification);
+            // w trybie zwartym liczby nie mieszcza sie na kaflu: sa w podpowiedzi suwaka
+            t.amount.setTooltip (PL (mix::stageHelp ((mix::Stage) i))
+                                 + (compact && known && isOn (i) ? PL ("\nTeraz: ") + PL (mix::stageValue (mixedParams, (mix::Stage) i).c_str()) : juce::String())
+                                 + PL ("\nDwuklik: bez zmian."));
             t.power.setEnabled (! busy);
             t.amount.setEnabled (! busy);
         }
