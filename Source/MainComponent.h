@@ -22,6 +22,8 @@
 #include "InputChoice.h"
 #include "StepBar.h"
 #include "ScreenFrame.h"
+#include "HelpComponent.h"
+#include "TourOverlay.h"
 
 //==============================================================================
 namespace pl
@@ -420,6 +422,9 @@ public:
             settingsOpen = true; refreshHomeVisibility(); resized(); repaint();
         };
         addAndMakeVisible(settingsButton);
+        helpButton.setButtonText (PL("Pomoc"));
+        helpButton.onClick = [this] { openHelp(); };
+        addAndMakeVisible(helpButton);
         detailsButton.setButtonText (PL("Pokaż uwagi"));
         detailsButton.onClick = [this] {
             detailsOpen = !detailsOpen; refreshHomeVisibility(); resized(); repaint();
@@ -618,6 +623,11 @@ public:
 
         setSize (1280, 800);
         startTimerHz (30);
+
+        // Pierwsze uruchomienie: krotkie powitanie nad ekranem startowym.
+        if (! previewMode && ! openForReview.existsAsFile() && ! settings.welcomeShown())
+            juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MainComponent> (this)]
+                                             { if (safe != nullptr && safe->inStart) safe->showWelcome(); });
     }
 
     ~MainComponent() override
@@ -667,6 +677,162 @@ public:
         backingFile = juce::File();
         refreshHomeVisibility(); resized(); repaint();
     }
+    //==========================================================================
+    // ---- pomoc, przewodniki i komunikat powitalny --------------------------------
+    //
+    // Okno "Jak to dziala" (HelpComponent.h) i przewodnik z dymkami
+    // (TourOverlay.h) to nakladki na caly ekran. Sa tworzone przy pierwszym
+    // uzyciu i siedza nad reszta; klawisze i klikniecia zatrzymuja na sobie.
+
+    /** Id ekranu dla przewodnika (puste = ten ekran nie ma przewodnika).
+        flowStep: 3/4/5 z ReviewComponent, gdy jestesmy w ocenie. */
+    juce::String screenId (int flowStep = -1) const
+    {
+        if (inReview) return flowStep == 3 ? "montaz" : flowStep == 5 ? "gotowe" : "miks";
+        if (inWizard || settingsOpen) return {};
+        if (inStart) return "start";
+        if (preparation) return "przygotowanie";
+        return "nagranie";
+    }
+
+    /** Ktory z pieciu krokow pomocy odpowiada ekranowi (0 Przygotowanie ... 4 Gotowe). */
+    static int helpStepFor (const juce::String& id)
+    {
+        return id == "nagranie" ? 1 : id == "montaz" ? 2 : id == "miks" ? 3 : id == "gotowe" ? 4 : 0;
+    }
+
+    std::vector<zs::TourStep> tourStepsFor (const juce::String& id)
+    {
+        namespace T = zs::tour;
+        if (id == "start" && startScreen != nullptr) return startScreen->tourSteps();
+        if ((id == "montaz" || id == "miks" || id == "gotowe") && review != nullptr) return review->tourSteps();
+
+        std::vector<zs::TourStep> s;
+        if (id == "przygotowanie")
+        {
+            s.push_back (T::both (prompterButton, editScriptButton,
+                         T::T ("Tekst do promptera: wczytaj plik TXT albo wpisz lub wklej własny. Program przewinie go, gdy będziesz czytać.")));
+            s.push_back (T::of (musicButton, T::T ("Podkład muzyczny zagra w Twoich słuchawkach. W nagraniu zostanie sam głos.")));
+            s.push_back (T::of (meter, T::T ("Tu widać sygnał z mikrofonu. Powiedz coś — pasek powinien się ruszać.")));
+            s.push_back (T::of (checkButton, T::T ("„Sprawdź sprzęt” w minutę sprawdzi mikrofon i słuchawki.")));
+            s.push_back (T::of (prepareButton, T::T ("Gdy wszystko gotowe: „Przejdź do nagrania →”.")));
+        }
+        else if (id == "nagranie")
+        {
+            const auto rec = T::T ("„Nagraj” — albo spacja. Zacznij czytać, gdy będziesz gotowy; zielona lampka mówi, że wszystko gra.");
+            s.push_back (T::of (recButton, rec));
+            if (prompter != nullptr)
+            {
+                auto* p = prompter.get();
+                s.push_back (T::of (p->tRecord, rec));
+                s.push_back (T::rectIn (*p, [p] { return p->textCard(); },
+                             T::T ("Tu jest Twój tekst. Po pauzie kliknij wers albo falę — przycisk zmieni się na „Nagraj od linii” i wznowisz od tego miejsca.")));
+                s.push_back (T::of (p->tPause, T::T ("„Pauza” (spacja): nagranie czeka, aż je wznowisz.")));
+                s.push_back (T::of (p->tRepeat, T::T ("„Powtórz wers” (R): pomyłka? Przeczytaj wers jeszcze raz — nagranie leci dalej.")));
+                s.push_back (T::of (p->tEnd, T::T ("„Zakończ” (Esc) kończy nagranie i przenosi do odsłuchu.")));
+            }
+            s.push_back (T::of (lamp, T::T ("Lampka pokazuje, czy nagranie się nadaje. Gdy zmieni kolor, program podpowie, co poprawić.")));
+        }
+        return s;
+    }
+
+    bool hasTourSteps (const juce::String& id)
+    {
+        if (id.isEmpty() || tourLayer == nullptr) return false;
+        for (auto& s : tourStepsFor (id))
+            if (s.area && ! s.area (*tourLayer).isEmpty()) return true;
+        return false;
+    }
+
+    void ensureOverlays()
+    {
+        if (helpPanel == nullptr)
+        {
+            helpPanel = std::make_unique<zs::HelpComponent>();
+            helpPanel->onClose = [this] { restoreFocus(); };
+            helpPanel->onShowTour = [this] { startTour (helpScreen); };
+            helpPanel->onWelcomeStart = [this] { helpPanel->close(); };
+            helpPanel->onWelcomeTour = [this] { helpPanel->setVisible (false); startTour ("start"); };
+            addChildComponent (*helpPanel);
+        }
+        if (tourLayer == nullptr)
+        {
+            tourLayer = std::make_unique<zs::TourOverlay>();
+            tourLayer->onFinish = [this] (bool completed)
+            {
+                if (completed && tourId.isNotEmpty()) settings.setTourSeen (tourId);
+                restoreFocus();
+            };
+            addChildComponent (*tourLayer);
+        }
+        helpPanel->setBounds (getLocalBounds());
+        tourLayer->setBounds (getLocalBounds());
+    }
+
+    bool overlayOpen() const
+    {
+        return (helpPanel != nullptr && helpPanel->isVisible()) || (tourLayer != nullptr && tourLayer->isVisible());
+    }
+
+    void restoreFocus()
+    {
+        if (inReview && review != nullptr) review->grabKeyboardFocus();
+        else if (inStart && startScreen != nullptr) startScreen->focusName();
+        else if (inPrompter && prompter != nullptr) prompter->grabKeyboardFocus();
+        else grabKeyboardFocus();
+    }
+
+    /** Okno "Jak to dziala"; flowStep tylko z oceny (3/4/5). */
+    void openHelp (int flowStep = -1)
+    {
+        if (recorder.isRecording() || overlayOpen()) return;
+        ensureOverlays();
+        helpScreen = screenId (flowStep);
+        helpPanel->showHelp (helpStepFor (helpScreen), hasTourSteps (helpScreen),
+                             helpScreen.isNotEmpty() && settings.tourSeen (helpScreen));
+    }
+
+    void startTour (const juce::String& id, int firstStep = 0)
+    {
+        ensureOverlays();
+        tourId = id;
+        helpPanel->setVisible (false);
+        if (! tourLayer->begin (tourStepsFor (id), firstStep)) restoreFocus();
+    }
+
+    /** Komunikat powitalny: raz, przy pierwszym uruchomieniu. remember = false w podgladach. */
+    void showWelcome (bool remember = true)
+    {
+        ensureOverlays();
+        if (remember) settings.setWelcomeShown();
+        helpPanel->showWelcome();
+    }
+
+    void previewHelp (int tab)
+    {
+        previewPreparation();
+        openHelp();
+        helpPanel->selectTab (tab, tab == 0);
+    }
+
+    void previewWelcome (const juce::File& folder)
+    {
+        previewStart (folder);
+        showWelcome (false);
+    }
+
+    void previewTour (const juce::String& id, int firstStep, const juce::File& fixture)
+    {
+        const auto folder = fixture.getParentDirectory();
+        if (id == "montaz") previewReview (fixture, true);
+        else if (id == "miks") previewReview (fixture);
+        else if (id == "gotowe") previewReview (fixture, false, true);
+        else if (id == "start") previewStart (folder);
+        else if (id == "nagranie") previewPrompter();
+        else if (id == "przygotowanie") previewPreparation();
+        startTour (id, firstStep);
+    }
+
     /** --preview-ui witaj: ekran startowy z nagraniami z folderu przykladu. */
     void previewStart (const juce::File& folder)
     {
@@ -729,6 +895,10 @@ public:
 
     void resized() override
     {
+        if (helpPanel != nullptr) helpPanel->setBounds (getLocalBounds());
+        if (tourLayer != nullptr) tourLayer->setBounds (getLocalBounds());
+        // Pomoc stoi na lewo od Ustawien; tam, gdzie Ustawien nie ma (ekran startowy), przy prawej krawedzi
+        helpButton.setBounds (getWidth() - (inStart ? 118 : 296), 14, 96, 36);
         // miernik segmentowy tylko na ekranie nagrania z prompterem. Ustawiany na
         // koncu resized(), ale uklady Przygotowania i Ustawien wracaja wczesniej —
         // zostawal z dawnymi granicami i zaslanial "Ekran startowy" / "Sprawdz
@@ -763,7 +933,7 @@ public:
         flow.setBounds (zs::ScreenFrame::stepsArea (getLocalBounds()));
         if (settingsOpen) { layoutHardwareSettings(); return; }
         if (preparation) { layoutPreparation(); return; }
-        preparationButton.setBounds (getWidth() - 380, 14, 174, 36);
+        preparationButton.setBounds (getWidth() - 478, 14, 174, 36);
         auto card = homeCard();
         auto side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (22, 24);
         side.removeFromTop (114);
@@ -813,7 +983,7 @@ public:
             segMeter.setBounds (P.meter);
             for (auto* c : std::initializer_list<juce::Component*> { &recButton, &repeatButton, &meter, &status, &hints })
                 c->setVisible (false);
-            for (auto* c : std::initializer_list<juce::Component*> { &lamp, &segMeter, &flow, &settingsButton })
+            for (auto* c : std::initializer_list<juce::Component*> { &lamp, &segMeter, &flow, &settingsButton, &helpButton })
                 c->toFront (false);
         }
     }
@@ -822,6 +992,7 @@ public:
         i wola te same funkcje. */
     bool keyPressed (const juce::KeyPress& k) override
     {
+        if (k.getKeyCode() == juce::KeyPress::F1Key) { openHelp (inReview && review != nullptr ? review->flowStepNow() : -1); return true; }
         if (inStart) return false;          // ekran startowy: spacja i Esc nic tu nie nagrywaja
         const auto a = zs::ui::keyAction (k.getKeyCode() == juce::KeyPress::escapeKey,
                                           (char32_t) k.getTextCharacter(),
@@ -1120,6 +1291,9 @@ private:
         const bool rec=recorder.isRecording();
         const bool home=!inWizard && !inReview && !inPrompter;
         const bool idleHome=home && !rec;
+        helpButton.setVisible(!inWizard && !inReview);
+        helpButton.setEnabled(!rec);
+        helpButton.setTooltip (rec ? PL("Pomoc będzie dostępna po zakończeniu nagrania") : PL("Jak to działa, skróty klawiszy i co robić, gdy coś nie działa (F1)"));
         settingsButton.setVisible(!inWizard && !inReview && !inStart);
         settingsButton.setEnabled(!inWizard && !inStart && !rec);
         detailsButton.setVisible(idleHome && !settingsOpen);openButton.setVisible(idleHome && !settingsOpen);
@@ -2217,6 +2391,10 @@ private:
     Meter meter;
     SegMeter segMeter;                    ///< miernik segmentowy w nagraniu z prompterem
     juce::TextButton recButton, repeatButton, folderButton, okButton, settingsButton, detailsButton, openButton;
+    juce::TextButton helpButton;
+    std::unique_ptr<zs::HelpComponent> helpPanel;     ///< okno "Jak to dziala" i powitanie
+    std::unique_ptr<zs::TourOverlay> tourLayer;       ///< przewodnik z dymkami
+    juce::String helpScreen, tourId;                  ///< ekran, z ktorego otwarto pomoc; przewodnik w toku
     juce::Label hints;
     juce::String hintsFull;               ///< pelna podpowiedz; w waskim oknie bez ostatnich pozycji
     void fitHintsLabel() { hints.setText (zs::ScreenFrame::fitHints (hintsFull, hints.getFont(), hints.getWidth() - 8), juce::dontSendNotification); }
@@ -2327,7 +2505,7 @@ private:
                 startScreen->setBounds (getLocalBounds());
             }
             startScreen->setVisible (on);
-            if (on) { startScreen->toFront (true); startScreen->focusName(); }
+            if (on) { startScreen->toFront (true); helpButton.toFront (false); startScreen->focusName(); }
         }
         refreshHomeVisibility();
         resized();
@@ -2593,6 +2771,7 @@ private:
                 if (preparationButton.onClick) preparationButton.onClick();
             };
             review->onGoToStart = [this] { showStart (true); };
+            review->onOpenHelp = [this] (int step) { openHelp (step); };
             review->onOpenSettings = [this] {
                 settingsReturnToReview = true;
                 showReview (false);

@@ -23,6 +23,7 @@
 #include "Recorder.h"
 #include "Look.h"
 #include "ScreenFrame.h"
+#include "TourOverlay.h"
 #include "StepBar.h"
 #include "Version.h"
 
@@ -123,7 +124,7 @@ public:
                                 PL ("Enter — start  ·  klik w nagranie — odsłuch"));
         g.setColour (I::textDim()); g.setFont (juce::Font (zs::type::small));
         g.drawText (juce::String (PL ("wersja ")) + zs::versionString(),
-                    getLocalBounds().removeFromTop (zs::ui::frame::header).reduced (22, 0),
+                    getLocalBounds().removeFromTop (zs::ui::frame::topBar).reduced (22, 0).withTrimmedRight (110),   // miejsce na "Pomoc"
                     juce::Justification::centredRight);
         const auto L = layout();
 
@@ -228,6 +229,23 @@ public:
     }
 
     int recentCount() const noexcept { return (int) recent.size(); }
+
+    /** Przewodnik po ekranie startowym (TourOverlay.h). */
+    std::vector<zs::TourStep> tourSteps()
+    {
+        namespace T = zs::tour;
+        std::vector<zs::TourStep> s;
+        s.push_back (T::of (nameInput, T::T ("Wpisz nazwę projektu. Pod tą nazwą zapisze się nagranie.")));
+        s.push_back (T::rectIn (*this, [this] { const auto L = layout(); return L.voiceCard.getUnion (L.musicCard); },
+                                T::T ("Sam głos — podcast, lektor. Głos z podkładem — muzyka będzie słyszalna w słuchawkach.")));
+        s.push_back (T::rectIn (*this, [this] { const auto L = layout(); return L.withText.getUnion (L.withoutText); },
+                                T::T ("Z prompterem tekst przewija się na ekranie, gdy czytasz. Bez promptera mówisz po swojemu.")));
+        s.push_back (T::of (startButton, T::T ("Start prowadzi do przygotowania: tam wskażesz mikrofon i wczytasz tekst.")));
+        s.push_back (T::of (equipmentButton, T::T ("„Sprawdź sprzęt” w minutę sprawdzi mikrofon i słuchawki. Warto zrobić to raz.")));
+        s.push_back (T::rectIn (*this, [this] { return recent.empty() ? juce::Rectangle<int>() : layout().list; },
+                                T::T ("Tu wracasz do poprzednich nagrań. Kliknij jedno, żeby je odsłuchać i dokończyć.")));
+        return s;
+    }
 
 private:
     struct Item { juce::File file; juce::Time when; double seconds = 0.0; bool mixed = false; };
