@@ -47,6 +47,7 @@
 #include "Look.h"
 #include "ScreenFrame.h"
 #include "TourOverlay.h"
+#include "AssistantToggle.h"
 #include "StepBar.h"
 #include "Recorder.h"
 #include "Wav.h"
@@ -218,6 +219,10 @@ public:
     /** Powrót do istniejącego ekranu startowego z paska workflow. */
     std::function<void()> onGoToStart;
     std::function<void()> onOpenSettings;
+
+    /** Przelacznik "Asystent" obok Pomocy: Main zapamietuje wybor i pilnuje reszty ekranow. */
+    std::function<void (bool on)> onToggleAssistant;
+    void setAssistantOn (bool on) { assistToggle.setOn (on); }
     /** Pomoc: numer kroku programu (3 montaz, 4 miks, 5 gotowe) — okno pomocy otwiera sie na nim. */
     std::function<void (int flowStep)> onOpenHelp;
     /** Autor odcinkow z Ustawien (tag ID3 w MP3); brak = puste pole autora. */
@@ -247,6 +252,8 @@ public:
         helpButton.setTooltip (PL("Jak to działa, skróty klawiszy i co robić, gdy coś nie działa (F1)"));
         helpButton.onClick = [this] { if (onOpenHelp) onOpenHelp (flowStepNow()); };
         addAndMakeVisible (helpButton);
+        assistToggle.onClick = [this] { if (onToggleAssistant) onToggleAssistant (assistToggle.getToggleState()); assistToggle.setOn (assistToggle.getToggleState()); };
+        addAndMakeVisible (assistToggle);
 
         formats.registerBasicFormats();
 
@@ -742,6 +749,9 @@ public:
 
     //==========================================================================
     /** Krok programu, na ktorym jest ekran: 3 montaz, 4 miks, 5 gotowe (jak zakladki u gory). */
+    /** Czy ekran jest gotowy na przewodnik: nic sie nie liczy (sluchanie, miks, zapis). */
+    bool tourReady() const { return editMode ? canEdit() : mixReady(); }
+
     int flowStepNow() const { return doneMode ? 5 : editMode ? 3 : 4; }
 
     /** Przewodnik po biezacym ekranie (TourOverlay.h). Elementy ukryte sa pomijane,
@@ -1114,6 +1124,8 @@ public:
         settingsButton.setVisible (true);
         helpButton.setBounds (getWidth() - 296, 14, 96, 36);
         helpButton.setVisible (true);
+        assistToggle.setBounds (getWidth() - 296 - 8 - zs::AssistantToggle::width, 14, zs::AssistantToggle::width, zs::AssistantToggle::height);
+        assistToggle.setVisible (true);
         nextButton.setVisible(false); backButton.setVisible(false); detailsToggle.setVisible(true);
         saveButton.setButtonText(review.isPreview() ? PL("Akceptuję — miksuj całość") : PL("Zapisz miks"));
         assessment.setText(reviewSummary, false);
@@ -1253,6 +1265,8 @@ private:
         settingsButton.setVisible (true);
         helpButton.setBounds (getWidth() - 296, 14, 96, 36);
         helpButton.setVisible (true);
+        assistToggle.setBounds (getWidth() - 296 - 8 - zs::AssistantToggle::width, 14, zs::AssistantToggle::width, zs::AssistantToggle::height);
+        assistToggle.setVisible (true);
         auto main = doneContent();
         main.removeFromTop (68 + 10 + 18 + 40 + 44 + 8);
         folderButton.setBounds (main.removeFromTop (40).withSizeKeepingCentre (220, 40));
@@ -1493,6 +1507,8 @@ private:
         settingsButton.setVisible (true);
         helpButton.setBounds (getWidth() - 296, 14, 96, 36);
         helpButton.setVisible (true);
+        assistToggle.setBounds (getWidth() - 296 - 8 - zs::AssistantToggle::width, 14, zs::AssistantToggle::width, zs::AssistantToggle::height);
+        assistToggle.setVisible (true);
         namespace L = zs::ui::review;
         abButton.setVisible (false); detailsToggle.setVisible (false); words.setVisible (false);
         auto main = zs::ScreenFrame::mainArea (getLocalBounds()); main.removeFromTop (headH() + waveHeight() + L::strip + 8);
@@ -2681,6 +2697,7 @@ private:
     bool wasPlaying = false;
 
     juce::TextButton playButton, saveButton, backButton, settingsButton, helpButton;
+    zs::AssistantToggle assistToggle;
     MixAbSwitch abButton;
     MixStyleCard styleCards[3];
     bool styleNote = false;                 ///< note to "Miks ... liczy się…" z chooseStyle

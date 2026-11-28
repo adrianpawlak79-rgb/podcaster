@@ -249,6 +249,18 @@ int main()
         eq (q.author(), juce::String(), "pusty autor kasuje wpis");
     }
 
+    // ---- 9. asystent (przelacznik Wl./Wyl.) ----------------------------------
+    {
+        Settings s;
+        ok (s.assistantOn(), "asystent domyslnie wlaczony");
+        s.setAssistantOn (false);
+        Settings r;
+        ok (! r.assistantOn(), "wylaczony asystent przetrwal");
+        r.setAssistantOn (true);
+        Settings q;
+        ok (q.assistantOn(), "ponownie wlaczony asystent przetrwal");
+    }
+
     // porzadek po sobie
     {
         Settings s;

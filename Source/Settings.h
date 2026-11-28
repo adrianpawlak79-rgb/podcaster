@@ -226,6 +226,19 @@ public:
         props.saveIfNeeded();
     }
 
+    /** Asystent (przelacznik obok "Pomoc" i w Ustawieniach): gdy wlaczony, sam
+        pokazuje przewodnik przy pierwszym wejsciu na ekran. Domyslnie wlaczony. */
+    bool assistantOn() const
+    {
+        return props.getUserSettings()->getBoolValue ("assistantOn", true);
+    }
+
+    void setAssistantOn (bool on)
+    {
+        props.getUserSettings()->setValue ("assistantOn", on);
+        props.saveIfNeeded();
+    }
+
     /** Ktore przewodniki po ekranach juz obejrzano (id: start, prep, nagranie,
         montaz, miks, gotowe). Przewodnik sam sie nie wlacza — pamietamy to,
         zeby okno pomocy moglo powiedziec "obejrzany". */

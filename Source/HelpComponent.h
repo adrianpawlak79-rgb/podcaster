@@ -415,7 +415,8 @@ private:
     static juce::String welcomeText()
     {
         return help::T ("Zielone światło poprowadzi Cię od mikrofonu do gotowego pliku MP3. "
-                        "Chcesz zobaczyć w minutę, co gdzie jest? Pomoc znajdziesz potem pod przyciskiem „Pomoc”.");
+                        "Chcesz zobaczyć w minutę, co gdzie jest? Pomoc znajdziesz potem pod przyciskiem „Pomoc”. "
+                        "Asystent, który podpowiada na kolejnych ekranach, jest włączony — wyłączysz go przełącznikiem „Asystent” obok „Pomoc”.");
     }
 
     void open()
