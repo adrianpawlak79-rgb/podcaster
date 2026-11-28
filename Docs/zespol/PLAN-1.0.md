@@ -87,3 +87,13 @@ Start badań po scaleniu fali 2. Badania nie mogą blokować wydania 1.0.
   - `claude/pomoc`: pomoc i przewodnik w dymkach. Trzeba scalić z main (#152 przełącznik Przed/Po) i dokończyć.
   - `claude/rnnoise`: RNNoise w torze miksu. Do dokończenia: testy, opóźnienie, kafel.
 - **Następnie:** dokończyć te dwie gałęzie, poprawić to, co wyjdzie z testu Adriana, i wydać 1.0.
+
+### Uwagi Adriana 28.11 (po teście)
+- **Przycisk „Zakończ” na ekranie nagrania:** zmienić na „Zakończ nagranie”, a gdy brakuje miejsca, na „Gotowe →”. Do 1.0, drobna zmiana.
+- **Tempo i klik (metronom) tylko w słuchawkach:**
+  - ustawienie BPM;
+  - przy podkładzie BPM wykrywany z muzyki;
+  - odliczanie w takt;
+  - klik nie trafia do nagrania.
+
+  Wersja 1.1.
