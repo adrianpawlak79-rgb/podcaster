@@ -162,7 +162,7 @@ public:
         }
         refreshControls(); repaint();
         tRecord.setButtonText (PL ("Nagraj poprawkę"));
-        tRecord.setTooltip (PL ("Nagraj zaznaczony fragment jeszcze raz"));
+        tRecord.setTooltip (PL ("Nagraj poprawkę zaznaczonego fragmentu"));
         layoutTransport();      // dluzszy napis — szerszy przycisk
     }
     void clearReplacement()
@@ -589,7 +589,7 @@ public:
         tEnd.setButtonText (PL ("Zakończ"));     zs::Look::setIcon (tEnd, zs::Look::Icon::Stop);
         // R byl tylko pod klawiszem (przeglad ekranu nagrania 24.10)
         tRepeat.setButtonText (PL ("Powtórz wers")); zs::Look::setIcon (tRepeat, zs::Look::Icon::Loop);
-        tRepeat.setTooltip (PL ("Wróć na początek wersu i przeczytaj go jeszcze raz (R)"));
+        tRepeat.setTooltip (PL ("Wróć na początek wersu i przeczytaj go jeszcze raz — nagranie trwa dalej (R)"));
         tRepeat.onClick = [this] { repeatLine(); };
         tRecord.setTooltip (PL ("Nagraj (spacja)")); tPause.setTooltip (PL ("Pauza (spacja)"));
         tPlay.setTooltip (PL ("Odsłuchaj od zaznaczonego miejsca")); tEnd.setTooltip (PL ("Zakończ nagranie (Esc)"));
@@ -606,12 +606,12 @@ public:
         const bool rec = recorder.isRecording();
         const bool resumeFromLine = pz.on && pz.selected && ! pz.resuming;
         tRecord.setButtonText (replacementMode ? PL ("Nagraj poprawkę") : (resumeFromLine ? PL ("Nagraj od linii") : PL ("Nagraj")));
-        tRecord.setTooltip (replacementMode ? PL ("Nagraj zaznaczony fragment jeszcze raz") : (resumeFromLine
-            ? PL ("Wznowisz od czerwonej linii. Poprzednia wersja zostanie w folderze „surowe”. Kliknij falę, aby zmienić miejsce.")
+        tRecord.setTooltip (replacementMode ? PL ("Nagraj poprawkę zaznaczonego fragmentu") : (resumeFromLine
+            ? PL ("Wznowisz od czerwonej linii. Poprzednia wersja zostanie w folderze „surowe” (oryginały). Kliknij falę, aby zmienić miejsce.")
             : PL ("Nagraj (spacja)")));
         stripTip.setTooltip (pz.on
             ? pz.selected
-                ? PL ("PAUZA. Czerwona linia wyznacza początek nowego podejścia. Kliknij falę lub wers, aby wybrać inne miejsce; poprzednia wersja zostanie w folderze „surowe”.")
+                ? PL ("PAUZA. Czerwona linia wyznacza miejsce, od którego wznowisz nagranie. Kliknij falę lub wers, aby wybrać inne miejsce; poprzednia wersja zostanie w folderze „surowe” (oryginały).")
                 : PL ("PAUZA. Kliknij wers albo miejsce na fali, aby wskazać początek wznowienia. Kółkiem myszy przewiniesz nagranie.")
             : juce::String());
         tRecord.setEnabled (! rec || (pz.on && ! pz.resuming));
@@ -1033,7 +1033,7 @@ public:
                 g.setColour (Ink::red());
                 g.fillRect (juce::Rectangle<float> (x - 1.5f, wave.getY() - 2.0f, 3.0f, wave.getHeight() + 4.0f));
                 const juce::Font f (zs::type::small, juce::Font::bold);
-                const auto label = PL ("stąd nagrasz od nowa");
+                const auto label = PL ("stąd wznowisz");
                 const float lw = (float) f.getStringWidth (label);
                 // przy prawym brzegu podpis po lewej stronie linii — inaczej wychodzil poza karte
                 const bool left = x + 6.0f + lw > wave.getRight();
@@ -1108,11 +1108,11 @@ public:
             { return juce::Font (zs::type::small).getStringWidth (full) <= area.getWidth() ? full : brief; };
             text = pz.ahead    ? pick (PL ("PAUZA  ·  tego wersu jeszcze nie czytałeś — kliknij ten, przy którym jesteś, albo wcześniejszy"),
                                        PL ("PAUZA  ·  ten wers jeszcze przed Tobą — kliknij wcześniejszy"))
-                 : pz.tooOld   ? pick (PL ("PAUZA  ·  ten wers jest dalej niż 5 minut wstecz — tak daleko nie nagrasz od nowa; popraw go w Montażu"),
-                                       PL ("PAUZA  ·  za daleko wstecz — popraw w Montażu"))
+                 : pz.tooOld   ? pick (PL ("PAUZA  ·  ten wers jest dalej niż 5 minut wstecz — tak daleko nie wznowisz; nagraj poprawkę w Montażu"),
+                                       PL ("PAUZA  ·  za daleko wstecz — nagraj poprawkę w Montażu"))
                  : pz.resuming ? PL ("PAUZA  ·  za chwilę nagrywanie od czerwonej linii")
                  : pz.selected ? PL ("PAUZA  ·  Wznowisz od czerwonej linii")
-                 : noText()    ? pick (PL ("PAUZA  ·  kliknij miejsce na fali, od którego chcesz nagrać od nowa  ·  kółko — przewiń"),
+                 : noText()    ? pick (PL ("PAUZA  ·  kliknij miejsce na fali, od którego chcesz wznowić  ·  kółko — przewiń"),
                                        PL ("PAUZA  ·  kliknij miejsce na fali"))
                                : pick (PL ("PAUZA  ·  kliknij wers albo miejsce na fali, od którego chcesz nagrać  ·  kółko — przewiń"),
                                        PL ("PAUZA  ·  kliknij wers albo miejsce na fali"));
@@ -1827,7 +1827,7 @@ private:
             g.setColour (Ink::textNext());
             g.setFont (juce::Font (zs::type::small));
             g.drawText (replacementMode ? PL ("Zaznaczone miejsce jest na czerwono. Najpierw usłyszysz rozbieg, potem nagrywasz poprawkę.")
-                                        : PL ("Pomyłka? Pauza (spacja), kliknij falę tam, skąd chcesz nagrać od nowa, i Nagraj od linii."),
+                                        : PL ("Pomyłka? Pauza (spacja), kliknij falę tam, skąd chcesz wznowić, i Nagraj od linii."),
                         t, juce::Justification::topLeft);
             return;
         }

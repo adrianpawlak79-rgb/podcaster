@@ -469,7 +469,7 @@ public:
 
         setWantsKeyboardFocus (true);
 
-        folderButton.setButtonText (PL ("Folder sesji…"));
+        folderButton.setButtonText (PL ("Folder nagrań…"));
         folderButton.onClick = [this] { chooseFolder(); };
         addAndMakeVisible (folderButton);
 
@@ -489,7 +489,7 @@ public:
             }
 
             mutedKinds.add ((int) lastFlagged);
-            append (PL ("--- wyciszone w tej sesji: ") + pl::kind (lastFlagged));
+            append (PL ("--- wyciszone w tym nagraniu: ") + pl::kind (lastFlagged));
             okButton.setEnabled (false);
         };
         addAndMakeVisible (okButton);
@@ -698,7 +698,7 @@ public:
         const auto name = recordingName();
         zs::ScreenFrame::paint (g, getLocalBounds(), inPrompter ? juce::String() : name,
             inPrompter ? (correctionMode ? correctionHint() : PL ("Spacja — nagraj / pauza  ·  R — powtórz wers  ·  Esc — zakończ"))
-            : rec ? PL ("Spacja albo Esc — zakończ i oceń") : preparation ? PL("Wybierz mikrofon i przygotuj tekst") : PL ("Nagraj, a potem odsłuchaj podejście"),
+            : rec ? PL ("Spacja albo Esc — zakończ i oceń") : preparation ? PL("Wybierz mikrofon i przygotuj tekst") : PL ("Nagraj, a potem odsłuchaj nagranie"),
             inPrompter);
         auto side = zs::ScreenFrame::sidebar (getLocalBounds());
         zs::ScreenFrame::paintPanel (g, side);
@@ -1043,7 +1043,7 @@ private:
         if (nearLimit)
         {
             g.setColour (I::yellow()); g.setFont (juce::Font (zs::type::small));
-            g.drawText (PL ("Zostało ") + juce::String (zs::ui::session::minutesLeft (t)) + PL (" min do końca sesji"),
+            g.drawText (PL ("Zostało ") + juce::String (zs::ui::session::minutesLeft (t)) + PL (" min do końca nagrania"),
                         L.limit, juce::Justification::centredLeft, true);
         }
 
@@ -1226,7 +1226,7 @@ private:
         g.drawText (PL("AUTOR ODCINKÓW (TAG MP3)"), side.removeFromTop (24), juce::Justification::centredLeft);
     }
 
-    static juce::String hardwareSubtitle() { return PL("Urządzenia, słuchawki, wzorzec brzmienia i folder sesji."); }
+    static juce::String hardwareSubtitle() { return PL("Urządzenia, słuchawki, wzorzec brzmienia i folder nagrań."); }
     juce::String preparationSubtitle() const
     {
         if (startWithMusic && startWithPrompter)
@@ -1643,9 +1643,9 @@ private:
         }
         correctionMode = false;
         juce::AlertWindow::showOkCancelBox (juce::AlertWindow::QuestionIcon,
-            PL ("Czy podmienić fragment?"),
-            PL ("Poprawka jest gotowa. Podmienić nią zaznaczone miejsce? Oryginał zostanie zachowany w folderze surowe."),
-            PL ("Podmień fragment"), PL ("Zostaw oryginał"), this,
+            PL ("Czy wstawić poprawkę?"),
+            PL ("Poprawka jest gotowa. Wstawić ją w zaznaczone miejsce? Oryginał zostanie zachowany w folderze surowe (oryginały)."),
+            PL ("Wstaw poprawkę"), PL ("Zostaw oryginał"), this,
             juce::ModalCallbackFunction::create ([safe = juce::Component::SafePointer<MainComponent> (this)] (int result)
             {
                 if (safe == nullptr) return;
@@ -1671,7 +1671,7 @@ private:
         }
         pendingReplacement = juce::File();
         correctionUndo = result.rawCopy;
-        append (PL ("--- podmieniono fragment; poprzednia wersja w folderze surowe")
+        append (PL ("--- wstawiono poprawkę; poprzednia wersja w folderze surowe (oryginały)")
                 + (result.staleMixes > 0 ? PL ("; stary miks też tam (był sprzed poprawki)") : juce::String()));
         if (prompter != nullptr) prompter->clearReplacement();
         showPrompter (false); openReview (correctionSource, true, true);
@@ -1720,10 +1720,10 @@ private:
         const auto temp = correctionSource.getSiblingFile (correctionSource.getFileNameWithoutExtension() + ".cofnij.tmp.wav");
         temp.deleteFile();
         if (! correctionUndo.copyFileTo (temp))
-        { temp.deleteFile(); juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, PL ("Nie udało się cofnąć"), PL ("Kopia poprzedniego nagrania nadal jest w folderze surowe.")); return; }
+        { temp.deleteFile(); juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, PL ("Nie udało się cofnąć"), PL ("Kopia poprzedniego nagrania nadal jest w folderze surowe (oryginały).")); return; }
         correctionSource.deleteFile();
         if (! temp.moveFileTo (correctionSource))
-        { correctionUndo.copyFileTo (correctionSource); temp.deleteFile(); juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, PL ("Nie udało się cofnąć"), PL ("Kopia poprzedniego nagrania nadal jest w folderze surowe.")); return; }
+        { correctionUndo.copyFileTo (correctionSource); temp.deleteFile(); juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, PL ("Nie udało się cofnąć"), PL ("Kopia poprzedniego nagrania nadal jest w folderze surowe (oryginały).")); return; }
         for (const auto* suffix : { ".wersy.txt", ".ciecia.tsv", ".podklad.txt", ".tekst.txt" })
         {
             const auto archived = correctionUndo.getSiblingFile (correctionUndo.getFileNameWithoutExtension() + suffix);
@@ -1756,7 +1756,7 @@ private:
                     // ocena czyta czysty plik — zdarzenia na jego czas, bez wycietych
                     takeEvents = tw::Punch().remapEvents (takeEvents, punched.plan);
                     append (PL ("--- wycięte pomyłki (R): ") + juce::String (punched.cuts) + ", "
-                            + juce::String (punched.removedSec, 1) + PL (" s; pełne nagranie w folderze „surowe”")
+                            + juce::String (punched.removedSec, 1) + PL (" s; pełne nagranie w folderze „surowe” (oryginały)")
                             + (punched.audibleSeams > 0
                                  ? PL ("; uwaga: przy ") + juce::String (punched.audibleSeams)
                                    + PL (" połączeniu po cięciu tło się zmieniło (np. wentylator) — posłuchaj tych miejsc")
@@ -1771,7 +1771,7 @@ private:
                             + PL (" (nagranie zostaje w całości — program sam nie tnie)"));
                 }
                 for (const auto& s : punched.skipped)
-                    append (PL ("--- NIE wycięłem pomyłki ") + juce::String (s.cut.from, 1) + "–" + juce::String (s.cut.to, 1)
+                    append (PL ("--- Nie wycięłem pomyłki ") + juce::String (s.cut.from, 1) + "–" + juce::String (s.cut.to, 1)
                             + PL (" s: ") + PL (s.why.c_str()) + PL (". Wytnij ją na ekranie Montaż."));
                 if (punched.error.isNotEmpty())
                     append (PL ("--- nie wycięłem pomyłek: ") + punched.error + PL (" (nagranie zostaje w całości)"));
@@ -1901,7 +1901,7 @@ private:
 
     void chooseFolder()
     {
-        chooser = std::make_unique<juce::FileChooser> (PL ("Gdzie zapisywać sesje?"), sessionFolder);
+        chooser = std::make_unique<juce::FileChooser> (PL ("Gdzie zapisywać nagrania?"), sessionFolder);
 
         chooser->launchAsync (juce::FileBrowserComponent::openMode
                             | juce::FileBrowserComponent::canSelectDirectories,
@@ -1912,7 +1912,7 @@ private:
                 {
                     sessionFolder = f;
                     settings.setSessionFolder (f);
-                    append ("folder sesji: " + f.getFullPathName());
+                    append ("folder nagrań: " + f.getFullPathName());
                 }
             });
     }
@@ -1990,11 +1990,11 @@ private:
         {
             const auto justRecorded = recorder.currentFile();
             recorder.stop();
-            append (PL ("--- nagrywanie zatrzymane: sesja ma 60 minut"));
-            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::InfoIcon, PL ("Sesja ma 60 minut"),
-                PL ("Tyle program sprawdził w jednej sesji, więc nagrywanie zatrzymało się samo. ")
+            append (PL ("--- nagrywanie zatrzymane: nagranie ma 60 minut"));
+            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::InfoIcon, PL ("Nagranie ma 60 minut"),
+                PL ("Tyle program sprawdził w jednym nagraniu, więc nagrywanie zatrzymało się samo. ")
                 + PL ("Wszystko jest zapisane — za chwilę możesz to odsłuchać.\n\n")
-                + PL ("Dalszą część nagraj jako nowe podejście („Nagraj nowe podejście” w montażu)."));
+                + PL ("Dalszą część nagraj jako nowe nagranie („Nagraj od nowa” w montażu)."));
             finishStoppedTake (justRecorded);
             return;
         }

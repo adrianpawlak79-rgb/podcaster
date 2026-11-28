@@ -523,11 +523,11 @@ public:
             case 2:
                 if (redos.size() == 1)
                     std::snprintf (b, sizeof (b),
-                        "Jeden fragment trzeba nagrać jeszcze raz: %s. Tego miks nie cofa.",
+                        "Jeden fragment wymaga poprawki: %s. Tego miks nie naprawi.",
                         timeRange (redos[0].fromSec, redos[0].toSec).c_str());
                 else
                     std::snprintf (b, sizeof (b),
-                        "Fragmentów do powtórzenia: %d. Wykryłem przester albo brak sygnału.", (int) redos.size());
+                        "Fragmentów do poprawki: %d. Wykryłem przester albo brak sygnału.", (int) redos.size());
 
                 return b;
 
@@ -550,16 +550,16 @@ public:
                 if (n == 1)
                     std::snprintf (b, sizeof (b),
                         "Miks jest gotowy. Posłuchaj jednego miejsca na osi (%s) — "
-                        "nie trzeba go nagrywać od nowa.", atTime (first).c_str());
+                        "nie wymaga poprawki.", atTime (first).c_str());
                 else
                     std::snprintf (b, sizeof (b),
                         "Miks jest gotowy. Posłuchaj %d miejsc na osi (pierwsze %s) — "
-                        "nie trzeba ich nagrywać od nowa.", n, atTime (first).c_str());
+                        "nie wymagają poprawki.", n, atTime (first).c_str());
                 return b;
             }
 
             default:
-                return "Nie wykryłem przesteru ani braków sygnału wymagających powtórzenia.";
+                return "Nie wykryłem przesteru ani braków sygnału wymagających poprawki.";
         }
     }
 
@@ -737,7 +737,7 @@ private:
         if (report.lufsBefore < silentLufs)
         {
             std::snprintf (b, sizeof (b), "Nagranie jest prawie ciche (%.0f LUFS): mikrofon chyba nie dochodził do programu. "
-                           "Sprawdź mikrofon w Ustawieniach i nagraj jeszcze raz.", report.lufsBefore);
+                           "Sprawdź mikrofon w Ustawieniach i nagraj od nowa.", report.lufsBefore);
             plain.push_back (b);
         }
 

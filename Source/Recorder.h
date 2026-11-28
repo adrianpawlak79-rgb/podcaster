@@ -93,7 +93,7 @@ public:
             if(activeSession->writer->hasFailed()) writeFailed.store(true);
             activeSession.reset();
             if(recordingDamaged()) sessionFile.getSiblingFile(sessionFile.getFileName()+".problem.txt")
-                .replaceWithText(PL("UWAGA: podczas zapisu utracono dane. Nagraj materiał ponownie.\n")
+                .replaceWithText(PL("UWAGA: podczas zapisu utracono dane. Nagraj od nowa.\n")
                     + "Pierwszy wykryty problem: " + juce::String(firstLossSeconds(),3) + " s\n");
             markerFile(sessionFile).deleteFile();   // plik zamkniety poprawnie
         }
