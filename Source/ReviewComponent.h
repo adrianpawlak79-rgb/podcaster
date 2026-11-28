@@ -50,6 +50,8 @@
 #include "Recorder.h"
 #include "Wav.h"
 #include "Mp3.h"
+#include "Id3.h"
+#include "Version.h"
 #include "MixChainView.h"
 #include "ReadMono.h"
 #include "CutReviewPanel.h"
@@ -59,6 +61,7 @@
 #include "DSP/Mix/MusicBed.h"
 #include <limits>
 #include <memory>
+#include <regex>
 #include <thread>
 
 class MixStyleCard : public juce::Component, public juce::SettableTooltipClient
@@ -156,6 +159,8 @@ public:
     /** Powrót do istniejącego ekranu startowego z paska workflow. */
     std::function<void()> onGoToStart;
     std::function<void()> onOpenSettings;
+    /** Autor odcinkow z Ustawien (tag ID3 w MP3); brak = puste pole autora. */
+    std::function<juce::String()> authorProvider;
     /** "Nowy projekt" na ekranie Gotowe: do ekranu startowego. */
     std::function<void()> onNewProject;
 
@@ -1164,6 +1169,59 @@ private:
         profileButton.setEnabled (! profileRemembered && saved.existsAsFile());
         profileButton.setTooltip (PL("Następne odcinki dostaną tę barwę — seria brzmi jak z jednego studia. Wzorzec można usunąć w Ustawieniach."));
     }
+    struct DoneVerdict { juce::String text; bool good = true; };
+    /** Jedno zdanie dla laika na ekranie Gotowe. Zielone tylko wtedy, gdy miks
+        jest poprawny, pliki sa zapisane i nic nie kaze sluchac drugi raz. */
+    DoneVerdict doneVerdict() const
+    {
+        if (damagedRecording || ! review.mixValid())
+            return { PL("Nie publikuj tej wersji: nagranie lub miks wymaga sprawdzenia."), false };
+        if (review.nearlySilent())
+            return { PL("Sprawdź przed publikacją: nagranie jest prawie ciche. Mikrofon mógł nie dochodzić do programu."), false };
+        if (review.verdict() >= 1)
+            return { juce::String::fromUTF8 (review.verdictLine().c_str()), false };
+        if (savedMp3 == juce::File())
+            return { PL("Miks zapisany jako WAV, ale bez MP3. Powód jest niżej."), false };
+        return { PL("Gotowe do publikacji. Posłuchaj jeszcze całości przed wysłaniem."), true };
+    }
+    /** Dlaczego nie ma MP3 — jedno zdanie i co z tym zrobic. */
+    juce::String mp3ProblemSentence() const
+    {
+        const auto p = mp3Problem;
+        if (p.contains ("Media Foundation") || p.contains ("kodera MP3") || p.contains ("koder MP3"))
+            return PL("MP3 nie powstał: system nie ma kodera MP3. Na Windows w wersji N doinstaluj „Media Feature Pack”, potem zapisz jeszcze raz. WAV jest gotowy.");
+        if (p.contains ("pełny dysk") || p.contains ("pelny dysk"))
+            return PL("MP3 nie powstał: brak miejsca na dysku albo dostępu do folderu. Zwolnij miejsce i zapisz jeszcze raz.");
+        if (p.contains ("tylko w wersji dla Windows"))
+            return PL("MP3 nie powstał: zapis MP3 działa tylko w Windows. WAV jest gotowy.");
+        return PL("MP3 nie powstał (") + p + PL("). WAV jest zapisany i można go użyć.");
+    }
+    /** Tagi ID3: tytul z nazwy nagrania, autor z Ustawien, numer odcinka z nazwy. */
+    zs::id3::Tags mp3Tags() const
+    {
+        auto name = file.getFileNameWithoutExtension().upToFirstOccurrenceOf ("__", false, false).toStdString();
+        // recorder dopisuje do nazwy znacznik czasu: "Odcinek 5_2026-11-28_10-15-00"
+        static const std::regex stamp (R"(_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$)");
+        const auto bare = std::regex_replace (name, stamp, "");
+        if (! bare.empty()) name = bare;
+        zs::id3::Tags t;
+        t.title   = name;
+        t.artist  = authorProvider ? authorProvider().toStdString() : std::string();
+        t.episode = zs::id3::episodeFromName (name);
+        t.year    = juce::String (juce::Time::getCurrentTime().getYear()).toStdString();
+        t.comment = std::string ("Nagrano w Zielone światło ") + zs::versionString();
+        return t;
+    }
+    /** Dopisuje tag na poczatku gotowego MP3. Blad tagu nie psuje MP3: plik gra i bez niego. */
+    static bool tagMp3 (const std::string& path, const zs::id3::Tags& tags)
+    {
+        const juce::File f (juce::String::fromUTF8 (path.c_str()));
+        juce::MemoryBlock block;
+        if (! f.loadFileAsData (block) || block.getSize() < 128) return false;
+        const auto* bytes = static_cast<const uint8_t*> (block.getData());
+        const auto tagged = zs::id3::withTag (std::vector<uint8_t> (bytes, bytes + block.getSize()), tags);
+        return f.replaceWithData (tagged.data(), tagged.size());
+    }
     bool doneTight() const { return getHeight() < 720; }
     int doneButtonH() const { return doneTight() ? 32 : 36; }
     int doneButtonGap() const { return doneTight() ? 6 : 8; }
@@ -1186,10 +1244,17 @@ private:
         g.drawText (PL("05 / GOTOWE"), main.removeFromTop (18), juce::Justification::centred);
         g.setColour (Ink::textNow()); g.setFont (juce::Font (zs::type::title, juce::Font::bold));
         g.drawText (PL("Nagranie gotowe"), main.removeFromTop (40), juce::Justification::centred);
-        g.setColour (Ink::textNext()); g.setFont (juce::Font (zs::type::body));
-        g.drawFittedText (savedMp3 != juce::File() ? PL("Zapisano WAV do archiwum i MP3 do publikacji. Posłuchaj całości przed wysłaniem.")
-                                                   : PL("Zapisano miks jako plik WAV na dysku. Posłuchaj całości przed publikacją."),
-                          main.removeFromTop (44).reduced (12, 0), juce::Justification::centred, 2);
+        // Werdykt dla laika: zielone "Gotowe do publikacji" albo pomaranczowe zdanie, co sprawdzic.
+        const auto verdict = doneVerdict();
+        g.setColour (verdict.good ? Ink::green() : Ink::yellow());
+        g.setFont (juce::Font (zs::type::body, juce::Font::bold));
+        g.drawFittedText (verdict.text, main.removeFromTop (44).reduced (12, 0), juce::Justification::centred, 2);
+        if (savedMp3 == juce::File() && mp3Problem.isNotEmpty())
+        {
+            auto note = juce::Rectangle<int> (main.getX(), savedPath.getBottom() + 2, main.getWidth(), 44).reduced (12, 0);
+            g.setColour (Ink::yellow()); g.setFont (juce::Font (zs::type::small));
+            g.drawFittedText (mp3ProblemSentence(), note, juce::Justification::centred, 3);
+        }
         side = side.reduced (22, 24);
         g.setColour (Ink::textNow()); g.setFont (juce::Font (zs::type::heading, juce::Font::bold));
         g.drawText (PL("Plik końcowy"), side.removeFromTop (40), juce::Justification::centredLeft);
@@ -1214,11 +1279,16 @@ private:
         row (PL("Długość"), plr::clock (length) + " (" + plr::plNumber (length) + " s)", 54);
         // Audyt 14.10: "LUFS" i "dBTP" na glownym ekranie wymagaja wiedzy audio.
         row (PL("Gotowa głośność"), withBed ? PL("Jak w podcastach (stereo, z muzyką)") : PL("Jak w podcastach (stereo)"), 42);
-        g.setColour (Ink::textDim());
-        // bez podkladu: tor mierzy mono, plik ma ten kanal dwa razy (Loudness.h)
-        g.drawText (plr::plNumber (withBed ? bed.lufs : mix::dualMonoLufs (review.whatIDid().lufsAfter)) + PL(" LUFS · szczyt ")
-                        + plr::plNumber (withBed ? bed.peakDbtp : review.whatIDid().peakAfter) + " dBTP",
-                    side.removeFromTop (tight ? 18 : 20), juce::Justification::centredLeft);
+        // liczby tylko drobnym drukiem i tylko gdy jest miejsce (w 960x640 ich nie ma)
+        if (! tight)
+        {
+            g.setColour (Ink::textDim()); g.setFont (juce::Font (zs::type::tiny));
+            // bez podkladu: tor mierzy mono, plik ma ten kanal dwa razy (Loudness.h)
+            g.drawText (plr::plNumber (withBed ? bed.lufs : mix::dualMonoLufs (review.whatIDid().lufsAfter)) + PL(" LUFS · szczyt ")
+                            + plr::plNumber (withBed ? bed.peakDbtp : review.whatIDid().peakAfter) + " dBTP",
+                        side.removeFromTop (20), juce::Justification::centredLeft);
+            g.setFont (juce::Font (zs::type::small));
+        }
         if (wish.profile.valid() && side.getHeight() >= (tight ? 42 : 56))
         {
             side.removeFromTop (tight ? 4 : 14);
@@ -1929,8 +1999,9 @@ private:
         const auto mp3Target = target.withFileExtension ("mp3");
         const auto mp3Path = mp3Target.getFullPathName().toStdString();
         const int rate = (int) sr;
+        const auto tags = mp3Tags();
         runJob (PL ("Zapisuję miks…"), 0,
-            [this, err, mp3Err, path, mp3Path, rate]
+            [this, err, mp3Err, path, mp3Path, rate, tags]
             {
                 // z podkladem: stereo glos + muzyka (MusicBed), inaczej sam glos jako stereo
                 // z tym samym sygnalem w obu kanalach: tor -19 LUFS mono = plik -16 LUFS
@@ -1941,7 +2012,11 @@ private:
                 const size_t frames = bed.left.empty() ? mixed.size() : bed.left.size();
                 *err = wavio::writePcm (path, ch, frames, rate, 24);
                 if (err->empty())
+                {
                     *mp3Err = zs::mp3::write (mp3Path, ch, frames, rate, mp3Kbps);
+                    if (mp3Err->empty() && ! tagMp3 (mp3Path, tags))
+                        zs::trace ("MP3: nie udalo sie dopisac tagow ID3 (plik gra bez nich)");
+                }
             },
             [this, err, mp3Err, target, mp3Target]
             {

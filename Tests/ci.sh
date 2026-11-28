@@ -78,6 +78,7 @@ TESTY=(
   "tlo-test /tmp/mowa/mowa-czysta.wav /tmp/mowa/telewizor.wav"
   "podklad-ogon-test"
   "przester-test /tmp/mowa.wav"
+  "id3-test t2.wav"
 )
 
 ZNANE=$(grep -v '^#' znane-bledy.txt 2>/dev/null | awk '{print $1}')

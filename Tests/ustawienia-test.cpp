@@ -237,6 +237,18 @@ int main()
         eq (r.windowState(), juce::String ("0 100 200 940 620"), "polozenie okna przetrwalo");
     }
 
+    // ---- 8. autor odcinkow (tag ID3) -----------------------------------------
+    {
+        Settings s;
+        eq (s.author(), juce::String(), "autor domyslnie pusty");
+        s.setAuthor ("  Anna Kowalska ");
+        Settings r;
+        eq (r.author(), juce::String ("Anna Kowalska"), "autor przetrwal (bez spacji na brzegach)");
+        r.setAuthor ("");
+        Settings q;
+        eq (q.author(), juce::String(), "pusty autor kasuje wpis");
+    }
+
     // porzadek po sobie
     {
         Settings s;
