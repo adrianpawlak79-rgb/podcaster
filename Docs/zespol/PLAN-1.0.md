@@ -75,3 +75,7 @@ Tylko darmowe, otwarte rozwiązania, albo własna sieć neuronowa, jeśli da si�
 2. **Odszumianie neuronowe.** Kandydaci: RNNoise (BSD), DeepFilterNet (MIT/Apache) albo własna mała sieć. Porównanie z naszym odszumianiem na nagraniu z telewizorem: liczby i pliki do odsłuchu.
 
 Start badań po scaleniu fali 2. Badania nie mogą blokować wydania 1.0.
+
+### Decyzje Adriana 28.11 (AI)
+- **RNNoise:** dołączamy (licencja BSD-3, darmowa, pozwala sprzedawać program). Wchodzi do instalatora testowego razem z falą 3 jako kafel „Usuwanie tła (AI)”. Gałąź `claude/rnnoise`.
+- **Whisper:** na razie nie. Vosk działa dobrze, a bez automatycznego cięcia zysk jest mały. Wracamy do tematu, jeśli potrzebna będzie transkrypcja odcinka albo opis do publikacji.
