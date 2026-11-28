@@ -106,3 +106,11 @@ Start badań po scaleniu fali 2. Badania nie mogą blokować wydania 1.0.
   - potem asystent towarzyszy przy kolejnych krokach.
 
   Gałąź `claude/samouczek`.
+
+### Pomysł Adriana 28.11: własna wtyczka miksu na sieci neuronowej (po 1.0)
+Kandydaci:
+1. „Głos jak ze studia”: usuwanie pogłosu, uzupełnianie pasma, wyrównanie barwy.
+2. Usuwanie hałasu także w trakcie mowy, czyli rozdzielanie głosów (telewizor).
+3. „Brzmij jak ten podcast”: dopasowanie do wzorca.
+
+Najpierw badanie gotowych otwartych sieci na nagraniach Adriana: odsłuch i licencje. Potem decyzja: dołączyć gotową czy trenować własną (do treningu potrzebny GPU w chmurze). Docelowo kafel „Studio AI” w miksie.
