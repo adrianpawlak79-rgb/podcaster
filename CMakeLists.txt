@@ -27,6 +27,25 @@ juce_add_gui_app(ZieloneSwiatlo
 
 target_sources(ZieloneSwiatlo PRIVATE Source/Main.cpp Source/Mp3.cpp)
 
+# RNNoise (xiph, BSD-3): "Usuwanie tla (AI)" — wyjatek od zasady "DSP od zera",
+# decyzja wlasciciela. Kod i model w repo (ThirdParty/rnnoise, licencja COPYING),
+# statycznie w .exe, bez pobierania. Model .bin wkompilowany przez .incbin.
+set(ZS_RNN "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/rnnoise")
+add_library(zs_rnnoise STATIC
+    ${ZS_RNN}/src/denoise.c ${ZS_RNN}/src/rnn.c ${ZS_RNN}/src/pitch.c ${ZS_RNN}/src/kiss_fft.c
+    ${ZS_RNN}/src/celt_lpc.c ${ZS_RNN}/src/nnet.c ${ZS_RNN}/src/nnet_default.c
+    ${ZS_RNN}/src/parse_lpcnet_weights.c ${ZS_RNN}/src/rnnoise_tables.c ${ZS_RNN}/src/rnnoise_data.c
+    ${ZS_RNN}/src/zs_model.c)
+target_include_directories(zs_rnnoise PRIVATE ${ZS_RNN}/include ${ZS_RNN}/src)
+target_compile_definitions(zs_rnnoise PRIVATE USE_WEIGHTS_FILE DISABLE_DEBUG_FLOAT=1
+    ZS_RNNOISE_BLOB="${ZS_RNN}/rnnoise_weights.bin")
+set_source_files_properties(${ZS_RNN}/src/zs_model.c PROPERTIES OBJECT_DEPENDS ${ZS_RNN}/rnnoise_weights.bin)
+if (NOT MSVC)
+    target_compile_options(zs_rnnoise PRIVATE -O2 -w)
+endif()
+target_link_libraries(ZieloneSwiatlo PRIVATE zs_rnnoise)
+target_compile_definitions(ZieloneSwiatlo PRIVATE ZS_RNNOISE=1)
+
 # Zapis MP3 koderem Windows (Media Foundation, Source/Mp3.cpp) — bez
 # dodatkowych bibliotek w paczce; na Linuksie Mp3.cpp to zaslepka.
 if (WIN32)

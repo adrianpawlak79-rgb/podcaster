@@ -41,7 +41,7 @@ namespace mix
 
 enum class Stage
 {
-    Filtr, Korektor, Odszumianie, Oddechy, Ekspander, Kompresja, Rezonanse, DeEsser, Barwa,
+    TloAI, Filtr, Korektor, Odszumianie, Oddechy, Ekspander, Kompresja, Rezonanse, DeEsser, Barwa,
     count
 };
 
@@ -72,6 +72,7 @@ inline const char* stageName (Stage s)
 {
     switch (s)
     {
+        case Stage::TloAI:       return "Usuwanie tła (AI)";
         case Stage::Filtr:       return "Filtr dołu";
         case Stage::Korektor:    return "Korektor";
         case Stage::Odszumianie: return "Odszumianie";
@@ -90,6 +91,7 @@ inline const char* stageHelp (Stage s)
 {
     switch (s)
     {
+        case Stage::TloAI:       return "Sieć neuronowa (RNNoise) zdejmuje spod głosu telewizor, rozmowy i hałas. Więcej = mniej oryginału w tle.";
         case Stage::Filtr:       return "Usuwa dudnienie i stuki poniżej głosu. Więcej = cięcie wyżej.";
         case Stage::Korektor:    return "Zabiera „błoto” i „pudełko” z głosu. Więcej = głębsze cięcia.";
         case Stage::Odszumianie: return "Ścisza szum tła. Więcej = mocniej, ale głos może brzmieć sztucznie.";
@@ -108,6 +110,7 @@ inline const char* stageEffect (Stage s)
 {
     switch (s)
     {
+        case Stage::TloAI:       return "bez hałasu w tle";
         case Stage::Filtr:       return "mniej dudnienia";
         case Stage::Korektor:    return "czystszy głos";
         case Stage::Odszumianie: return "ciszej szum tła";
@@ -126,6 +129,7 @@ inline bool stageUsed (const SpeechChain::Params& p, Stage s)
 {
     switch (s)
     {
+        case Stage::TloAI:       return p.useAiDenoise;
         case Stage::Filtr:       return p.highpassHz > 0.0;
         case Stage::Korektor:    return ! p.preEq.empty();
         case Stage::Odszumianie: return p.useDenoise;
@@ -154,6 +158,7 @@ inline void enableStage (SpeechChain::Params& p, Stage s, const TweakContext& c)
     using Bell = SpeechChain::Params::Bell;
     switch (s)
     {
+        case Stage::TloAI:       p.useAiDenoise = true; break;
         case Stage::Filtr:       p.highpassHz = 75.0; p.steepHighpass = true; break;
         case Stage::Korektor:    p.preEq = { Bell { 200.0, 1.2, -2.5f }, Bell { 380.0, 1.4, -3.0f }, Bell { 800.0, 2.0, -1.5f } }; break;
         case Stage::Odszumianie: p.useDenoise = true; p.denoiseDb = -10.0f; break;
@@ -197,6 +202,16 @@ inline void applyTweaks (SpeechChain::Params& p, const Tweaks& t, const TweakCon
 
         switch (s)
         {
+            case Stage::TloAI:
+                // suwak = domieszka oryginalu: mniej -> wiecej oryginalu (od -40 dB), wiecej -> mniej
+                if (off) p.useAiDenoise = false;
+                else
+                {
+                    const float a = t.amount[(size_t) i];
+                    const float base = p.aiDryDb < -90.0f ? (a < -1e-4f ? -40.0f : p.aiDryDb) : p.aiDryDb;
+                    p.aiDryDb = base < -90.0f ? base : std::clamp (base * k, -100.0f, -6.0f);
+                }
+                break;
             case Stage::Filtr:
                 // wylaczony: zostaje 30 Hz, zeby nie przepuszczac stalej skladowej i tapniec
                 if (off) { p.highpassHz = 30.0; p.steepHighpass = false; }
@@ -271,6 +286,7 @@ inline std::string stageValue (const SpeechChain::Params& p, Stage s)
     using tweakText::num;
     switch (s)
     {
+        case Stage::TloAI:       return p.aiDryDb < -90.0f ? "bez domieszki" : "oryginał " + num (p.aiDryDb, 0) + " dB";
         case Stage::Filtr:       return num (p.highpassHz, 0) + " Hz";
         case Stage::Korektor:
         {
