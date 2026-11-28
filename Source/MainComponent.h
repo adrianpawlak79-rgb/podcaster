@@ -697,7 +697,7 @@ public:
         const bool rec = recorder.isRecording();
         const auto name = recordingName();
         zs::ScreenFrame::paint (g, getLocalBounds(), inPrompter ? juce::String() : name,
-            inPrompter ? (correctionMode ? correctionHint() : PL ("Spacja — nagraj / pauza  ·  R — powtórz wers  ·  Esc — zakończ"))
+            inPrompter ? (correctionMode ? correctionHint() : PL ("Spacja — nagraj / pauza  ·  R — powtórz wers  ·  Esc — zakończ nagranie"))
             : rec ? PL ("Spacja albo Esc — zakończ i oceń") : preparation ? PL("Wybierz mikrofon i przygotuj tekst") : PL ("Nagraj, a potem odsłuchaj nagranie"),
             inPrompter);
         auto side = zs::ScreenFrame::sidebar (getLocalBounds());
