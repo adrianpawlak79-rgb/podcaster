@@ -97,3 +97,12 @@ Start badań po scaleniu fali 2. Badania nie mogą blokować wydania 1.0.
   - klik nie trafia do nagrania.
 
   Wersja 1.1.
+
+### Decyzje Adriana 28.11 (asystent)
+- **Lektor czytający dymki:** odłożony. Warianty do wyboru później: głos Adriana, ElevenLabs, głos Windows.
+- **Samouczek przy pierwszym uruchomieniu:**
+  - przeprowadza przez cały program na prawdziwym, krótkim nagraniu próbnym i przechodzi dalej po wykonaniu każdej czynności;
+  - przycisk „Samouczek” w Pomocy i na ekranie startowym;
+  - potem asystent towarzyszy przy kolejnych krokach.
+
+  Gałąź `claude/samouczek`.
