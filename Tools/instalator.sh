@@ -51,7 +51,7 @@ unzip -q -j "$CACHE/vosk-win64-0.3.45.zip" '*/libvosk.dll' '*/libgcc_s_seh-1.dll
 unzip -q "$CACHE/vosk-model-small-pl-0.22.zip" -d "$ZRODLO"
 [ -f "$ZRODLO/vosk-model-small-pl-0.22/graph/Gr.fst" ] || { echo "model niekompletny" >&2; exit 1; }
 
-# LICENCJE.txt: opis skladnikow + pelne teksty Apache 2.0 i SIL OFL 1.1
+# LICENCJE.txt: opis skladnikow + pelne teksty Apache 2.0, BSD (RNNoise) i SIL OFL 1.1
 # (Apache 2.0 z Installer/licencje, OFL z Resources/Fonts — te same pliki,
 # ktore leza obok czcionek w repozytorium).
 LIC="$TU/Installer/licencje"
@@ -62,7 +62,7 @@ Zielone swiatlo - skladniki i licencje
 ======================================
 
 Program "Zielone swiatlo" korzysta z ponizszych skladnikow. Pelne teksty
-licencji Apache 2.0 i SIL OFL 1.1 sa ponizej.
+licencji Apache 2.0, BSD (RNNoise) i SIL OFL 1.1 sa ponizej.
 
 1. JUCE 7 (https://juce.com)
    Program jest zbudowany na JUCE 7 w ramach darmowej licencji JUCE Personal
@@ -85,9 +85,15 @@ licencji Apache 2.0 i SIL OFL 1.1 sa ponizej.
    JetBrains Mono (Copyright 2020 The JetBrains Mono Project Authors),
    wbudowane w program - SIL Open Font License 1.1 (pelny tekst nizej).
 
+6. RNNoise (Jean-Marc Valin, Xiph.Org Foundation, Mozilla, Amazon i inni; https://github.com/xiph/rnnoise)
+   z modelem sieci, wbudowany w program ("Usuwanie tla (AI)") - licencja
+   BSD 3-Clause (pelny tekst nizej, z ThirdParty/rnnoise/COPYING).
+
 KONIEC
 printf '\n%s\nApache License 2.0 (Vosk, model vosk-model-small-pl-0.22)\n%s\n\n' "$LINIA" "$LINIA"
 cat "$LIC/Apache-2.0.txt"
+printf '\n\n%s\nRNNoise - licencja BSD 3-Clause\n%s\n\n' "$LINIA" "$LINIA"
+cat "$TU/ThirdParty/rnnoise/COPYING"
 printf '\n\n%s\nSIL Open Font License 1.1 - Inter\n%s\n\n' "$LINIA" "$LINIA"
 cat "$TU/Resources/Fonts/OFL.txt"
 printf '\n\n%s\nSIL Open Font License 1.1 - JetBrains Mono\n%s\n\n' "$LINIA" "$LINIA"

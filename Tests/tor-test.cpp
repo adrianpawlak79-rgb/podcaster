@@ -57,6 +57,8 @@ int main()
         {
             const auto s = (Stage) i;
             auto p = studio();
+            // usuwanie tla (AI) wlacza pomiar tla, nie brzmienie: tu wlaczone recznie
+            if (s == Stage::TloAI) p.useAiDenoise = true;
             if (! mix::stageUsed (p, s)) { all = false; continue; }
             mix::Tweaks t; t.off[(size_t) i] = true;
             mix::applyTweaks (p, t);
@@ -64,6 +66,22 @@ int main()
             if (! gone) { all = false; std::printf ("     nie wylaczyl: %s\n", mix::stageName (s)); }
         }
         check (all, "w studyjnym kazdy modul jest uzyty i daje sie wylaczyc");
+    }
+
+    // usuwanie tla (AI): mniej = domieszka oryginalu, wylaczone = bez sieci
+    {
+        auto p = studio(); p.useAiDenoise = true;
+        mix::Tweaks t; t.amount[(size_t) Stage::TloAI] = -1.0f;
+        mix::applyTweaks (p, t);
+        check (p.useAiDenoise && std::abs (p.aiDryDb + 20.0f) < 1e-3f, "AI mniej: oryginal -20 dB", mix::stageValue (p, Stage::TloAI));
+        auto q = studio(); q.useAiDenoise = true;
+        mix::Tweaks u; u.amount[(size_t) Stage::TloAI] = 1.0f;
+        mix::applyTweaks (q, u);
+        check (q.aiDryDb < -90.0f, "AI wiecej: bez domieszki", mix::stageValue (q, Stage::TloAI));
+        auto r = studio();
+        mix::Tweaks f; f.forced[(size_t) Stage::TloAI] = true;
+        mix::applyTweaks (r, f);
+        check (r.useAiDenoise, "AI wlaczone recznie");
     }
 
     // wiecej / mniej

@@ -35,6 +35,17 @@ espeak-ng -v en -s 160 -w /tmp/mowa/tv-22k.wav \
 the latest results from the football league, and a story about a cat who learned to open the \
 fridge. Stay with us after the break for the interview."
 ffmpeg -hide_banner -loglevel error -y -i /tmp/mowa/tv-22k.wav -ar 48000 /tmp/mowa/telewizor.wav
+# glos dla ai-tlo-test: zwykly espeak siec RNNoise bierze za szum; klatt brzmi
+# dla niej jak czlowiek (pomiar w ai-tlo-test.cpp)
+espeak-ng -v pl+klatt -s 140 -w /tmp/mowa/klatt-22k.wav \
+  "Dzisiaj jest piatek i nagrywam pierwszy odcinek. Kot siedzi na plocie, a pies spi pod stolem. \
+Nagranie musi byc czyste, zeby dalo sie go sluchac bez zmeczenia. Mikrofon stoi blisko ust, \
+wiec slychac kazdy oddech. Czytam dalej rowno i spokojnie, az do konca strony. Potem robie \
+przerwe, pije wode i wracam do tekstu. Najtrudniejsze sa dlugie zdania, w ktorych trzeba \
+rozlozyc oddech na kilka fraz."
+ffmpeg -hide_banner -loglevel error -y -i /tmp/mowa/klatt-22k.wav -ar 48000 /tmp/mowa/mowa-klatt.wav
+# RNNoise (ThirdParty/rnnoise) jako biblioteka dla testow, ktore go uzywaja
+RNN=$(bash rnnoise-lib.sh /tmp/zs-rnnoise 2>/tmp/rnnoise-lib.log | tail -1)
 
 # ---- testy: nazwa i argumenty ------------------------------------------------
 TESTY=(
@@ -76,6 +87,7 @@ TESTY=(
   "podmiana-fragmentu-test"
   "podklad-miks-test"
   "tlo-test /tmp/mowa/mowa-czysta.wav /tmp/mowa/telewizor.wav"
+  "ai-tlo-test /tmp/mowa/mowa-klatt.wav /tmp/mowa/telewizor.wav"
   "podklad-ogon-test"
   "przester-test /tmp/mowa.wav"
   "id3-test t2.wav"
@@ -98,7 +110,10 @@ for t in "${TESTY[@]}"; do
     echo "| $name | brak na tej galezi | | |" >> "$OUT"; continue
   fi
 
-  if ! $CXX $FLAGS "$name.cpp" -o "$name" 2> "/tmp/$name.kompilacja"; then
+  extra=""
+  [ "$name" = "ai-tlo-test" ] && extra="$RNN"
+  # shellcheck disable=SC2086
+  if ! $CXX $FLAGS "$name.cpp" $extra -o "$name" 2> "/tmp/$name.kompilacja"; then
     echo "| $name | **nie kompiluje sie** | | |" >> "$OUT"; zle=1; continue
   fi
 

@@ -757,6 +757,8 @@ private:
         if (mix::stageUsed (p, mix::Stage::Kompresja))
             plain.push_back ("Wyrównano ciche i głośne fragmenty. Sprawdź, czy głos nadal brzmi naturalnie.");
 
+        if (report.aiDenoised)
+            plain.push_back ("Usunięto hałas w tle (telewizor, rozmowy) — posłuchaj, czy końcówki słów zostały.");
         if (report.denoiseDb < 0.0)
             plain.push_back ("Ściszono szum tła. Posłuchaj pauz: tło nie powinno „pływać”, a końcówki słów mają zostać.");
         if (p.useGate)
