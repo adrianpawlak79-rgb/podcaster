@@ -280,7 +280,7 @@ public:
                 st == mix::Decide::Style::Delikatny ? PL ("Naturalny głos, tylko lekko wyrównany.")
               : st == mix::Decide::Style::Mocny ? PL ("Gęściej i wyraźniej, jak w radiu.")
                                                 : PL ("Równe, bliskie brzmienie do podcastu."));
-            styleCards[i].onClick = [this, st] { chooseStyle (st); };
+            styleCards[i].onClick = [this, st] { ++activity.styles; chooseStyle (st); };
             styleCards[i].setTooltip (st == mix::Decide::Style::Delikatny ? PL ("Naturalnie: głos prawie bez zmian, tylko równiejszy")
                                       : st == mix::Decide::Style::Mocny    ? PL ("Radiowo: gęściej i bliżej")
                                                                            : PL ("Wyrównany: jak w dobrym podcaście"));
@@ -434,6 +434,7 @@ public:
             if(!(cutFrom>=0 && cutTo>cutFrom && cutTo-cutFrom<review.seconds())) {
                 note=PL("Wskaż początek, potem późniejszy koniec cięcia na osi czasu.");repaint();return;
             }
+            ++activity.cuts;
             const double from=cutFrom,to=cutTo,rate=sr;
             const bool mute=withMusic;
             restartEdit([this,from,to,rate,mute](std::vector<float>& out) {
@@ -754,6 +755,32 @@ public:
 
     int flowStepNow() const { return doneMode ? 5 : editMode ? 3 : 4; }
 
+    /** Samouczek (Tutorial.h): liczniki czynnosci czlowieka na tym ekranie.
+        Tylko rosna; miksu ani montazu nie zmieniaja. */
+    struct Activity { int listens = 0, cuts = 0, abToggles = 0, styles = 0; };
+    const Activity& activityNow() const noexcept { return activity; }
+
+    /** Samouczek: element do wskazania ("fala", "ciecie", "dalej", "przedpo",
+        "brzmienia", "zapisz", "folder", "asystent"); pusty krok, gdy go nie ma. */
+    zs::TourStep tutorialTarget (const juce::String& id)
+    {
+        namespace T = zs::tour;
+        if (id == "fala")      return T::rectIn (*this, [this] { return waveArea(); }, {});
+        // najpierw fala (przeciagnij), po zaznaczeniu sam przycisk "Wytnij zaznaczenie"
+        if (id == "ciecie")    return T::rectIn (*this, [this] {
+                                   return cutButton.isVisible() && cutButton.isEnabled() ? cutButton.getBounds() : waveArea(); }, {});
+        if (id == "dalej" || id == "zapisz") return T::of (saveButton, {});
+        if (id == "przedpo")   return T::of (abButton, {});
+        if (id == "brzmienia") return T::both (styleCards[0], styleCards[2], {});
+        if (id == "folder")    return T::of (folderButton, {});
+        if (id == "asystent")  return T::of (assistToggle, {});
+        return {};
+    }
+
+    /** Samouczek bez mikrofonu ("Dalej"): to samo, co klikniecie glownego
+        przycisku ("Dalej: miks", "Zapisz miks"), gdy jest dostepny. */
+    void pressPrimary() { if (saveButton.isVisible() && saveButton.isEnabled() && saveButton.onClick) saveButton.onClick(); }
+
     /** Przewodnik po biezacym ekranie (TourOverlay.h). Elementy ukryte sa pomijane,
         wiec lista moze byc dluzsza niz to, co widac w danym trybie. */
     std::vector<zs::TourStep> tourSteps()
@@ -870,6 +897,7 @@ public:
         else if (! player.isPlaying())
         {
             player.play();
+            ++activity.listens;
         }
 
         repaint();
@@ -896,7 +924,10 @@ public:
     {
         // klikniecie bez przeciagniecia w montazu: posluchaj od tego miejsca
         if (editMode && dragX0 >= 0.0f && std::abs (e.position.x - dragX0) < 4.0f && ! player.isPlaying())
+        {
             player.play();
+            ++activity.listens;
+        }
         dragX0 = -1.0f;
     }
 
@@ -2026,6 +2057,7 @@ private:
         if (editMode || ! mixReady()) return;           // w montazu nie ma jeszcze miksu
 
         player.toggle();
+        ++activity.abToggles;
         updateAbText();
         repaint();
     }
@@ -2700,6 +2732,7 @@ private:
     zs::AssistantToggle assistToggle;
     MixAbSwitch abButton;
     MixStyleCard styleCards[3];
+    Activity activity;                      ///< samouczek: liczniki czynnosci
     bool styleNote = false;                 ///< note to "Miks ... liczy się…" z chooseStyle
     int takeVersion = 0, mixedVersion = -1; ///< ktora wersja montazu jest zmiksowana...
     int loadedVersion = 0, savedVersion = -1; ///< ...wczytana z dysku i zapisana jako miks (hasUnsavedEdits)

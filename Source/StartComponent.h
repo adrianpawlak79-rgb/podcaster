@@ -34,6 +34,7 @@ public:
     std::function<void (const juce::File&)> onOpen;
     std::function<void()> onOpenOther;
     std::function<void()> onCheckEquipment;
+    std::function<void()> onTutorial;        ///< link "Samouczek" (MainComponent)
 
     StartComponent()
     {
@@ -57,6 +58,14 @@ public:
         otherButton.setButtonText (PL ("Otwórz inny plik…"));
         otherButton.onClick = [this] { if (onOpenOther) onOpenOther(); };
         addAndMakeVisible (otherButton);
+
+        tutorialLink.setButtonText (PL ("Pierwszy raz? Samouczek (5 minut)"));
+        tutorialLink.setFont (juce::Font (zs::type::small), false, juce::Justification::centredRight);
+        tutorialLink.setColour (juce::HyperlinkButton::textColourId, zs::Ink::accent());
+        tutorialLink.setTooltip (PL ("Cały program krok po kroku, na krótkim nagraniu próbnym."));
+        tutorialLink.setWantsKeyboardFocus (false);
+        tutorialLink.onClick = [this] { if (onTutorial) onTutorial(); };
+        addAndMakeVisible (tutorialLink);
 
         equipmentButton.setButtonText (PL ("Sprawdź sprzęt"));
         equipmentButton.onClick = [this] { if (onCheckEquipment) onCheckEquipment(); };
@@ -197,6 +206,7 @@ public:
         nameInput.setBounds (L.name);
         startButton.setBounds (L.start);
         otherButton.setBounds (L.other);
+        tutorialLink.setBounds (L.left.reduced (pad, pad).removeFromTop (18).removeFromRight (260).withSizeKeepingCentre (260, 24));
         auto equipmentBounds = L.equipment;
         const auto buttonArea = equipmentBounds.removeFromRight (compactEquipmentWidth());
         equipmentButton.setBounds (buttonArea.withSizeKeepingCentre (compactEquipmentWidth(), 32));
@@ -264,6 +274,7 @@ private:
     std::vector<Item> recent;
     int hoverRow = -1;
     juce::TextButton equipmentButton;
+    juce::HyperlinkButton tutorialLink;
     bool musicMode = false;
     bool withPrompter = true;    ///< Adrian 25.10: wybor na starcie, czy z tekstem
     juce::String equipment;

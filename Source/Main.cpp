@@ -96,6 +96,7 @@ countries: pl
             if(mode=="przewodnik-miks-2") preview.previewTour("miks",1,fixture);
             if(mode=="przewodnik-gotowe") preview.previewTour("gotowe",0,fixture);
             if(mode=="przewodnik-nagranie-powtorz") preview.previewTour("nagranie",2,{});
+            if(mode.startsWith("samouczek-")) preview.previewTutorial(mode.fromFirstOccurrenceOf("samouczek-",false,false),fixture);
             if(mode=="review") preview.previewReview(fixture);
             if(mode=="tor") preview.previewChain(fixture);
             if(mode=="edit") preview.previewReview(fixture,true);

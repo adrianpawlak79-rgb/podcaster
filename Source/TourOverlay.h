@@ -138,12 +138,106 @@ public:
         disableLink.setTooltip (tour::T ("Asystent przestanie sam pokazywać wskazówki. Włączysz go przełącznikiem „Asystent” obok „Pomoc”."));
         disableLink.onClick = [this] { if (onDisableAssistant) onDisableAssistant(); };
         addChildComponent (disableLink);
+
+        // samouczek
+        zs::Look::setKind (skipButton, zs::ui::ButtonKind::Secondary);
+        skipButton.setButtonText (tour::T ("Pomiń ten krok"));
+        skipButton.setWantsKeyboardFocus (false);
+        skipButton.onClick = [this] { if (onGuidedSkip) onGuidedSkip(); };
+        addChildComponent (skipButton);
+        nextButton.onClick = [this] { if (guidedMode) { if (onGuidedNext) onGuidedNext(); } else go (+1); };
+        endLink.setButtonText (tour::T ("Zakończ samouczek"));
+        endLink.setFont (juce::Font (zs::type::tiny), false, juce::Justification::centredLeft);
+        endLink.setColour (juce::HyperlinkButton::textColourId, zs::Ink::textNext());
+        endLink.setWantsKeyboardFocus (false);
+        endLink.setTooltip (tour::T ("Wrócisz do niego w każdej chwili: Pomoc → Samouczek."));
+        endLink.onClick = [this] { if (onGuidedEnd) onGuidedEnd(); };
+        addChildComponent (endLink);
+    }
+
+    //==========================================================================
+    // ---- tryb samouczka (Tutorial.h, MainComponent) ---------------------------
+    //
+    // Jeden dymek naraz, kroki prowadzi MainComponent. Roznice wobec przewodnika:
+    //  - WYCIECIE PRZEPUSZCZA MYSZ: element w wycieciu klika sie normalnie
+    //    (hitTest = false), bo krok przechodzi dalej dopiero, gdy czlowiek
+    //    sam go kliknie. Reszta ekranu pod przyciemnieniem jest zablokowana —
+    //    jedno miejsce do klikniecia, nie da sie zabladzic.
+    //  - Bez wyciecia (elementu nie ma na ekranie, np. kreator) i w trybie
+    //    "compact" (w trakcie nagrania): bez przyciemnienia, nic nie blokuje,
+    //    maly dymek z boku ("park").
+    //  - Klawiatury nie zabiera: spacja, R i Esc dzialaja jak bez samouczka.
+    struct Guided
+    {
+        juce::String counter, text;
+        bool next = false;                  ///< "Dalej" (krok informacyjny, tryb tylko pokaz)
+        juce::String nextText;              ///< pusty = "Dalej"
+        bool skip = true;                   ///< "Pomiń ten krok"
+        bool compact = false;               ///< maly, bez przyciemnienia, nic nie blokuje
+        juce::Rectangle<int> park;          ///< gdzie stawiac maly dymek (uklad nakladki)
+    };
+    std::function<void()> onGuidedNext, onGuidedSkip, onGuidedEnd;
+
+    bool isGuided() const noexcept { return guidedMode; }
+
+    /** Pokazuje (albo zmienia) dymek samouczka. target.area moze dawac pusty prostokat. */
+    void showGuided (TourStep target, Guided g)
+    {
+        guidedMode = true;
+        guided = std::move (g);
+        target.text = guided.text;
+        steps.clear();
+        steps.push_back (std::move (target));
+        index = 0;
+        setWantsKeyboardFocus (false);
+        backButton.setVisible (false); endButton.setVisible (false); disableLink.setVisible (false);
+        nextButton.setVisible (guided.next);
+        nextButton.setButtonText (guided.nextText.isNotEmpty() ? guided.nextText : tour::T ("Dalej"));
+        skipButton.setVisible (guided.skip);
+        endLink.setVisible (true);
+        lastHole = {};
+        setVisible (true);
+        toFront (false);
+        layoutBubble();
+        repaint();
+    }
+
+    /** Co klatke: element mogl sie przesunac albo pojawic — przelicz wyciecie. */
+    void refreshGuided()
+    {
+        if (! guidedMode || ! isVisible() || steps.empty()) return;
+        if (auto* p = getParentComponent(); p != nullptr && p->getIndexOfChildComponent (this) != p->getNumChildComponents() - 1)
+            toFront (false);
+        const auto h = steps[0].area ? steps[0].area (*this) : juce::Rectangle<int>();
+        if (h != lastHole) { lastHole = h; layoutBubble(); repaint(); }
+    }
+
+    void endGuided()
+    {
+        if (! guidedMode) return;
+        guidedMode = false;
+        skipButton.setVisible (false); endLink.setVisible (false);
+        backButton.setVisible (true); endButton.setVisible (true); nextButton.setVisible (true);
+        setWantsKeyboardFocus (true);
+        steps.clear();
+        setVisible (false);
+    }
+
+    /** Samouczek: mysz w wycieciu i (bez przyciemnienia) wszedzie poza dymkiem
+        idzie do ekranu pod spodem. */
+    bool hitTest (int x, int y) override
+    {
+        if (! guidedMode) return true;
+        if (bubble.contains (x, y)) return true;
+        if (! blocking()) return false;
+        return ! hole.contains (x, y);
     }
 
     /** Uruchamia przewodnik. Nakladka musi juz miec rodzica i rozmiar okna.
         Zwraca false, gdy zaden krok nie ma elementu na ekranie. */
     bool begin (std::vector<TourStep> all, int firstStep = 0)
     {
+        if (guidedMode) endGuided();
         steps.clear();
         for (auto& s : all)
             if (s.area && ! s.area (*this).isEmpty()) steps.push_back (std::move (s));
@@ -170,13 +264,16 @@ public:
         if (steps.empty()) return;
 
         using I = zs::Ink;
-        // przyciemnione tlo z wycieciem
-        juce::Path scrim;
-        scrim.addRectangle (getLocalBounds().toFloat());
-        if (! hole.isEmpty()) scrim.addRoundedRectangle (hole.toFloat(), 8.0f);
-        scrim.setUsingNonZeroWinding (false);
-        g.setColour (juce::Colours::black.withAlpha (0.72f));
-        g.fillPath (scrim);
+        // przyciemnione tlo z wycieciem (samouczek: tylko gdy blokuje reszte ekranu)
+        if (! guidedMode || blocking())
+        {
+            juce::Path scrim;
+            scrim.addRectangle (getLocalBounds().toFloat());
+            if (! hole.isEmpty()) scrim.addRoundedRectangle (hole.toFloat(), 8.0f);
+            scrim.setUsingNonZeroWinding (false);
+            g.setColour (juce::Colours::black.withAlpha (guidedMode ? 0.62f : 0.72f));
+            g.fillPath (scrim);
+        }
 
         if (! hole.isEmpty())
         {
@@ -195,13 +292,13 @@ public:
         g.setColour (I::accent());
         g.drawRoundedRectangle (bubble.toFloat().reduced (0.5f), 12.0f, 1.5f);
 
-        auto inner = bubble.reduced (pad, pad);
+        auto inner = bubble.reduced (padNow(), padNow());
         g.setColour (I::accent()); g.setFont (juce::Font (zs::type::tiny, juce::Font::bold));
-        g.drawText (juce::String (index + 1) + tour::T (" z ") + juce::String ((int) steps.size()),
+        g.drawText (guidedMode ? guided.counter : juce::String (index + 1) + tour::T (" z ") + juce::String ((int) steps.size()),
                     inner.removeFromTop (counterH), juce::Justification::centredLeft);
         inner.removeFromTop (6);
         zs::ScreenFrame::wrapped (g, steps[(size_t) index].text, inner.removeFromTop (textH),
-                                  juce::Font (textFont), I::textNow());
+                                  juce::Font (fontNow()), I::textNow());
     }
 
     void resized() override { layoutBubble(); }
@@ -210,6 +307,7 @@ public:
 
     bool keyPressed (const juce::KeyPress& k) override
     {
+        if (guidedMode) return false;   // samouczek nie zabiera klawiszy (spacja, R, Esc)
         const int c = k.getKeyCode();
         if (c == juce::KeyPress::escapeKey) { finish (false); return true; }
         if (c == juce::KeyPress::rightKey || c == juce::KeyPress::returnKey || c == juce::KeyPress::spaceKey) { go (+1); return true; }
@@ -229,6 +327,19 @@ private:
     juce::Point<float> arrowFrom, arrowTo;
     juce::TextButton backButton, nextButton, endButton;
     juce::HyperlinkButton disableLink;
+    // samouczek
+    bool guidedMode = false;
+    Guided guided;
+    juce::TextButton skipButton;
+    juce::HyperlinkButton endLink;
+    juce::Rectangle<int> lastHole;
+
+    bool compactNow() const { return guidedMode && guided.compact; }
+    int padNow() const      { return compactNow() ? 12 : pad; }
+    float fontNow() const   { return compactNow() ? 14.0f : textFont; }
+    /** Samouczek: przyciemnienie i blokada reszty ekranu tylko przy widocznym
+        elemencie i poza nagraniem. */
+    bool blocking() const   { return guidedMode && ! guided.compact && ! hole.isEmpty(); }
 
     void go (int d)
     {
@@ -256,9 +367,14 @@ private:
         auto h = steps[(size_t) index].area ? steps[(size_t) index].area (*this) : juce::Rectangle<int>();
         hole = h.isEmpty() ? juce::Rectangle<int>() : h.expanded (6).getIntersection (W);
 
-        const int bw = juce::jmin (380, W.getWidth() - 2 * margin);
-        textH = zs::ScreenFrame::wrappedHeight (steps[(size_t) index].text, bw - 2 * pad, juce::Font (textFont));
-        const int bh = pad + counterH + 6 + textH + 12 + btnH + (disableLink.isVisible() ? 6 + linkH : 0) + pad;
+        const int P = padNow();
+        const bool parked = compactNow() && ! guided.park.isEmpty() && ! guided.park.intersects (hole);
+        const int bw = parked ? juce::jmin (320, guided.park.getWidth())
+                              : juce::jmin (compactNow() ? 320 : 380, W.getWidth() - 2 * margin);
+        textH = zs::ScreenFrame::wrappedHeight (steps[(size_t) index].text, bw - 2 * P, juce::Font (fontNow()));
+        const bool hasButtons = ! guidedMode || guided.next || guided.skip;
+        const bool hasLink = guidedMode ? true : disableLink.isVisible();
+        const int bh = P + counterH + 6 + textH + (hasButtons ? 12 + btnH : 0) + (hasLink ? 6 + linkH : 0) + P;
 
         auto clampX = [&] (int x) { return juce::jlimit (margin, juce::jmax (margin, W.getRight() - margin - bw), x); };
         auto clampY = [&] (int y) { return juce::jlimit (margin, juce::jmax (margin, W.getBottom() - margin - bh), y); };
@@ -268,7 +384,10 @@ private:
         Side side = None;
         juce::Rectangle<int> b;
 
-        if (hole.isEmpty())
+        if (parked)   // samouczek w trakcie nagrania: na dole wskazanego miejsca (prawy panel)
+            b = juce::Rectangle<int> (bw, bh).withX (guided.park.getRight() - bw)
+                    .withBottomY (guided.park.getBottom());
+        else if (hole.isEmpty())
             b = juce::Rectangle<int> (bw, bh).withCentre (W.getCentre());
         else
         {
@@ -287,7 +406,9 @@ private:
         b = juce::Rectangle<int> (clampX (b.getX()), clampY (b.getY()), bw, bh);
         bubble = b;
 
-        hasArrow = side != None;
+        // dymek z boku (nagranie): bez strzalki — przekreslalaby sasiednie
+        // przyciski; element wskazuje sama ramka
+        hasArrow = side != None && ! parked;
         if (hasArrow)
         {
             auto mid = [] (int a0, int a1, int b0, int b1) {   // srodek wspolnego odcinka albo najblizszy punkt
@@ -307,7 +428,18 @@ private:
             }
         }
 
-        auto bottom = bubble.reduced (pad, pad);
+        auto bottom = bubble.reduced (P, P);
+        if (guidedMode)
+        {
+            endLink.setBounds (bottom.removeFromBottom (linkH).removeFromLeft (170));
+            bottom.removeFromBottom (6);
+            auto row = bottom.removeFromBottom (btnH);
+            const int nw = juce::jmax (92, juce::Font (15.0f).getStringWidth (nextButton.getButtonText()) + 36);
+            if (guided.next) { nextButton.setBounds (row.removeFromRight (juce::jmin (nw, row.getWidth()))); row.removeFromRight (8); }
+            if (guided.skip) skipButton.setBounds (row.removeFromRight (juce::jmin (140, row.getWidth())));
+            for (auto* c : { (juce::Component*) &skipButton, (juce::Component*) &nextButton, (juce::Component*) &endLink }) c->toFront (false);
+            return;
+        }
         if (disableLink.isVisible())
         {
             disableLink.setBounds (bottom.removeFromBottom (linkH).removeFromLeft (150));

@@ -261,6 +261,26 @@ int main()
         ok (q.assistantOn(), "ponownie wlaczony asystent przetrwal");
     }
 
+    // ---- 10. samouczek (krok, w toku, plik, ukonczony) -----------------------
+    {
+        Settings s;
+        eq (s.tutorialStep(), juce::String(), "samouczek: domyslnie nic do wznowienia");
+        ok (! s.tutorialRunning() && ! s.tutorialDone(), "samouczek: domyslnie nie w toku i nieukonczony");
+        s.setTutorialStep ("wytnij;pokaz", true);
+        s.setTutorialFile (juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("Samouczek/proba.wav"));
+        Settings r;
+        eq (r.tutorialStep(), juce::String ("wytnij;pokaz"), "krok samouczka przetrwal");
+        ok (r.tutorialRunning(), "samouczek w toku przetrwal (propozycja przy starcie)");
+        eq (r.tutorialFile().getFileName(), juce::String ("proba.wav"), "plik proby przetrwal");
+        r.setTutorialStep ("wytnij", false);   // "Zakoncz samouczek"
+        Settings q;
+        ok (! q.tutorialRunning() && q.tutorialStep() == "wytnij", "przerwany: krok zostaje, bez propozycji przy starcie");
+        q.setTutorialDone();
+        Settings d;
+        ok (d.tutorialDone() && d.tutorialStep().isEmpty() && d.tutorialFile() == juce::File() && ! d.tutorialRunning(),
+            "ukonczony: krok i plik skasowane, flaga ukonczenia");
+    }
+
     // porzadek po sobie
     {
         Settings s;

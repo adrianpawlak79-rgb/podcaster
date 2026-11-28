@@ -249,7 +249,8 @@ public:
     std::function<void()> onClose;
     std::function<void()> onShowTour;        ///< "Pokaz mi na ekranie"
     std::function<void()> onWelcomeStart;    ///< "Zaczynam"
-    std::function<void()> onWelcomeTour;     ///< "Pokaz, jak to dziala"
+    std::function<void()> onWelcomeTour;     ///< "Samouczek" w powitaniu
+    std::function<void()> onTutorial;        ///< "Samouczek" w oknie pomocy
 
     HelpComponent()
     {
@@ -273,17 +274,22 @@ public:
         tourButton.onClick = [this] { if (onShowTour) onShowTour(); };
         zs::Look::setKind (tourButton, zs::ui::ButtonKind::Primary);
 
-        welcomeTour.setButtonText (help::T ("Pokaż, jak to działa"));
+        welcomeTour.setButtonText (help::T ("Samouczek (5 minut, nagrasz próbę)"));
         welcomeTour.onClick = [this] { if (onWelcomeTour) onWelcomeTour(); };
         zs::Look::setKind (welcomeTour, zs::ui::ButtonKind::Primary);
-        welcomeStart.setButtonText (help::T ("Zaczynam"));
+        welcomeStart.setButtonText (help::T ("Pomiń"));
+
+        tutorialButton.setButtonText (help::T ("Samouczek"));
+        tutorialButton.setTooltip (help::T ("Przejdź cały program na krótkim nagraniu próbnym (ok. 5 minut)."));
+        tutorialButton.onClick = [this] { if (onTutorial) onTutorial(); };
+        zs::Look::setKind (tutorialButton, zs::ui::ButtonKind::Secondary);
         welcomeStart.onClick = [this] { if (onWelcomeStart) onWelcomeStart(); };
         zs::Look::setKind (welcomeStart, zs::ui::ButtonKind::Secondary);
 
         viewport.setViewedComponent (&content, false);
         viewport.setScrollBarsShown (true, false);
         viewport.setScrollBarThickness (10);
-        for (auto* c : { (juce::Component*) &closeButton, (juce::Component*) &tourButton, (juce::Component*) &welcomeTour,
+        for (auto* c : { (juce::Component*) &closeButton, (juce::Component*) &tourButton, (juce::Component*) &tutorialButton, (juce::Component*) &welcomeTour,
                          (juce::Component*) &welcomeStart, (juce::Component*) &viewport })
         {
             c->setWantsKeyboardFocus (false);
@@ -331,7 +337,7 @@ public:
         g.setColour (I::edge());
         g.drawHorizontalLine (footer.getY() - 6, (float) panel.getX() + pad, (float) panel.getRight() - pad);
         g.setColour (I::textDim()); g.setFont (juce::Font (zs::type::small));
-        const auto hintArea = footer.withTrimmedLeft (tourButton.getWidth() + 14);
+        const auto hintArea = footer.withTrimmedLeft (tourButton.getWidth() + 14 + tutorialButton.getWidth() + 10);
         g.drawText (tourButton.isEnabled()
                         ? (seen ? help::T ("Przewodnik po tym ekranie: już obejrzany.") : help::T ("Dymki wskażą przyciski na tym ekranie."))
                         : juce::String(),
@@ -349,8 +355,8 @@ public:
             const int h = 28 + 38 + 8 + textH + 22 + 42 + 28;
             panel = juce::Rectangle<int> (w, h).withCentre (W.getCentre());
             auto row = panel.reduced (28, 28).removeFromBottom (42);
-            welcomeStart.setBounds (row.removeFromRight (120)); row.removeFromRight (10);
-            welcomeTour.setBounds (row.removeFromRight (210));
+            welcomeStart.setBounds (row.removeFromRight (110)); row.removeFromRight (10);
+            welcomeTour.setBounds (row.removeFromRight (juce::jmin (310, row.getWidth())));
             return;
         }
 
@@ -366,6 +372,9 @@ public:
         in.removeFromBottom (12);
         in.removeFromTop (12);
         tourButton.setBounds (footer.removeFromLeft (220).withSizeKeepingCentre (220, 38));
+        footer.removeFromLeft (10);
+        tutorialButton.setBounds (footer.removeFromLeft (140).withSizeKeepingCentre (140, 38));
+        footer = footer.withLeft (tourButton.getX());
         viewport.setBounds (in);
         content.setWidthAndLayout (viewport.getMaximumVisibleWidth());
     }
@@ -405,7 +414,7 @@ private:
     static constexpr int pad = 24, headH = 64;
 
     juce::Rectangle<int> panel, footer;
-    juce::TextButton closeButton, tourButton, welcomeTour, welcomeStart;
+    juce::TextButton closeButton, tourButton, tutorialButton, welcomeTour, welcomeStart;
     juce::TextButton tabs[3];
     juce::Viewport viewport;
     HelpContent content;
@@ -415,14 +424,16 @@ private:
     static juce::String welcomeText()
     {
         return help::T ("Zielone światło poprowadzi Cię od mikrofonu do gotowego pliku MP3. "
-                        "Chcesz zobaczyć w minutę, co gdzie jest? Pomoc znajdziesz potem pod przyciskiem „Pomoc”. "
+                        "Pierwszy raz? Samouczek przeprowadzi Cię przez cały program na krótkim nagraniu próbnym — "
+                        "nagrasz sześć zdań, wytniesz kawałek i zapiszesz gotowy plik. Próba nie miesza się z Twoimi odcinkami. "
+                        "Samouczek i pomoc znajdziesz potem pod przyciskiem „Pomoc”. "
                         "Asystent, który podpowiada na kolejnych ekranach, jest włączony — wyłączysz go przełącznikiem „Asystent” obok „Pomoc”.");
     }
 
     void open()
     {
         const bool isHelp = mode == Mode::Help;
-        closeButton.setVisible (isHelp); tourButton.setVisible (isHelp); viewport.setVisible (isHelp);
+        closeButton.setVisible (isHelp); tourButton.setVisible (isHelp); tutorialButton.setVisible (isHelp); viewport.setVisible (isHelp);
         for (auto& t : tabs) t.setVisible (isHelp);
         welcomeTour.setVisible (! isHelp); welcomeStart.setVisible (! isHelp);
         setVisible (true);

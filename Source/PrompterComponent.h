@@ -325,6 +325,12 @@ public:
     int    lineNow() const noexcept   { return lines.empty() ? 0 : juce::jlimit (0, (int) lines.size() - 1, shownLine); }
     int    lineTotal() const noexcept { return (int) lines.size(); }
 
+    /** Liczniki czynnosci dla samouczka (Tutorial.h). Tylko rosna; nic poza
+        samouczkiem ich nie czyta, nagrywania nie zmieniaja. */
+    int pausesDone() const noexcept      { return pauseCount; }
+    int lineResumesDone() const noexcept { return lineResumeCount; }
+    int repeatsDone() const noexcept     { return repeatCount; }
+
     void pauseRecording()
     {
         if (! recorder.isRecording() || pz.on) return;
@@ -332,6 +338,7 @@ public:
         stopPreRoll();
         pz = {};
         pz.on = true;
+        ++pauseCount;
         pz.atSec = recorder.recordedSeconds();
         pz.rate = recorder.currentSampleRate();
         pz.history = recorder.recentAudio (300.0, pz.historyStart);
@@ -513,6 +520,7 @@ public:
         lineLog.setLastCut (pz.cutSec, true);
         lineLog.setLastCutTo (end);
         punchMovedByHand = true;
+        ++lineResumeCount;
         if (pz.selected && pz.cutSec < end) removedSpans.push_back ({ pz.cutSec, end });
         // punch-in jak w DAW (Adrian 25.10): nowe nagranie rosnie od miejsca linii
         punchFrac = juce::jlimit (0.0, 0.95, (pz.cutSec - (pz.viewEnd - pauseViewSec)) / pauseViewSec);
@@ -560,6 +568,7 @@ public:
             return;
         }
         if (pz.resuming) return;
+        ++repeatCount;
         if (! pz.on) pauseRecording();
         const int from = tw::repeatLineStart (spans, follower.currentWord());
         selectLine (tw::lineOfWord (spans, from), false);
@@ -2059,6 +2068,7 @@ private:
     double viewNow = 0.0;
     double preRollStartSec = 0.0;
     bool punchMovedByHand = false;   ///< ms; -1 = nie odliczamy
+    int pauseCount = 0, lineResumeCount = 0, repeatCount = 0;   ///< samouczek: liczniki czynnosci
     bool layoutDirty = true, running = false;
 
     /* Gdzie obraz JEST i gdzie ma dojechac, w numerach wersow. */

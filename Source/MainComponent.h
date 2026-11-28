@@ -25,6 +25,7 @@
 #include "HelpComponent.h"
 #include "TourOverlay.h"
 #include "AssistantToggle.h"
+#include "Tutorial.h"
 
 //==============================================================================
 namespace pl
@@ -639,6 +640,10 @@ public:
         if (! previewMode && ! openForReview.existsAsFile() && ! settings.welcomeShown())
             juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MainComponent> (this)]
                                              { if (safe != nullptr && safe->inStart) safe->showWelcome(); });
+        // Samouczek przerwany zamknieciem programu: propozycja dokonczenia.
+        else if (! previewMode && ! openForReview.existsAsFile() && settings.tutorialRunning())
+            juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MainComponent> (this)]
+                                             { if (safe != nullptr && safe->inStart) safe->offerTutorialResume(); });
     }
 
     ~MainComponent() override
@@ -763,13 +768,17 @@ public:
             helpPanel->onClose = [this] { restoreFocus(); };
             helpPanel->onShowTour = [this] { startTour (helpScreen); };
             helpPanel->onWelcomeStart = [this] { autoTourDone.addIfNotAlreadyThere ("start"); helpPanel->close(); };   // "Zaczynam": asystent zostaje wlaczony, ale start pomijamy
-            helpPanel->onWelcomeTour = [this] { helpPanel->setVisible (false); startTour ("start"); };
+            helpPanel->onWelcomeTour = [this] { helpPanel->setVisible (false); startTutorialFlow(); };
+            helpPanel->onTutorial = [this] { helpPanel->setVisible (false); startTutorialFlow(); };
             addChildComponent (*helpPanel);
         }
         if (tourLayer == nullptr)
         {
             tourLayer = std::make_unique<zs::TourOverlay>();
             tourLayer->onDisableAssistant = [this] { setAssistant (false); tourLayer->dismiss(); };
+            tourLayer->onGuidedNext = [this] { tutorialNext(); };
+            tourLayer->onGuidedSkip = [this] { tutorialSkip(); };
+            tourLayer->onGuidedEnd  = [this] { endTutorial (false); };
             tourLayer->onFinish = [this] (bool completed)
             {
                 if (completed && tourId.isNotEmpty()) settings.setTourSeen (tourId);
@@ -783,7 +792,9 @@ public:
 
     bool overlayOpen() const
     {
-        return (helpPanel != nullptr && helpPanel->isVisible()) || (tourLayer != nullptr && tourLayer->isVisible());
+        // dymek samouczka nie jest "otwarta nakladka": nie blokuje ekranu ani Pomocy
+        return (helpPanel != nullptr && helpPanel->isVisible())
+            || (tourLayer != nullptr && tourLayer->isVisible() && ! tourLayer->isGuided());
     }
 
     //---- asystent: wl./wyl. i samoczynny przewodnik ---------------------------
@@ -809,7 +820,7 @@ public:
         ale nigdy w trakcie nagrywania ani liczenia (czeka, az ekran bedzie gotowy). */
     void maybeAutoTour()
     {
-        if (! autoAssistAllowed || ! settings.assistantOn()) return;
+        if (! autoAssistAllowed || ! settings.assistantOn() || tutorial.active()) return;
         if (recorder.isRecording() || recorder.cueRunning() || correctionMode || correctionWaitingStart) return;
         if (inWizard || settingsOpen || overlayOpen() || ! settings.welcomeShown()) return;
         if (juce::ModalComponentManager::getInstance()->getNumModalComponents() > 0) return;
@@ -879,6 +890,150 @@ public:
         else if (id == "nagranie") previewPrompter();
         else if (id == "przygotowanie") previewPreparation();
         startTour (id, firstStep);
+    }
+
+    //==========================================================================
+    // ---- samouczek (Tutorial.h) ---------------------------------------------------
+    //
+    // Prowadzi przez caly program na krotkim nagraniu proby. Logika krokow jest
+    // w zs::tut::Tutorial (test: Tests/samouczek-test.cpp); tutaj: projekt proby,
+    // obserwacja ekranu co klatke zegara i dymek (TourOverlay w trybie Guided).
+    // Nagrania proby ida do podfolderu "Samouczek" folderu nagran — lista
+    // "Ostatnie nagrania" (StartComponent) czyta tylko folder glowny, wiec ich
+    // nie pokazuje.
+
+    using TutStep = zs::tut::Step;
+
+    /** "Samouczek" z powitania, Pomocy albo ekranu startowego. Gdy jest zapisany
+        krok — pytanie: wznowic czy od nowa. */
+    void startTutorialFlow()
+    {
+        if (recorder.isRecording() || correctionMode || inWizard) return;
+        if (tutorial.active()) { showTutorialStep(); return; }
+
+        TutStep step; bool show = false;
+        const auto file = settings.tutorialFile();
+        if (zs::tut::Tutorial::load (settings.tutorialStep().toStdString(), file.existsAsFile(), step, show)
+            && step != TutStep::Welcome)
+        {
+            juce::AlertWindow::showYesNoCancelBox (juce::AlertWindow::QuestionIcon, PL ("Samouczek"),
+                PL ("Samouczek był przerwany na kroku: „") + tutorialStepLabel (step)
+                  + PL ("”.\n\nWznowić od tego miejsca czy zacząć od nowa?"),
+                PL ("Wznów"), PL ("Od nowa"), PL ("Anuluj"), this,
+                juce::ModalCallbackFunction::create ([safe = juce::Component::SafePointer<MainComponent> (this), step] (int r)
+                {
+                    if (safe == nullptr) return;
+                    if (r == 1) safe->beginTutorial (step);
+                    else if (r == 2) safe->beginTutorial (TutStep::Welcome);
+                }));
+            return;
+        }
+        beginTutorial (TutStep::Welcome);
+    }
+
+    /** Przy starcie: samouczek byl w toku, gdy program sie zamknal. */
+    void offerTutorialResume()
+    {
+        TutStep step; bool show = false;
+        if (! zs::tut::Tutorial::load (settings.tutorialStep().toStdString(), settings.tutorialFile().existsAsFile(), step, show))
+        { settings.setTutorialStep ({}, false); return; }
+        juce::AlertWindow::showYesNoCancelBox (juce::AlertWindow::QuestionIcon, PL ("Dokończyć samouczek?"),
+            PL ("Ostatnio program zamknął się w trakcie samouczka (krok: „") + tutorialStepLabel (step)
+              + PL ("”).\n\nDokończyć teraz? Możesz też wrócić do niego później: Pomoc → Samouczek."),
+            PL ("Dokończ"), PL ("Od nowa"), PL ("Nie teraz"), this,
+            juce::ModalCallbackFunction::create ([safe = juce::Component::SafePointer<MainComponent> (this), step] (int r)
+            {
+                if (safe == nullptr) return;
+                if (r == 1) safe->beginTutorial (step);
+                else if (r == 2) safe->beginTutorial (TutStep::Welcome);
+                else safe->settings.setTutorialStep (safe->settings.tutorialStep(), false);   // nie pytamy przy kazdym starcie
+            }));
+    }
+
+    /** Projekt proby i pierwszy dymek. from: krok (po wznowieniu z resumePoint). */
+    void beginTutorial (TutStep from, bool preview = false)
+    {
+        const bool showOnly = ! preview && ! haveMicrophone();
+        ensureOverlays();
+        helpPanel->setVisible (false);
+        if (tourLayer->isVisible() && ! tourLayer->isGuided()) tourLayer->dismiss();
+
+        // projekt proby: nazwa, gotowy tekst, sam glos z prompterem
+        if (! tutorialRestore.saved)
+            tutorialRestore = { true, nameInput.getText(), scriptInput.getText() };
+        nameInput.setText (PL ("Mój pierwszy odcinek (próba)"), juce::dontSendNotification);
+        scriptInput.setText (tutorialScript(), juce::dontSendNotification);
+        startWithPrompter = true; startWithMusic = false; backingFile = juce::File();
+        scriptEditorOpen = false;
+        resetAutoTours();
+
+        const auto file = settings.tutorialFile();
+        const bool toReview = ! preview && file.existsAsFile()
+                              && (zs::tut::screenOf (from) == zs::tut::Screen::Montage || zs::tut::screenOf (from) == zs::tut::Screen::Mix
+                                  || zs::tut::screenOf (from) == zs::tut::Screen::Done);
+        if (! preview)
+        {
+            if (inStart) showStart (false);
+            if (inReview) closeReview();
+            if (inPrompter) showPrompter (false);
+            if (toReview) openReview (file, false, true);   // montaz: od tego samego pliku
+            else afterStartChoice();
+        }
+
+        tutorial.begin (showOnly, from);
+        tutorialSeen = {};
+        if (! preview) settings.setTutorialStep (tutorial.save(), true);
+        showTutorialStep();
+
+        if (showOnly)
+            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::InfoIcon, PL ("Samouczek bez mikrofonu"),
+                PL ("Nie widzę mikrofonu, więc nagrania próby nie będzie. Samouczek pokaże, co gdzie jest — ")
+                + PL ("każdy krok ma przycisk „Dalej”, a montaż i miks zobaczysz na krótkim przykładzie.\n\n")
+                + PL ("Mikrofon podłączysz i wybierzesz w „Sprawdź sprzęt” albo w Ustawieniach."));
+    }
+
+    /** Konczy samouczek. completed: przeszedl do konca. */
+    void endTutorial (bool completed)
+    {
+        if (tourLayer != nullptr) tourLayer->endGuided();
+        const auto saved = tutorial.save();
+        tutorial.stop();
+        if (tutorialRestore.saved)
+        {
+            scriptInput.setText (tutorialRestore.script, juce::dontSendNotification);
+            nameInput.setText (tutorialRestore.name, juce::dontSendNotification);
+            tutorialRestore = {};
+        }
+        if (completed)
+        {
+            settings.setTutorialDone();
+            setAssistant (true);
+            // przewodniki po ekranach: juz obejrzane, asystent ich zaraz nie powtorzy
+            for (auto id : { "start", "przygotowanie", "nagranie", "montaz", "miks", "gotowe" })
+            {
+                settings.setTourSeen (id);
+                autoTourDone.addIfNotAlreadyThere (id);
+            }
+        }
+        else settings.setTutorialStep (saved, false);   // krok zostaje: "Samouczek" zaproponuje wznowienie
+        restoreFocus();
+        repaint();
+    }
+
+    void previewTutorial (const juce::String& mode, const juce::File& fixture)
+    {
+        auto go = [this] (TutStep s) { beginTutorial (s, true); tutorialSeen = {}; showTutorialStep(); };
+        const bool reviewMode = mode == "montaz" || mode == "miks" || mode == "gotowe" || mode == "koniec";
+        if (! reviewMode && inReview) showReview (false);   // podglad z nagraniem otwiera ocene w konstruktorze
+        if (mode == "start")         { previewPreparation(); nameInput.setText (PL ("Mój pierwszy odcinek (próba)")); scriptInput.setText (tutorialScript()); go (TutStep::Welcome); }
+        else if (mode == "sprzet")   { previewPreparation(); scriptInput.setText (tutorialScript()); go (TutStep::Hardware); }
+        else if (mode == "nagraj")   { previewPrompter(); prompter->load (tutorialScript()); go (TutStep::Record); }
+        else if (mode == "nagranie") { previewRecording (true); prompter->load (tutorialScript()); prompter->updateTransport(); go (TutStep::Pause); }
+        else if (mode == "montaz")   { previewReview (fixture, true); go (TutStep::Cut); }
+        else if (mode == "miks")     { previewReview (fixture); go (TutStep::Style); }
+        else if (mode == "gotowe")   { previewReview (fixture, false, true); go (TutStep::Done); }
+        else if (mode == "koniec")   { previewReview (fixture, false, true); go (TutStep::Finish); }
+        else if (mode == "powitanie") { previewWelcome (fixture.getParentDirectory()); }
     }
 
     /** --preview-ui witaj: ekran startowy z nagraniami z folderu przykladu. */
@@ -1838,7 +1993,7 @@ private:
         }
         if (correctionFixedLength)
         {
-            const auto err = recorder.start (sessionFolder, recordingName() + PL (" poprawka"));
+            const auto err = recorder.start (recordFolder(), recordingName() + PL (" poprawka"));
             if (err.isNotEmpty()) { append (PL ("--- nie udało się rozpocząć poprawki: ") + err); return; }
             prompter->startReplacementMusicCue();
             correctionLead = -1;
@@ -2094,7 +2249,7 @@ private:
             return;
         }
         if (! prepareBacking()) return;
-        const auto err = recorder.start (previewFolder != juce::File() ? previewFolder : sessionFolder, recordingName());
+        const auto err = recorder.start (previewFolder != juce::File() ? previewFolder : recordFolder(), recordingName());
 
         if (err.isNotEmpty())
         {
@@ -2122,6 +2277,7 @@ private:
         mutedKinds.clear();
         takeEvents.clear();
         okButton.setEnabled (false);
+        ++recordingsStarted;   // samouczek: "Kliknij Nagraj" wykonane
         append ("--- nagrywam do " + recorder.currentFile().getFileName());
         lamp.setState (0, PL ("Uczę się Twojego głosu…"), true);
     }
@@ -2167,6 +2323,7 @@ private:
 
     void timerCallback() override
     {
+        tickTutorial();
         maybeAutoTour();
         if (correctionMode && recorder.takeStoppedByDevice())
         {
@@ -2180,7 +2337,7 @@ private:
         if (correctionMode && correctionWaitingStart && prompter != nullptr && prompter->replacementCountdownElapsed())
         {
             correctionWaitingStart = false; recorder.playPreRoll ({});
-            const auto err = recorder.start (sessionFolder, recordingName() + PL (" poprawka"));
+            const auto err = recorder.start (recordFolder(), recordingName() + PL (" poprawka"));
             if (err.isNotEmpty())
             {
                 append (PL ("--- nie udało się rozpocząć poprawki: ") + err);
@@ -2518,6 +2675,7 @@ private:
             };
             startScreen->onStart = [this] (const juce::String& name)
             {
+                if (tutorial.active()) endTutorial (false);   // prawdziwy projekt konczy probe (krok zostaje do wznowienia)
                 resetAutoTours();
                 startWithMusic = startScreen->musicChosen();
                 startWithPrompter = startScreen->prompterChosen();
@@ -2533,6 +2691,7 @@ private:
                 else { afterStartChoice(); resized(); repaint(); }
             };
             startScreen->onOpen = [this] (const juce::File& f) { resetAutoTours(); showStart (false); openReview (f, false, true); };
+            startScreen->onTutorial = [this] { startTutorialFlow(); };
             startScreen->onOpenOther = [this]
             {
                 chooser = std::make_unique<juce::FileChooser> (PL ("Wybierz nagranie"), sessionFolder, "*.wav;*.flac;*.aiff");
@@ -2620,6 +2779,280 @@ private:
             safe->wizardStarted = false;
             safe->resized();
         });
+    }
+
+    //---- samouczek: stan i dymek ----------------------------------------------
+    zs::tut::Tutorial tutorial;
+    int recordingsStarted = 0;            ///< samouczek: ile razy ruszylo nagrywanie
+    struct TutorialRestore { bool saved = false; juce::String name, script; } tutorialRestore;   ///< projekt sprzed proby
+    /** Co pokazuje dymek (krok, tryb maly) — zmiana = pokaz od nowa. */
+    struct TutorialSeen { int step = -1; bool compact = false, wizard = false; } tutorialSeen;
+
+    static juce::String tutorialScript()
+    {
+        return PL ("Cześć, to moje pierwsze nagranie w Zielonym świetle.\n"
+                   "To tylko próba, więc nic nie musi wyjść idealnie.\n"
+                   "Czytam spokojnie, a tekst sam przesuwa się za moim głosem.\n"
+                   "Jeśli się pomylę, zrobię pauzę i przeczytam to jeszcze raz.\n"
+                   "Potem posłucham nagrania i wytnę to, co zbędne.\n"
+                   "Na koniec program zrobi z tego gotowy plik. Dziękuję za uwagę!");
+    }
+
+    /** Nagrania proby: osobny podfolder, zeby nie mieszaly sie z odcinkami. */
+    juce::File recordFolder() const
+    {
+        if (! tutorial.active()) return sessionFolder;
+        auto f = sessionFolder.getChildFile ("Samouczek");
+        f.createDirectory();
+        return f;
+    }
+
+    bool haveMicrophone()
+    {
+        auto* dev = deviceManager.getCurrentAudioDevice();
+        return dev != nullptr && ! dev->getActiveInputChannels().isZero();
+    }
+
+    static juce::String tutorialStepLabel (zs::tut::Step s)
+    {
+        using S = zs::tut::Step;
+        switch (s)
+        {
+            case S::Welcome:      return PL ("początek");
+            case S::Hardware:     return PL ("sprawdzenie sprzętu");
+            case S::Prepare:      return PL ("przygotowanie");
+            case S::Record: case S::Pause: case S::LineResume: case S::Repeat: case S::EndRecording:
+                                  return PL ("nagranie");
+            case S::Listen:       return PL ("odsłuch");
+            case S::Cut:          return PL ("cięcie");
+            case S::ToMix: case S::AbSwitch: case S::Style: case S::Save:
+                                  return PL ("miks");
+            case S::Done:         return PL ("gotowy plik");
+            case S::Finish: case S::Count: return PL ("zakończenie");
+        }
+        return {};
+    }
+
+    zs::tut::Observation tutorialObservation() const
+    {
+        using Sc = zs::tut::Screen;
+        zs::tut::Observation o;
+        o.hardwareChecked = settings.hardwareChecked();
+        o.recordings = recordingsStarted;
+        if (inWizard) o.screen = Sc::Wizard;
+        else if (inReview && review != nullptr) o.screen = review->flowStepNow() == 3 ? Sc::Montage : review->flowStepNow() == 5 ? Sc::Done : Sc::Mix;
+        else if (inStart) o.screen = Sc::Start;
+        else if (settingsOpen) o.screen = Sc::Other;
+        else if (preparation) o.screen = Sc::Preparation;
+        else o.screen = Sc::Recording;
+        if (prompter != nullptr)
+        {
+            o.pauses = prompter->pausesDone(); o.lineResumes = prompter->lineResumesDone(); o.repeats = prompter->repeatsDone();
+        }
+        if (review != nullptr)
+        {
+            const auto& a = review->activityNow();
+            o.listens = a.listens; o.cuts = a.cuts; o.abToggles = a.abToggles; o.styles = a.styles;
+        }
+        return o;
+    }
+
+    /** Co klatke zegara: czy czynnosc wykonana, i czy dymek ma byc pokazany. */
+    void tickTutorial()
+    {
+        if (! tutorial.active() || ! autoAssistAllowed) return;
+        if (tutorial.observe (tutorialObservation()))
+        {
+            settings.setTutorialStep (tutorial.save(), true);
+            if (tutorial.step() == TutStep::Listen && review != nullptr) settings.setTutorialFile (review->sourceFile());
+        }
+        if (tourLayer == nullptr) return;
+        const bool helpOpen = helpPanel != nullptr && helpPanel->isVisible();
+        const bool modal = juce::ModalComponentManager::getInstance()->getNumModalComponents() > 0;
+        if (tourLayer->isVisible() && ! tourLayer->isGuided()) return;          // zwykly przewodnik z Pomocy
+        if (helpOpen || modal) { if (tourLayer->isVisible()) tourLayer->setVisible (false); tutorialSeen = {}; return; }
+        if ((int) tutorial.step() != tutorialSeen.step || recorder.isRecording() != tutorialSeen.compact
+            || inWizard != tutorialSeen.wizard || ! tourLayer->isVisible())
+            showTutorialStep();
+        else
+            tourLayer->refreshGuided();
+    }
+
+    /** Tekst i element dla kroku. */
+    std::pair<juce::String, zs::TourStep> tutorialContent (TutStep s)
+    {
+        namespace T = zs::tour;
+        auto* p = prompter.get();
+        auto inPrompterBtn = [this] (juce::Component* c) { return (c != nullptr && inPrompter) ? T::of (*c, {}) : zs::TourStep(); };
+        auto inReviewTarget = [this] (const char* id) { return (inReview && review != nullptr) ? review->tutorialTarget (id) : zs::TourStep(); };
+        switch (s)
+        {
+            case TutStep::Welcome:
+                return { PL ("Zrobimy razem krótkie nagranie próbne — około 5 minut, od mikrofonu do gotowego pliku. ")
+                         + PL ("Tekst próby jest już wczytany. Nagrania trafią do osobnego folderu „Samouczek” i nie pomieszają się z odcinkami."),
+                         T::rectIn (*this, [this]   // karty "Odcinek" i "Tekst do promptera" (jak w layoutPreparation)
+                         {
+                             if (! preparation || inStart || inReview || inWizard || settingsOpen) return juce::Rectangle<int>();
+                             auto r = zs::ScreenFrame::mainArea (getLocalBounds());
+                             r.removeFromTop (zs::ScreenFrame::headHeight (getLocalBounds(), preparationSubtitle()) + 8 + 12);
+                             return r.removeFromTop (62 + 10 + 88);
+                         }, {}) };
+            case TutStep::Hardware:
+                if (inWizard) return { PL ("Kreator sprawdza mikrofon i pokój. Przejdź go do końca — samouczek poczeka i poprowadzi dalej."), {} };
+                return { PL ("Sprzęt nie był jeszcze sprawdzany. Kliknij „Sprawdź sprzęt” — w minutę program posłucha mikrofonu i pokoju. Możesz to pominąć i zrobić później."),
+                         T::of (checkButton, {}) };
+            case TutStep::Prepare:
+                return { PL ("Wszystko gotowe. Kliknij „Przejdź do nagrania →”."), T::of (prepareButton, {}) };
+            case TutStep::Record:
+                return { PL ("Kliknij „Nagraj” (albo spacja) i czytaj tekst na głos. Prompter sam przesuwa się za Twoim głosem."),
+                         inPrompterBtn (p != nullptr ? &p->tRecord : nullptr) };
+            case TutStep::Pause:
+                return { PL ("Świetnie! Po zdaniu lub dwóch zrób pauzę: „Pauza” albo spacja."),
+                         inPrompterBtn (p != nullptr ? &p->tPause : nullptr) };
+            case TutStep::LineResume:
+                return { PL ("Na pauzie kliknij wers, który chcesz przeczytać jeszcze raz, a potem „Nagraj od linii”. To, co było po linii, wypadnie z nagrania."),
+                         inPrompterBtn (p != nullptr ? &p->tRecord : nullptr) };
+            case TutStep::Repeat:
+                return { PL ("Nieobowiązkowe: przy pomyłce naciśnij R („Powtórz wers”). Nagranie stanie na początku wersu — potem znowu „Nagraj od linii”."),
+                         inPrompterBtn (p != nullptr ? &p->tRepeat : nullptr) };
+            case TutStep::EndRecording:
+                return { PL ("Przeczytaj tekst do końca i kliknij „Zakończ nagranie” (albo Esc)."),
+                         inPrompterBtn (p != nullptr ? &p->tEnd : nullptr) };
+            case TutStep::Listen:
+                return { tutorial.isShowOnly() ? PL ("Zamiast Twojego nagrania — krótki przykład. Kliknij w falę, żeby posłuchać od tego miejsca.")
+                                               : PL ("To Twoje nagranie. Kliknij w falę — usłyszysz je od tego miejsca."), inReviewTarget ("fala") };
+            case TutStep::Cut:
+                return { PL ("Przeciągnij myszą po fali, żeby zaznaczyć kawałek (np. ciszę na początku), i kliknij „Wytnij zaznaczenie”. Oryginał zostaje na dysku."),
+                         inReviewTarget ("ciecie") };
+            case TutStep::ToMix:
+                return { PL ("Montaż gotowy. Kliknij „Dalej: miks →” — program wyrówna głośność i brzmienie."), inReviewTarget ("dalej") };
+            case TutStep::AbSwitch:
+                return { PL ("Przełącz „Przed miksem” i „Po miksie” (albo Tab) i posłuchaj, co zmienił miks."), inReviewTarget ("przedpo") };
+            case TutStep::Style:
+                return { PL ("Wybierz brzmienie: kliknij jedną z kart. Miks przeliczy się od nowa, głośność zostaje ta sama."), inReviewTarget ("brzmienia") };
+            case TutStep::Save:
+                return { PL ("Brzmi dobrze? Kliknij „Zapisz miks” — powstaną pliki WAV i MP3."), inReviewTarget ("zapisz") };
+            case TutStep::Done:
+                return { PL ("Tu jest Twój plik: „Pokaż w folderze” otworzy folder „Samouczek” z gotowym WAV i MP3."), inReviewTarget ("folder") };
+            case TutStep::Finish: case TutStep::Count:
+                return { PL ("Umiesz już wszystko. Asystent zostaje włączony i podpowie przy kolejnych nagraniach — możesz go wyłączyć przełącznikiem obok Pomocy."),
+                         inReview && review != nullptr ? review->tutorialTarget ("asystent") : T::of (assistToggle, {}) };
+        }
+        return {};
+    }
+
+    /** Pokazuje dymek biezacego kroku. */
+    void showTutorialStep()
+    {
+        if (! tutorial.active()) return;
+        ensureOverlays();
+        const auto s = tutorial.step();
+        auto [text, target] = tutorialContent (s);
+
+        zs::TourOverlay::Guided g;
+        g.counter = PL ("SAMOUCZEK  ·  KROK ") + juce::String (tutorial.number()) + PL (" Z ") + juce::String (tutorial.total());
+        if (tutorial.isShowOnly() && ! zs::tut::isInfoStep (s))
+            text = PL ("(Bez mikrofonu — tylko pokazuję.) ") + text;
+        g.text = text;
+        g.next = tutorial.hasNext();
+        g.nextText = s == TutStep::Welcome ? PL ("Zaczynamy") : s == TutStep::Finish ? PL ("Zakończ") : PL ("Dalej");
+        g.skip = ! zs::tut::isInfoStep (s) && ! tutorial.isShowOnly();
+        // w trakcie nagrania (i w kreatorze) maly dymek z boku, bez przyciemnienia
+        const bool rec = recorder.isRecording();
+        const bool noTarget = ! target.area || target.area (*tourLayer).isEmpty();
+        g.compact = rec || inWizard || noTarget;
+        if (inPrompter && ! inReview)
+        {
+            auto side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (8, 8);
+            if (lamp.isVisible() && lamp.getBottom() > side.getY()) side.setTop (juce::jmin (side.getBottom() - 120, lamp.getBottom() + 4));
+            g.park = side;
+        }
+        else if (inWizard)    // kreator: prawy panel nad jego przyciskami (wyniki pomiarow i tak sa nizej)
+        {
+            auto side = zs::ScreenFrame::sidebar (getLocalBounds()).reduced (8, 8);
+            g.park = side.withTrimmedTop (juce::jmin (90, side.getHeight() / 6)).withTrimmedBottom (juce::jmin (190, side.getHeight() / 2));
+        }
+        else if (g.compact)   // brak elementu: lewy dolny rog, nad stopka
+            g.park = getLocalBounds().reduced (16).removeFromBottom (260).removeFromLeft (juce::jmin (340, getWidth() / 3)).translated (0, -40);
+        tourLayer->showGuided (target, g);
+        tutorialSeen = { (int) s, rec, inWizard };
+    }
+
+    /** "Dalej" w dymku. W trybie tylko pokaz — jak "Pomin ten krok". */
+    void tutorialNext()
+    {
+        if (! tutorial.active()) return;
+        if (zs::tut::isInfoStep (tutorial.step()))
+        {
+            tutorial.skip();
+            if (! tutorial.active()) { endTutorial (tutorial.completed()); return; }
+            settings.setTutorialStep (tutorial.save(), true);
+            showTutorialStep();
+            return;
+        }
+        tutorialSkip();
+    }
+
+    /** "Pomin ten krok": kroki, ktore przenosza na nastepny ekran, robia to
+        same (inaczej nastepny krok nie mialby czego pokazac). */
+    void tutorialSkip()
+    {
+        if (! tutorial.active()) return;
+        switch (tutorial.step())
+        {
+            case TutStep::Prepare:
+                if (preparation && prepareButton.onClick) prepareButton.onClick();
+                break;
+            case TutStep::EndRecording:
+                if (recorder.isRecording()) stopRequested();
+                else if (! inReview) openTutorialExample();
+                break;
+            case TutStep::ToMix: case TutStep::Save:
+                if (inReview && review != nullptr) review->pressPrimary();
+                break;
+            default: break;
+        }
+        tutorial.skip();
+        if (! tutorial.active()) { endTutorial (tutorial.completed()); return; }
+        settings.setTutorialStep (tutorial.save(), true);
+        showTutorialStep();
+    }
+
+    /** Bez nagrania (brak mikrofonu albo pominiete): krotki przyklad do montazu
+        i miksu — 8 s sylab z syntezy, w folderze proby. */
+    void openTutorialExample()
+    {
+        const auto f = recordFolder().getChildFile (PL ("Przykład samouczka.wav"));
+        if (! f.existsAsFile())
+        {
+            const double rate = 48000.0;
+            juce::AudioBuffer<float> b (1, (int) (rate * 8.0));
+            juce::Random rnd (7);
+            float lp = 0.0f;
+            for (int i = 0; i < b.getNumSamples(); ++i)
+            {
+                const double t = i / rate;
+                const double word = std::fmod (t, 2.0) < 1.6 ? 1.0 : 0.0;          // slowa i przerwy
+                const double syl = 0.5 - 0.5 * std::cos (2.0 * juce::MathConstants<double>::pi * 4.0 * t);
+                const double f0 = 140.0 + 25.0 * std::sin (2.0 * juce::MathConstants<double>::pi * 0.7 * t);
+                double v = 0.0;
+                for (int h = 1; h <= 8; ++h) v += std::sin (2.0 * juce::MathConstants<double>::pi * f0 * h * t) / (h * h * 0.6 + 0.4);
+                lp += 0.05f * ((rnd.nextFloat() * 2.0f - 1.0f) - lp);
+                const bool lead = t < 1.0;                                            // sekunda ciszy na poczatek (do wyciecia)
+                b.setSample (0, i, lead ? 0.002f * lp : (float) (0.18 * word * syl * v + 0.01 * lp));
+            }
+            juce::WavAudioFormat wav;
+            auto stream = std::make_unique<juce::FileOutputStream> (f);
+            if (stream->openedOk())
+                if (auto out = std::unique_ptr<juce::AudioFormatWriter> (wav.createWriterFor (stream.get(), rate, 1, 24, {}, 0)))
+                {
+                    stream.release();   // pisarz wlada strumieniem
+                    out->writeFromAudioSampleBuffer (b, 0, b.getNumSamples());
+                }
+        }
+        if (inPrompter) showPrompter (false);
+        preparation = false;
+        openReview (f, false, true);
     }
 
     juce::File sessionFolder;

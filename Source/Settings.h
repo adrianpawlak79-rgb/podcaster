@@ -256,6 +256,47 @@ public:
         props.saveIfNeeded();
     }
 
+    /** Samouczek (Tutorial.h): zapisany krok ("nagraj", "wytnij;pokaz"...),
+        pusty = nic do wznowienia. tutorialRunning = byl w toku, gdy program
+        sie zamknal (przy starcie propozycja dokonczenia); "Zakoncz samouczek"
+        zdejmuje to, ale krok zostaje — "Samouczek" w Pomocy zaproponuje wznowienie. */
+    juce::String tutorialStep() const { return props.getUserSettings()->getValue ("tutorialStep"); }
+    bool tutorialRunning() const      { return props.getUserSettings()->getBoolValue ("tutorialRunning", false); }
+    bool tutorialDone() const         { return props.getUserSettings()->getBoolValue ("tutorialDone", false); }
+
+    /** Plik proby nagranej w samouczku (do wznowienia montazu). */
+    juce::File tutorialFile() const
+    {
+        const auto p = props.getUserSettings()->getValue ("tutorialFile");
+        return p.isEmpty() ? juce::File() : juce::File (p);
+    }
+
+    void setTutorialStep (const juce::String& step, bool running)
+    {
+        auto& f = *props.getUserSettings();
+        if (step.isEmpty()) f.removeValue ("tutorialStep"); else f.setValue ("tutorialStep", step);
+        f.setValue ("tutorialRunning", running && step.isNotEmpty());
+        props.saveIfNeeded();
+    }
+
+    void setTutorialFile (const juce::File& file)
+    {
+        if (file == juce::File()) props.getUserSettings()->removeValue ("tutorialFile");
+        else                      props.getUserSettings()->setValue ("tutorialFile", file.getFullPathName());
+        props.saveIfNeeded();
+    }
+
+    /** Ukonczony: kasuje krok i plik do wznowienia, zapamietuje "ukonczony". */
+    void setTutorialDone()
+    {
+        auto& f = *props.getUserSettings();
+        f.removeValue ("tutorialStep");
+        f.removeValue ("tutorialFile");
+        f.setValue ("tutorialRunning", false);
+        f.setValue ("tutorialDone", true);
+        props.saveIfNeeded();
+    }
+
     bool punchAutoCut() const
     {
         return props.getUserSettings()->getBoolValue ("punchAutoCut", false);
