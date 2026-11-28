@@ -24,6 +24,7 @@
 #include "ScreenFrame.h"
 #include "HelpComponent.h"
 #include "TourOverlay.h"
+#include "AssistantToggle.h"
 
 //==============================================================================
 namespace pl
@@ -350,6 +351,7 @@ public:
     explicit MainComponent (const juce::File& openForReview = {}, bool reviewNow = false, bool previewMode = false)
     {
         noDevice = previewMode;
+        autoAssistAllowed = ! previewMode;
         if (!previewMode) {
             // Karta i wejscie z poprzedniego uruchomienia; gdy jej nie ma —
             // domyslna systemu (initialise sam wraca do domyslnej).
@@ -425,6 +427,15 @@ public:
         helpButton.setButtonText (PL("Pomoc"));
         helpButton.onClick = [this] { openHelp(); };
         addAndMakeVisible(helpButton);
+        assistToggle.setOn (settings.assistantOn());
+        assistToggle.onClick = [this] { setAssistant (assistToggle.getToggleState()); };
+        addAndMakeVisible (assistToggle);
+        assistOption.setButtonText (PL ("Asystent: sam pokazuje wskazówki"));
+        assistOption.setToggleState (settings.assistantOn(), juce::dontSendNotification);
+        assistOption.setTooltip (PL ("To samo, co przełącznik „Asystent” obok „Pomoc”. Pomoc → „Pokaż mi na ekranie” działa zawsze."));
+        assistOption.setWantsKeyboardFocus (false);
+        assistOption.onClick = [this] { setAssistant (assistOption.getToggleState()); };
+        addChildComponent (assistOption);
         detailsButton.setButtonText (PL("Pokaż uwagi"));
         detailsButton.onClick = [this] {
             detailsOpen = !detailsOpen; refreshHomeVisibility(); resized(); repaint();
@@ -751,13 +762,14 @@ public:
             helpPanel = std::make_unique<zs::HelpComponent>();
             helpPanel->onClose = [this] { restoreFocus(); };
             helpPanel->onShowTour = [this] { startTour (helpScreen); };
-            helpPanel->onWelcomeStart = [this] { helpPanel->close(); };
+            helpPanel->onWelcomeStart = [this] { autoTourDone.addIfNotAlreadyThere ("start"); helpPanel->close(); };   // "Zaczynam": asystent zostaje wlaczony, ale start pomijamy
             helpPanel->onWelcomeTour = [this] { helpPanel->setVisible (false); startTour ("start"); };
             addChildComponent (*helpPanel);
         }
         if (tourLayer == nullptr)
         {
             tourLayer = std::make_unique<zs::TourOverlay>();
+            tourLayer->onDisableAssistant = [this] { setAssistant (false); tourLayer->dismiss(); };
             tourLayer->onFinish = [this] (bool completed)
             {
                 if (completed && tourId.isNotEmpty()) settings.setTourSeen (tourId);
@@ -772,6 +784,40 @@ public:
     bool overlayOpen() const
     {
         return (helpPanel != nullptr && helpPanel->isVisible()) || (tourLayer != nullptr && tourLayer->isVisible());
+    }
+
+    //---- asystent: wl./wyl. i samoczynny przewodnik ---------------------------
+    /** Wlacza/wylacza asystenta: zapamietuje i ustawia wszystkie przelaczniki. */
+    void setAssistant (bool on)
+    {
+        settings.setAssistantOn (on);
+        assistToggle.setOn (on);
+        assistOption.setToggleState (on, juce::dontSendNotification);
+        if (review != nullptr) review->setAssistantOn (on);
+        if (! overlayOpen()) restoreFocus();
+    }
+
+    /** Nowy projekt = przewodniki po ekranach (poza startowym) znowu moga sie pokazac. */
+    void resetAutoTours()
+    {
+        const bool start = autoTourDone.contains ("start");
+        autoTourDone.clear();
+        if (start) autoTourDone.add ("start");
+    }
+
+    /** Wolane z timera: przy pierwszym wejsciu na ekran pokazuje jego trase dymkow,
+        ale nigdy w trakcie nagrywania ani liczenia (czeka, az ekran bedzie gotowy). */
+    void maybeAutoTour()
+    {
+        if (! autoAssistAllowed || ! settings.assistantOn()) return;
+        if (recorder.isRecording() || recorder.cueRunning() || correctionMode || correctionWaitingStart) return;
+        if (inWizard || settingsOpen || overlayOpen() || ! settings.welcomeShown()) return;
+        if (juce::ModalComponentManager::getInstance()->getNumModalComponents() > 0) return;
+        if (inReview && (review == nullptr || ! review->tourReady())) return;
+
+        const auto id = screenId (inReview && review != nullptr ? review->flowStepNow() : -1);
+        if (id.isEmpty() || autoTourDone.contains (id)) return;
+        startTour (id);   // zapisuje id jako pokazane takze wtedy, gdy ekran nie ma czego wskazac
     }
 
     void restoreFocus()
@@ -796,6 +842,8 @@ public:
     {
         ensureOverlays();
         tourId = id;
+        autoTourDone.addIfNotAlreadyThere (id);
+        tourLayer->setAssistantLink (settings.assistantOn());
         helpPanel->setVisible (false);
         if (! tourLayer->begin (tourStepsFor (id), firstStep)) restoreFocus();
     }
@@ -899,6 +947,7 @@ public:
         if (tourLayer != nullptr) tourLayer->setBounds (getLocalBounds());
         // Pomoc stoi na lewo od Ustawien; tam, gdzie Ustawien nie ma (ekran startowy), przy prawej krawedzi
         helpButton.setBounds (getWidth() - (inStart ? 118 : 296), 14, 96, 36);
+        assistToggle.setBounds (helpButton.getX() - 8 - zs::AssistantToggle::width, 14, zs::AssistantToggle::width, zs::AssistantToggle::height);
         // miernik segmentowy tylko na ekranie nagrania z prompterem. Ustawiany na
         // koncu resized(), ale uklady Przygotowania i Ustawien wracaja wczesniej —
         // zostawal z dawnymi granicami i zaslanial "Ekran startowy" / "Sprawdz
@@ -983,7 +1032,7 @@ public:
             segMeter.setBounds (P.meter);
             for (auto* c : std::initializer_list<juce::Component*> { &recButton, &repeatButton, &meter, &status, &hints })
                 c->setVisible (false);
-            for (auto* c : std::initializer_list<juce::Component*> { &lamp, &segMeter, &flow, &settingsButton, &helpButton })
+            for (auto* c : std::initializer_list<juce::Component*> { &lamp, &segMeter, &flow, &settingsButton, &helpButton, &assistToggle })
                 c->toFront (false);
         }
     }
@@ -1292,6 +1341,8 @@ private:
         const bool home=!inWizard && !inReview && !inPrompter;
         const bool idleHome=home && !rec;
         helpButton.setVisible(!inWizard && !inReview);
+        assistToggle.setVisible(!inWizard && !inReview);
+        assistOption.setVisible(idleHome && settingsOpen);
         helpButton.setEnabled(!rec);
         helpButton.setTooltip (rec ? PL("Pomoc będzie dostępna po zakończeniu nagrania") : PL("Jak to działa, skróty klawiszy i co robić, gdy coś nie działa (F1)"));
         settingsButton.setVisible(!inWizard && !inReview && !inStart);
@@ -1352,6 +1403,8 @@ private:
         // W panelu 260 px nie zostawalo miejsca nawet na "Brak urzadzenia".
         auto main = zs::ScreenFrame::mainArea (getLocalBounds());
         main.removeFromTop (zs::ScreenFrame::headHeight (getLocalBounds(), hardwareSubtitle()) + 8);
+        assistOption.setBounds (main.removeFromBottom (30).removeFromLeft (420));   // pod listami urzadzen
+        main.removeFromBottom (8);
         selector->setBounds (main);
         auto side = settingsBox().reduced (22, 24);
         folderButton.setBounds (side.removeFromBottom (36)); side.removeFromBottom (8);
@@ -2114,6 +2167,7 @@ private:
 
     void timerCallback() override
     {
+        maybeAutoTour();
         if (correctionMode && recorder.takeStoppedByDevice())
         {
             recorder.stop(); correctionMode = false; correctionWaitingStart = false;
@@ -2392,6 +2446,10 @@ private:
     SegMeter segMeter;                    ///< miernik segmentowy w nagraniu z prompterem
     juce::TextButton recButton, repeatButton, folderButton, okButton, settingsButton, detailsButton, openButton;
     juce::TextButton helpButton;
+    zs::AssistantToggle assistToggle;                 ///< "Asystent" obok Pomocy
+    juce::ToggleButton assistOption;                  ///< to samo w Ustawieniach
+    juce::StringArray autoTourDone;                   ///< ekrany, na ktorych asystent juz sam pokazal trase (w tym projekcie/uruchomieniu)
+    bool autoAssistAllowed = true;                    ///< false w podgladach (--preview-ui)
     std::unique_ptr<zs::HelpComponent> helpPanel;     ///< okno "Jak to dziala" i powitanie
     std::unique_ptr<zs::TourOverlay> tourLayer;       ///< przewodnik z dymkami
     juce::String helpScreen, tourId;                  ///< ekran, z ktorego otwarto pomoc; przewodnik w toku
@@ -2460,6 +2518,7 @@ private:
             };
             startScreen->onStart = [this] (const juce::String& name)
             {
+                resetAutoTours();
                 startWithMusic = startScreen->musicChosen();
                 startWithPrompter = startScreen->prompterChosen();
                 backingFile = juce::File();
@@ -2473,14 +2532,14 @@ private:
                 }
                 else { afterStartChoice(); resized(); repaint(); }
             };
-            startScreen->onOpen = [this] (const juce::File& f) { showStart (false); openReview (f, false, true); };
+            startScreen->onOpen = [this] (const juce::File& f) { resetAutoTours(); showStart (false); openReview (f, false, true); };
             startScreen->onOpenOther = [this]
             {
                 chooser = std::make_unique<juce::FileChooser> (PL ("Wybierz nagranie"), sessionFolder, "*.wav;*.flac;*.aiff");
                 chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                     [safe = juce::Component::SafePointer<MainComponent> (this)] (const juce::FileChooser& fc)
                     {
-                        if (safe && fc.getResult().existsAsFile()) { safe->showStart (false); safe->openReview (fc.getResult(), false, true); }
+                        if (safe && fc.getResult().existsAsFile()) { safe->resetAutoTours(); safe->showStart (false); safe->openReview (fc.getResult(), false, true); }
                     });
             };
             addChildComponent (*startScreen);
@@ -2505,7 +2564,7 @@ private:
                 startScreen->setBounds (getLocalBounds());
             }
             startScreen->setVisible (on);
-            if (on) { startScreen->toFront (true); helpButton.toFront (false); startScreen->focusName(); }
+            if (on) { startScreen->toFront (true); helpButton.toFront (false); assistToggle.toFront (false); startScreen->focusName(); }
         }
         refreshHomeVisibility();
         resized();
@@ -2772,6 +2831,8 @@ private:
             };
             review->onGoToStart = [this] { showStart (true); };
             review->onOpenHelp = [this] (int step) { openHelp (step); };
+            review->onToggleAssistant = [this] (bool on) { setAssistant (on); };
+            review->setAssistantOn (settings.assistantOn());
             review->onOpenSettings = [this] {
                 settingsReturnToReview = true;
                 showReview (false);

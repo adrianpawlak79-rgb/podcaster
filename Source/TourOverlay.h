@@ -101,6 +101,17 @@ public:
     /** completed = przeszedl do ostatniego kroku i kliknal Gotowe. */
     std::function<void (bool completed)> onFinish;
 
+    /** Klikniecie "Wyłącz asystenta" w dymku (tras nie zamyka: zamyka ja Main). */
+    std::function<void()> onDisableAssistant;
+
+    /** Czy w dymku jest link "Wyłącz asystenta" (tylko gdy asystent jest wlaczony). */
+    void setAssistantLink (bool show)
+    {
+        disableLink.setVisible (show);
+        layoutBubble();
+        repaint();
+    }
+
     TourOverlay()
     {
         setWantsKeyboardFocus (true);
@@ -120,6 +131,13 @@ public:
             b->setWantsKeyboardFocus (false);
             addAndMakeVisible (b);
         }
+        disableLink.setButtonText (tour::T ("Wyłącz asystenta"));
+        disableLink.setFont (juce::Font (zs::type::tiny), false, juce::Justification::centredLeft);
+        disableLink.setColour (juce::HyperlinkButton::textColourId, zs::Ink::textNext());
+        disableLink.setWantsKeyboardFocus (false);
+        disableLink.setTooltip (tour::T ("Asystent przestanie sam pokazywać wskazówki. Włączysz go przełącznikiem „Asystent” obok „Pomoc”."));
+        disableLink.onClick = [this] { if (onDisableAssistant) onDisableAssistant(); };
+        addChildComponent (disableLink);
     }
 
     /** Uruchamia przewodnik. Nakladka musi juz miec rodzica i rozmiar okna.
@@ -139,6 +157,9 @@ public:
         repaint();
         return true;
     }
+
+    /** Zamyka trase (jak "Zakończ"). */
+    void dismiss() { finish (false); }
 
     int stepCount() const { return (int) steps.size(); }
 
@@ -197,7 +218,7 @@ public:
     }
 
 private:
-    static constexpr int pad = 16, counterH = 16, btnH = 34, gap = 30, margin = 12;
+    static constexpr int pad = 16, counterH = 16, btnH = 34, gap = 30, margin = 12, linkH = 20;
     static constexpr float textFont = 16.0f;
 
     std::vector<TourStep> steps;
@@ -207,6 +228,7 @@ private:
     bool hasArrow = false;
     juce::Point<float> arrowFrom, arrowTo;
     juce::TextButton backButton, nextButton, endButton;
+    juce::HyperlinkButton disableLink;
 
     void go (int d)
     {
@@ -236,7 +258,7 @@ private:
 
         const int bw = juce::jmin (380, W.getWidth() - 2 * margin);
         textH = zs::ScreenFrame::wrappedHeight (steps[(size_t) index].text, bw - 2 * pad, juce::Font (textFont));
-        const int bh = pad + counterH + 6 + textH + 12 + btnH + pad;
+        const int bh = pad + counterH + 6 + textH + 12 + btnH + (disableLink.isVisible() ? 6 + linkH : 0) + pad;
 
         auto clampX = [&] (int x) { return juce::jlimit (margin, juce::jmax (margin, W.getRight() - margin - bw), x); };
         auto clampY = [&] (int y) { return juce::jlimit (margin, juce::jmax (margin, W.getBottom() - margin - bh), y); };
@@ -285,14 +307,20 @@ private:
             }
         }
 
-        auto row = bubble.reduced (pad, pad).removeFromBottom (btnH);
+        auto bottom = bubble.reduced (pad, pad);
+        if (disableLink.isVisible())
+        {
+            disableLink.setBounds (bottom.removeFromBottom (linkH).removeFromLeft (150));
+            bottom.removeFromBottom (6);
+        }
+        auto row = bottom.removeFromBottom (btnH);
         const bool first = index == 0, last = index == (int) steps.size() - 1;
         nextButton.setButtonText (last ? tour::T ("Gotowe") : tour::T ("Dalej"));
         backButton.setVisible (! first);
         nextButton.setBounds (row.removeFromRight (92)); row.removeFromRight (8);
         backButton.setBounds (row.removeFromRight (92));
         endButton.setBounds (row.removeFromLeft (92));
-        for (auto* c : { &backButton, &nextButton, &endButton }) c->toFront (false);
+        for (auto* c : { (juce::Component*) &backButton, (juce::Component*) &nextButton, (juce::Component*) &endButton, (juce::Component*) &disableLink }) c->toFront (false);
     }
 
     void drawArrow (juce::Graphics& g) const
