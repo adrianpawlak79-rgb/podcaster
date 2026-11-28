@@ -59,7 +59,7 @@ int main (int argc, char** argv)
         const auto line = clipLine (mix::Decide::listen (clipped, sr, w));
         check (! line.empty(), "przesterowane: jest zdanie o przesterze", line);
         check (line.find ("0:07") != std::string::npos, "podaje czas pierwszego miejsca (0:07)");
-        check (line.find ("jeszcze raz") != std::string::npos, "prosi o ponowne nagranie");
+        check (line.find ("nagraj poprawki") != std::string::npos, "prosi o nagranie poprawek");
         check (clipLine (mix::Decide::listen (clean, sr, w)).empty(), "czyste: bez zdania o przesterze");
         check (clipLine (mix::Decide::listen (spikes, sr, w)).empty(), "pojedyncze probki 1,0: bez zdania o przesterze");
     }

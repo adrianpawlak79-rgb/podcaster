@@ -524,7 +524,7 @@ public:
         char b[400];
         std::snprintf (b, sizeof (b),
             "Nagranie jest przesterowane w %d %s (pierwsze w %d:%02d) i miks tego nie naprawi "
-            "— nagraj te fragmenty jeszcze raz, trochę ciszej.",
+            "— nagraj poprawki tych fragmentów, trochę ciszej.",
             places, places == 1 ? "miejscu" : "miejscach", sec / 60, sec % 60);
         return b;
     }

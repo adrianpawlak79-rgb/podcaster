@@ -342,7 +342,7 @@ public:
         cutButton.setButtonText(PL("Wytnij zaznaczenie"));
         undoButton.setButtonText(PL("Cofnij cięcie"));
         replaceButton.setButtonText (PL("Nagraj poprawkę"));
-        replaceButton.setTooltip (PL("Nagraj ten fragment od nowa. Zaznacz go na fali."));
+        replaceButton.setTooltip (PL("Nagraj poprawkę wybranego fragmentu. Zaznacz go na fali."));
         replaceButton.onClick = [this] {
             if (! canEdit() || cutFrom < 0.0 || cutTo <= cutFrom || ! onReplaceSelection) return;
             player.pause();
@@ -396,8 +396,8 @@ public:
         // Nowe nagranie tego samego projektu (ten sam tekst i podklad) — wraca
         // na ekran nagrywania jak przed #142 (QA B1). Poprawka fragmentu to
         // osobna droga ("Popraw fragment").
-        retakeButton.setButtonText (PL("Nagraj nowe podejście"));
-        retakeButton.setTooltip (PL("Nagraj ten sam tekst jeszcze raz od początku. To nagranie zostaje na dysku."));
+        retakeButton.setButtonText (PL("Nagraj od nowa"));
+        retakeButton.setTooltip (PL("Nowe nagranie tego samego projektu (ten sam tekst i podkład). Obecne nagranie zostaje na dysku."));
         retakeButton.onClick = [this] { if (job == nullptr && onClose) onClose(); };
         addChildComponent (retakeButton);
         newProjectButton.setButtonText (PL("Nowy projekt"));
@@ -1482,7 +1482,7 @@ private:
     {
         juce::String t;
         if (! cutPanel.empty())
-            t << PL("Najpierw poprawki po R: przy każdej posłuchaj połączenia i zdecyduj — zaznacz do wycięcia albo zostaw. ")
+            t << PL("Najpierw powtórki po R: przy każdej posłuchaj połączenia i zdecyduj — zaznacz do wycięcia albo zostaw. ")
               << PL("Nagranie zmieni się dopiero po „Wytnij zaznaczone”.\n\n");
         const int marks = (int) review.timeline().size();
         if (marks == 0) t << PL("Program nie zaznaczył miejsc do sprawdzenia.\n\n");
@@ -1490,7 +1490,7 @@ private:
                << PL("). Posłuchaj ich — przycisk „Następne miejsce” albo klawisz N.\n\n");
         if (! review.toRedo().empty())
         {
-            t << PL("DO POWTÓRZENIA (nie da się naprawić miksem)\n");
+            t << PL("Do poprawki (miksem tego nie naprawisz)\n");
             for (const auto& redo : review.toRedo())
                 t << plr::clock (redo.fromSec) << PL("–") << plr::clock (redo.toSec) << "  " << plr::kind (redo.kind) << "\n";
             t << "\n";
@@ -1505,7 +1505,7 @@ private:
     void paintEdit(juce::Graphics& g) {
         g.fillAll(Ink::bg());
         zs::ScreenFrame::paint(g,getLocalBounds(),file.getFileNameWithoutExtension(),
-            correctionSelectionMode ? PL ("Przeciągnij po fali, wybierz „Nagraj poprawkę”, a po nagraniu zdecyduj o podmianie.")
+            correctionSelectionMode ? PL ("Przeciągnij po fali, wybierz „Nagraj poprawkę”, a po nagraniu zdecyduj, czy wstawić poprawkę.")
             : cutPanel.empty() ? PL("Klik — posłuchaj · przeciągnij — zaznacz · kółko, + − — powiększ · N — następne · Esc — wróć")
                              : PL("Spacja — połączenie · Enter — zaznacz do wycięcia · Backspace — zostaw · ↑↓ — miejsca · Esc — wróć"));
         auto side=zs::ScreenFrame::sidebar(getLocalBounds());zs::ScreenFrame::paintPanel(g,side);
@@ -1535,7 +1535,7 @@ private:
     void goToMix() {
         if (! canEdit()) return;
         if (! cutPanel.empty()) {
-            note = PL("Najpierw zdecyduj o poprawkach po R i kliknij „Wytnij zaznaczone”.");
+            note = PL("Najpierw zdecyduj o powtórkach po R i kliknij „Wytnij zaznaczone”.");
             if (! editMode) { editMode = true; setRawMaterial(); }
             assessment.setText (montageSummary(), false); resized();
             repaint(); return;
@@ -1753,14 +1753,14 @@ private:
     {
         if (! editMode) return PL("Delikatny — naturalnie · Studyjny — wyrównany · Mocny — radiowy. Ta sama głośność, porównaj przed i po.");
         return cutPanel.empty() ? PL("Surowe nagranie, jeszcze bez miksu. Kliknij falę, aby posłuchać; przeciągnij, aby zaznaczyć fragment.")
-                                : PL("Surowe nagranie, jeszcze bez miksu. Najpierw zdecyduj o poprawkach po R.");
+                                : PL("Surowe nagranie, jeszcze bez miksu. Najpierw zdecyduj o powtórkach po R.");
     }
     /** Zielona notka pod montazem. Po podmianie fragmentu nagranie na dysku
         JEST juz zmienione — mowimy, gdzie lezy poprzednia wersja (QA W4). */
     juce::String safeNote() const
     {
         if (replacementUndoAvailable)
-            return PL("Nagranie na dysku ma już poprawkę. Wersja sprzed poprawki leży w folderze „surowe” obok nagrania. Cięcia w montażu dotyczą kopii.");
+            return PL("Nagranie na dysku ma już poprawkę. Wersja sprzed poprawki leży w folderze „surowe” (oryginały) obok nagrania. Cięcia w montażu dotyczą kopii.");
         return PL("Oryginalne nagranie zostaje bez zmian na dysku. Zmiany dotyczą kopii, z której powstanie miks.");
     }
     int headH() const { return zs::ScreenFrame::headHeight (getLocalBounds(), subtitle()); }
@@ -1896,8 +1896,8 @@ private:
 
     void updateAbText()
     {
-        abButton.setButtonText (player.showingAfter() ? PL ("słychać: PO miksie")
-                                                      : PL ("słychać: PRZED miksem"));
+        abButton.setButtonText (player.showingAfter() ? PL ("słychać: po miksie")
+                                                      : PL ("słychać: przed miksem"));
 
         // Bez osobnego koloru napisu: zielony "PO" i zolty "PRZED" robily z
         // jednego przycisku trzeci i czwarty rodzaj, a zielen i zolcien
@@ -2086,12 +2086,12 @@ private:
         int v = 0;
         juce::String line = review.isPreview() ? PL ("Próbka miksu gotowa. Posłuchaj, wybierz brzmienie i zaakceptuj.")
                                                : PL ("Miks gotowy. Posłuchaj przed i po, wybierz brzmienie i zapisz.");
-        if (damagedRecording) { v = 2; line = PL ("Podczas zapisu utracono dane. Nagraj materiał ponownie."); }
+        if (damagedRecording) { v = 2; line = PL ("Podczas zapisu utracono dane. Nagraj od nowa."); }
         else if (! review.mixValid()) { v = 2; line = PL (review.verdictLine().c_str()); }
         else if (review.nearlySilent())
         {
             v = 1;
-            line = PL ("Nagranie jest prawie ciche — mikrofon chyba nie dochodził. Sprawdź mikrofon w Ustawieniach i nagraj jeszcze raz.");
+            line = PL ("Nagranie jest prawie ciche — mikrofon chyba nie dochodził. Sprawdź mikrofon w Ustawieniach i nagraj od nowa.");
         }
         else if (! review.toRedo().empty())
         {
@@ -2296,7 +2296,7 @@ private:
         for (int i = 0; i < shown; ++i)
         {
             if (redoText.isNotEmpty()) redoText << "    ";
-            redoText << PL ("powtórz ") << plr::clock (all[(size_t) i].fromSec)
+            redoText << PL ("popraw ") << plr::clock (all[(size_t) i].fromSec)
                      << PL ("–") << plr::clock (all[(size_t) i].toSec);
         }
 
@@ -2392,7 +2392,7 @@ private:
         struct Out { zs::PunchResult result; bool archived=false; };
         auto out=std::make_shared<Out>();
         const auto wav=file;
-        runJob(PL("Stosuję poprawki…"), 0,
+        runJob(PL("Stosuję cięcia…"), 0,
             [out,wav,proposals] {
                 out->result=zs::applyCutList(wav,proposals);
                 if(out->result.error.isEmpty() && !out->result.applied && tw::acceptedCuts(proposals).empty()) {
@@ -2407,23 +2407,23 @@ private:
             [this,out,proposals] { afterProposals(out->result,out->archived,proposals); });
     }
     void afterProposals(const zs::PunchResult& result,bool archived,const std::vector<tw::CutProposal>& proposals) {
-        if(result.error.isNotEmpty()) { note=PL("Nie udało się zastosować poprawek: ")+result.error; repaint(); return; }
+        if(result.error.isNotEmpty()) { note=PL("Nie udało się zastosować cięć: ")+result.error; repaint(); return; }
         if(!result.applied) {
             if(!tw::acceptedCuts(proposals).empty()) {
-                note=PL("Nie udało się zastosować poprawek. Sprawdź plik nagrania."); repaint(); return;
+                note=PL("Nie udało się zastosować cięć. Sprawdź plik nagrania."); repaint(); return;
             }
             if(!archived) {
-                note=PL("Nie udało się zachować pełnego nagrania i listy w folderze surowe."); repaint(); return;
+                note=PL("Nie udało się zachować pełnego nagrania i listy w folderze surowe (oryginały)."); repaint(); return;
             }
             cutPanel.load(file,review.rawAudio(),sr); resized();
-            note=PL("Wycięto 0 fragmentów. Obie wersje pozostają w nagraniu. Pełne nagranie jest w folderze surowe.");
-            juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon,PL("Poprawki po R"),note);
+            note=PL("Wycięto 0 fragmentów. Obie wersje pozostają w nagraniu. Pełne nagranie jest w folderze surowe (oryginały).");
+            juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon,PL("Powtórki po R"),note);
             repaint(); return;
         }
         const int n=result.cuts, d=n%10, dd=n%100;
         const char* frag = n==1 ? " fragment (" : (d>=2 && d<=4 && (dd<12 || dd>14)) ? " fragmenty (" : " fragmentów (";
         juce::String message=PL("Wycięto ")+juce::String(n)+PL(frag)
-            +juce::String(result.removedSec,2)+PL(" s). Pełne nagranie jest w folderze surowe.");
+            +juce::String(result.removedSec,2)+PL(" s). Pełne nagranie jest w folderze surowe (oryginały).");
         if(result.audibleSeams>0) message+=PL(" Przy ")+juce::String(result.audibleSeams)
             +PL(" połączeniach po cięciu tło się zmieniło — posłuchaj tych miejsc.");
         // Archiwizacja TSV jest wykonywana przez applyCutList. Jesli sie nie
@@ -2432,7 +2432,7 @@ private:
         if(staleList) {
             message+=PL(" Nie udało się usunąć starej listy cięć — sprawdź plik .ciecia.tsv przed ponownym otwarciem.");
         }
-        juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon,PL("Poprawki po R"),message);
+        juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon,PL("Powtórki po R"),message);
         // nowa wersja pliku: wczytanie i przesluchanie znow w tle
         load(file,{},false,false,[this,staleList,message] {
             if(staleList) { cutPanel.load(juce::File(),{},sr); resized(); }
