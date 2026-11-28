@@ -94,11 +94,29 @@ inline const char* stageHelp (Stage s)
         case Stage::Korektor:    return "Zabiera „błoto” i „pudełko” z głosu. Więcej = głębsze cięcia.";
         case Stage::Odszumianie: return "Ścisza szum tła. Więcej = mocniej, ale głos może brzmieć sztucznie.";
         case Stage::Oddechy:     return "Ścisza oddechy między słowami. Więcej = ciszej.";
-        case Stage::Ekspander:   return "Ścisza tło w pauzach. Więcej = ciszej w pauzach.";
+        case Stage::Ekspander:   return "Ścisza tło między zdaniami. Więcej = ciszej w pauzach.";
         case Stage::Kompresja:   return "Wyrównuje ciche i głośne fragmenty. Więcej = gęściej, jak w radiu.";
-        case Stage::Rezonanse:   return "Wąsko ścina dzwoniące pasma. Więcej = głębiej.";
+        case Stage::Rezonanse:   return "Wycisza dzwoniące, piszczące tony w głosie. Więcej = mocniej.";
         case Stage::DeEsser:     return "Łagodzi ostre „s”, „sz”, „c”. Więcej = mocniej.";
-        case Stage::Barwa:       return "Obecność i powietrze w głosie. Więcej = jaśniej i bliżej.";
+        case Stage::Barwa:       return "Głos jaśniejszy i bliższy. Więcej = jaśniej i bliżej.";
+        default:                 return "";
+    }
+}
+
+/** Skutek modulu slowami laika (glowny widok miksu, bez nazw modulow). */
+inline const char* stageEffect (Stage s)
+{
+    switch (s)
+    {
+        case Stage::Filtr:       return "mniej dudnienia";
+        case Stage::Korektor:    return "czystszy głos";
+        case Stage::Odszumianie: return "ciszej szum tła";
+        case Stage::Oddechy:     return "ciszej oddechy";
+        case Stage::Ekspander:   return "ciszej tło między zdaniami";
+        case Stage::Kompresja:   return "równiejszy głos";
+        case Stage::Rezonanse:   return "mniej dzwonienia w głosie";
+        case Stage::DeEsser:     return "łagodniejsze „s” i „sz”";
+        case Stage::Barwa:       return "jaśniejszy i bliższy głos";
         default:                 return "";
     }
 }
@@ -291,10 +309,10 @@ inline std::string describeTweaks (const SpeechChain::Params& decided, const Twe
         else if (a > 1e-4f)    what = "więcej";
         else if (a < -1e-4f)   what = "mniej";
         else continue;
-        std::string name = stageName (s);
+        std::string name = stageEffect (s);   // zdanie trafia na glowny ekran
         out += (out.empty() ? "" : ", ") + name + " — " + what;
     }
-    return out.empty() ? out : "Twoje zmiany w torze miksu: " + out + ".";
+    return out.empty() ? out : "Twoje zmiany w miksie: " + out + ".";
 }
 
 } // namespace mix
