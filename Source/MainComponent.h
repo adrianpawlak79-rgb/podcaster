@@ -524,6 +524,18 @@ public:
             input->setColour (juce::TextEditor::outlineColourId, zs::Ink::edge());
             addAndMakeVisible (*input);
         }
+        // autor odcinkow: trafia do tagu ID3 w MP3 (ReviewComponent::mp3Tags)
+        authorInput.setFont (juce::Font (zs::type::body));
+        authorInput.setText (settings.author(), juce::dontSendNotification);
+        authorInput.setIndents (10, 8);
+        authorInput.setTextToShowWhenEmpty (PL("np. Anna Kowalska"), zs::Ink::textDim());
+        authorInput.setInputRestrictions (120);
+        authorInput.setTooltip (PL("Imię lub nazwa autora zapisywana w pliku MP3 (tag ID3). Zostaw puste, jeśli nie chcesz."));
+        authorInput.onTextChange = [this] { settings.setAuthor (authorInput.getText()); };
+        authorInput.setColour (juce::TextEditor::backgroundColourId, zs::Ink::panel());
+        authorInput.setColour (juce::TextEditor::textColourId, zs::Ink::textNow());
+        authorInput.setColour (juce::TextEditor::outlineColourId, zs::Ink::edge());
+        addChildComponent (authorInput);
         prepareButton.setButtonText (PL("Przejdź do nagrania →"));
         zs::Look::setKind (prepareButton, zs::ui::ButtonKind::Primary);
         prepareButton.onClick = [this] {
@@ -1116,6 +1128,7 @@ private:
         detailsButton.setButtonText(detailsOpen?PL("Ukryj uwagi"):PL("Pokaż uwagi"));
         selector->setVisible(idleHome && settingsOpen);
         folderButton.setVisible(idleHome && settingsOpen);checkButton.setVisible(idleHome && settingsOpen);
+        authorInput.setVisible(idleHome && settingsOpen);
         events.setVisible(idleHome && detailsOpen && !settingsOpen);okButton.setVisible(idleHome && detailsOpen && !settingsOpen);
         prompterButton.setVisible(idleHome && !preparation && !settingsOpen);
         otherTextButton.setVisible(idleHome && !settingsOpen && settings.lastScript().existsAsFile());
@@ -1133,6 +1146,7 @@ private:
         if (prepare) {
             prompterButton.setVisible(false); otherTextButton.setVisible(false);
             checkButton.setVisible(!settingsOpen); folderButton.setVisible(settingsOpen);
+            authorInput.setVisible(settingsOpen);
             detailsButton.setVisible(false); openButton.setVisible(false);
         }
         lamp.setVisible(!inWizard && !inReview && (rec || inPrompter));
@@ -1170,9 +1184,16 @@ private:
         checkButton.setBounds (side.removeFromBottom (38));
         // pod mikrofonem i sluchawkami (2 x 108 px): wzorzec brzmienia (24 + 48)
         side = settingsBox().reduced (22, 24);
-        side.removeFromTop (2 * 108 + 24 + 48 + 4);
+        side.removeFromTop (2 * settingsDeviceRow() + 24 + 48 + 4);
         forgetProfileButton.setBounds (side.removeFromTop (34).removeFromLeft (180));
+        // autor odcinkow (tag ID3): pod wzorcem brzmienia, etykieta 24 px + pole
+        side.removeFromTop (settingsAuthorGap());
+        side.removeFromTop (24);
+        authorInput.setBounds (side.removeFromTop (34));
     }
+    int settingsAuthorGap() const { return 10; }
+    /** Wiersz urzadzenia w panelu Ustawien: w niskim oknie (960x640) nazwa w 2 liniach, zeby zmiescilo sie pole autora. */
+    int settingsDeviceRow() const { return getHeight() < 720 ? 80 : 108; }
 
     void paintHardwareSettings (juce::Graphics& g)
     {
@@ -1184,7 +1205,8 @@ private:
             g.setColour (zs::Ink::textDim()); g.setFont (juce::Font (zs::type::small));
             g.drawText (label, side.removeFromTop (24), juce::Justification::centredLeft);
             g.setColour (zs::Ink::textNow()); g.setFont (juce::Font (zs::type::body));
-            g.drawFittedText (name.isEmpty() ? PL("Brak urządzenia") : name, side.removeFromTop (72), juce::Justification::topLeft, 3);
+            const bool tight = getHeight() < 720;
+            g.drawFittedText (name.isEmpty() ? PL("Brak urządzenia") : name, side.removeFromTop (tight ? 44 : 72), juce::Justification::topLeft, tight ? 2 : 3);
             side.removeFromTop (12);
         };
         device (PL("MIKROFON"), setup.inputDeviceName);
@@ -1198,6 +1220,10 @@ private:
                                                      : PL("Brak. Ustawisz go po zapisaniu miksu, na ekranie Gotowe."),
                                   side.removeFromTop (48), juce::Font (profile.valid() ? zs::type::body : zs::type::small),
                                   profile.valid() ? zs::Ink::textNow() : zs::Ink::textNext());
+        // pole autora siedzi pod przyciskiem "Usun wzorzec" (layoutHardwareSettings)
+        side.removeFromTop (34 + settingsAuthorGap());
+        g.setColour (zs::Ink::textDim()); g.setFont (juce::Font (zs::type::small));
+        g.drawText (PL("AUTOR ODCINKÓW (TAG MP3)"), side.removeFromTop (24), juce::Justification::centredLeft);
     }
 
     static juce::String hardwareSubtitle() { return PL("Urządzenia, słuchawki, wzorzec brzmienia i folder sesji."); }
@@ -2194,7 +2220,7 @@ private:
     juce::Label hints;
     juce::String hintsFull;               ///< pelna podpowiedz; w waskim oknie bez ostatnich pozycji
     void fitHintsLabel() { hints.setText (zs::ScreenFrame::fitHints (hintsFull, hints.getFont(), hints.getWidth() - 8), juce::dontSendNotification); }
-    juce::TextEditor nameInput, scriptInput;
+    juce::TextEditor nameInput, scriptInput, authorInput;
     juce::ComboBox deviceBox, inputBox;   ///< karta i wejscie z mikrofonem
     bool noDevice = false;                ///< --preview-ui: karty nie otwieramy
     juce::TooltipWindow tooltips { this, 700 };   ///< podpowiedzi po najechaniu (bez tego setTooltip nic nie pokazuje)
@@ -2584,6 +2610,7 @@ private:
 
         review->setRecordingDamaged((!fromDisk && recorder.recordingDamaged()) || wavFile.getSiblingFile(wavFile.getFileName()+".problem.txt").existsAsFile());
         review->setRoom (settings.roomCheck());
+        review->authorProvider = [this] { return settings.author(); };
         review->setVoiceProfile (mix::VoiceProfile::fromText (settings.voiceProfile().toStdString()));
         review->onRememberProfile = [this] (const juce::String& t) { settings.setVoiceProfile (t); repaint(); };
         review->load (wavFile, takeEvents, ! fromDisk, waitForIt);

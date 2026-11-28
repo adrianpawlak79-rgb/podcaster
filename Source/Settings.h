@@ -196,6 +196,21 @@ public:
         props.saveIfNeeded();
     }
 
+    /** Autor odcinkow (tag ID3 w MP3). To nawyk, nie konkretne nagranie:
+        ten sam czlowiek podpisuje kolejne odcinki. Domyslnie pusty. */
+    juce::String author() const
+    {
+        return props.getUserSettings()->getValue ("author").trim();
+    }
+
+    void setAuthor (const juce::String& name)
+    {
+        const auto trimmed = name.trim().substring (0, 120);
+        if (trimmed.isEmpty()) props.getUserSettings()->removeValue ("author");
+        else                   props.getUserSettings()->setValue ("author", trimmed);
+        props.saveIfNeeded();
+    }
+
     bool punchAutoCut() const
     {
         return props.getUserSettings()->getBoolValue ("punchAutoCut", false);
