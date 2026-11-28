@@ -124,6 +124,9 @@ int main (int argc, char** argv)
     all.push_back (noise      ("szum-mono",             -12.0, 12.0, 1));
     all.push_back (speechLike ("mowa-z-pauzami",        -12.0, 30.0, 1));
     all.push_back (speechLike ("mowa-cicha",            -30.0, 30.0, 1));
+    // glos bez podkladu w pliku: ten sam kanal dwa razy (mix::dualMonoChannels);
+    // pyloudnorm ma tu dac o 3,01 LU wiecej niz "mowa-z-pauzami"
+    all.push_back (speechLike ("mowa-dual-mono",        -12.0, 30.0, 2));
 
     std::printf ("%-24s %10s %10s\n", "przebieg", "LUFS", "dBTP");
 

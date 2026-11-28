@@ -24,8 +24,8 @@
     ciche koncowki slow nie dostaly zgrzytu kwantyzacji.
 
     Bitrate: koder ma liste dozwolonych wartosci (zalezna od czestotliwosci
-    i liczby kanalow). Bierzemy najblizsza zadanej — dla glosu mono 128
-    kbit/s to jakosc, ktorej nikt nie odrozni od WAV-a.
+    i liczby kanalow). Bierzemy najblizsza zadanej — dla stereo 192
+    kbit/s (glos zapisujemy jako dual-mono) to jakosc nie do odroznienia od WAV-a.
 
     Na Linuksie (testy, symulacja) MP3 nie ma: write() zwraca opis bledu.
 */

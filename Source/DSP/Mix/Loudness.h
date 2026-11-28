@@ -31,6 +31,27 @@ namespace mix
 {
 
 //==============================================================================
+/** Glos bez podkladu: tor liczy w mono, a do pliku idzie stereo z tym samym
+    sygnalem w obu kanalach (decyzja wlasciciela, listopad 2026: serwisy mierza
+    plik wprost i mono -19 LUFS bralyby za 3 dB cichsze od innych podcastow).
+
+    BS.1770 sumuje energie kanalow z waga 1, wiec dwa identyczne kanaly to
+    +10*log10(2) = +3,01 dB: mono -19 LUFS = plik stereo -16 LUFS. Szczyt
+    miedzyprobkowy jest liczony na kanal, wiec sie nie zmienia — sufit -1 dBTP
+    z toru mono obowiazuje tez w pliku. Odsluch w programie i tak kopiuje mono
+    na oba wyjscia z ta sama glosnoscia (Recorder.h), wiec slychac to, co w pliku. */
+constexpr double dualMonoLiftDb = 3.010299956639812;
+
+/** Glosnosc pliku stereo z dwoma kopiami kanalu o glosnosci monoLufs. */
+inline double dualMonoLufs (double monoLufs) noexcept { return monoLufs + dualMonoLiftDb; }
+
+/** Kanaly do zapisu glosu: ten sam bufor dwa razy (bez kopii w pamieci). */
+inline std::vector<const float*> dualMonoChannels (const std::vector<float>& mono)
+{
+    return { mono.data(), mono.data() };
+}
+
+//==============================================================================
 /** Filtr K: polka wysokotonowa modelujaca glowe sluchacza + gornoprzepustowy
     RLB. Wspolczynniki z BS.1770-4, przeliczane na dowolna czestotliwosc
     probkowania — tablica ze standardu jest podana tylko dla 48 kHz. */

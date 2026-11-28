@@ -1198,9 +1198,10 @@ private:
         const double length = withBed ? (double) bed.left.size() / sr : review.seconds();
         row (PL("Długość"), plr::clock (length) + " (" + plr::plNumber (length) + " s)", 54);
         // Audyt 14.10: "LUFS" i "dBTP" na glownym ekranie wymagaja wiedzy audio.
-        row (PL("Gotowa głośność"), withBed ? PL("Jak w podcastach (stereo, z muzyką)") : PL("Jak w podcastach (mono)"), 42);
+        row (PL("Gotowa głośność"), withBed ? PL("Jak w podcastach (stereo, z muzyką)") : PL("Jak w podcastach (stereo)"), 42);
         g.setColour (Ink::textDim());
-        g.drawText (plr::plNumber (withBed ? bed.lufs : review.whatIDid().lufsAfter) + PL(" LUFS · szczyt ")
+        // bez podkladu: tor mierzy mono, plik ma ten kanal dwa razy (Loudness.h)
+        g.drawText (plr::plNumber (withBed ? bed.lufs : mix::dualMonoLufs (review.whatIDid().lufsAfter)) + PL(" LUFS · szczyt ")
                         + plr::plNumber (withBed ? bed.peakDbtp : review.whatIDid().peakAfter) + " dBTP",
                     side.removeFromTop (tight ? 18 : 20), juce::Justification::centredLeft);
         if (wish.profile.valid() && side.getHeight() >= (tight ? 42 : 56))
@@ -1907,10 +1908,11 @@ private:
         runJob (PL ("Zapisuję miks…"), 0,
             [this, err, mp3Err, path, mp3Path, rate]
             {
-                // z podkladem: stereo glos + muzyka (MusicBed), inaczej sam glos mono
+                // z podkladem: stereo glos + muzyka (MusicBed), inaczej sam glos jako stereo
+                // z tym samym sygnalem w obu kanalach: tor -19 LUFS mono = plik -16 LUFS
                 if (! bed.left.empty()) mix::MusicBed::measureResult (bed, sr);   // dla ekranu Gotowe
                 const auto& mixed = review.mixedAudio();
-                const std::vector<const float*> ch = bed.left.empty() ? std::vector<const float*> { mixed.data() }
+                const std::vector<const float*> ch = bed.left.empty() ? mix::dualMonoChannels (mixed)
                                                                       : std::vector<const float*> { bed.left.data(), bed.right.data() };
                 const size_t frames = bed.left.empty() ? mixed.size() : bed.left.size();
                 *err = wavio::writePcm (path, ch, frames, rate, 24);
@@ -2453,7 +2455,7 @@ private:
     }
     juce::File savedMp3;                  ///< MP3 obok zapisanego WAV-a (puste, gdy sie nie udalo)
     juce::String mp3Problem;              ///< dlaczego MP3 nie powstal
-    static constexpr int mp3Kbps = 128;   ///< glos mono: nie do odroznienia od WAV-a
+    static constexpr int mp3Kbps = 192;   ///< zawsze stereo (glos dual-mono albo z muzyka)
     juce::String note;
     double sr = 48000.0;
 

@@ -534,6 +534,9 @@ public:
         tu liczymy je od zmierzonej glosnej mowy (95. percentyl, -28,4 dBFS na
         tym samym nagraniu), wiec przesuniecia sa wzgledem niej. Uzasadnienie
         pisane od nowa, zeby nie opisywalo stopni, ktorych nie ma. */
+    /** Cel liczony w mono (tor). Plik bez podkladu jest stereo z tym samym
+        sygnalem w obu kanalach, wiec ma dualMonoLufs (-19) = -16 LUFS
+        (Loudness.h). */
     static constexpr double studioPodcastLufs = -19.0;
 
     /** Delikatny — miks lagodny z 12.10 (B1; Adrian: "raczej b1" wobec mocniejszych
@@ -549,8 +552,8 @@ public:
 
         if (wish.where == Destination::Podcast) p.targetLufs = studioPodcastLufs;
         d.squashDb = std::max (0.0, p.targetLufs - d.freeTargetLufs);
-        std::snprintf (b, sizeof (b), "Miks delikatny: głośność %.1f LUFS, szczyt najwyżej %.1f dBTP.",
-                       p.targetLufs, wish.ceilingDbTp);
+        std::snprintf (b, sizeof (b), "Miks delikatny: głośność %.1f LUFS (plik stereo), szczyt najwyżej %.1f dBTP.",
+                       dualMonoLufs (p.targetLufs), wish.ceilingDbTp);
         why.push_back (b);
 
         p.highpassHz = 70.0; p.steepHighpass = false;
@@ -632,8 +635,8 @@ public:
 
         if (wish.where == Destination::Podcast) p.targetLufs = studioPodcastLufs;
         d.squashDb = std::max (0.0, p.targetLufs - d.freeTargetLufs);
-        std::snprintf (b, sizeof (b), "Miks studyjny: głośność %.1f LUFS, szczyt najwyżej %.1f dBTP.",
-                       p.targetLufs, wish.ceilingDbTp);
+        std::snprintf (b, sizeof (b), "Miks studyjny: głośność %.1f LUFS (plik stereo), szczyt najwyżej %.1f dBTP.",
+                       dualMonoLufs (p.targetLufs), wish.ceilingDbTp);
         why.push_back (b);
 
         // odejmowanie: dol 24 dB/okt, bloto i pudlo
