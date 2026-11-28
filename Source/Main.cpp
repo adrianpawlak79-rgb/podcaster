@@ -82,6 +82,20 @@ countries: pl
                 preview.previewCuts(fixture);
             }
             if(mode=="witaj") preview.previewStart(fixture.getParentDirectory());
+            if(mode=="pomoc") preview.previewHelp(0);
+            if(mode=="pomoc-skroty") preview.previewHelp(1);
+            if(mode=="pomoc-awaria") preview.previewHelp(2);
+            if(mode=="powitanie") preview.previewWelcome(fixture.getParentDirectory());
+            if(mode=="przewodnik-start") preview.previewTour("start",0,fixture);
+            if(mode=="przewodnik-start-4") preview.previewTour("start",3,fixture);
+            if(mode=="przewodnik-przygotowanie") preview.previewTour("przygotowanie",0,{});
+            if(mode=="przewodnik-nagranie") preview.previewTour("nagranie",1,{});
+            if(mode=="przewodnik-montaz") preview.previewTour("montaz",0,fixture);
+            if(mode=="przewodnik-montaz-3") preview.previewTour("montaz",2,fixture);
+            if(mode=="przewodnik-miks") preview.previewTour("miks",0,fixture);
+            if(mode=="przewodnik-miks-2") preview.previewTour("miks",1,fixture);
+            if(mode=="przewodnik-gotowe") preview.previewTour("gotowe",0,fixture);
+            if(mode=="przewodnik-nagranie-powtorz") preview.previewTour("nagranie",2,{});
             if(mode=="review") preview.previewReview(fixture);
             if(mode=="tor") preview.previewChain(fixture);
             if(mode=="edit") preview.previewReview(fixture,true);

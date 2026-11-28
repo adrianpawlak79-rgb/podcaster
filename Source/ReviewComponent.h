@@ -46,6 +46,7 @@
 #include "DSP/CutEdit.h"
 #include "Look.h"
 #include "ScreenFrame.h"
+#include "TourOverlay.h"
 #include "StepBar.h"
 #include "Recorder.h"
 #include "Wav.h"
@@ -217,6 +218,8 @@ public:
     /** Powrót do istniejącego ekranu startowego z paska workflow. */
     std::function<void()> onGoToStart;
     std::function<void()> onOpenSettings;
+    /** Pomoc: numer kroku programu (3 montaz, 4 miks, 5 gotowe) — okno pomocy otwiera sie na nim. */
+    std::function<void (int flowStep)> onOpenHelp;
     /** Autor odcinkow z Ustawien (tag ID3 w MP3); brak = puste pole autora. */
     std::function<juce::String()> authorProvider;
     /** "Nowy projekt" na ekranie Gotowe: do ekranu startowego. */
@@ -240,6 +243,10 @@ public:
         settingsButton.setButtonText (PL("Ustawienia"));
         settingsButton.onClick = [this] { if (onOpenSettings) onOpenSettings(); };
         addAndMakeVisible (settingsButton);
+        helpButton.setButtonText (PL("Pomoc"));
+        helpButton.setTooltip (PL("Jak to działa, skróty klawiszy i co robić, gdy coś nie działa (F1)"));
+        helpButton.onClick = [this] { if (onOpenHelp) onOpenHelp (flowStepNow()); };
+        addAndMakeVisible (helpButton);
 
         formats.registerBasicFormats();
 
@@ -734,6 +741,43 @@ public:
     }
 
     //==========================================================================
+    /** Krok programu, na ktorym jest ekran: 3 montaz, 4 miks, 5 gotowe (jak zakladki u gory). */
+    int flowStepNow() const { return doneMode ? 5 : editMode ? 3 : 4; }
+
+    /** Przewodnik po biezacym ekranie (TourOverlay.h). Elementy ukryte sa pomijane,
+        wiec lista moze byc dluzsza niz to, co widac w danym trybie. */
+    std::vector<zs::TourStep> tourSteps()
+    {
+        namespace T = zs::tour;
+        std::vector<zs::TourStep> s;
+        if (doneMode)
+        {
+            s.push_back (T::of (folderButton, T::T ("„Pokaż w folderze” otwiera folder z gotowymi plikami WAV i MP3.")));
+            s.push_back (T::of (retakeButton, T::T ("„Nagraj od nowa” zaczyna nowe nagranie tego samego projektu. Obecne zostaje na dysku.")));
+            s.push_back (T::of (newTakeButton, T::T ("„Popraw fragment” pozwala nagrać jeszcze raz wybrane miejsce.")));
+            s.push_back (T::of (newProjectButton, T::T ("„Nowy projekt” wraca na ekran startowy — kolejny odcinek.")));
+        }
+        else if (editMode)
+        {
+            s.push_back (T::rectIn (*this, [this] { return waveArea(); },
+                         T::T ("To jest Twoje nagranie. Kliknij falę, żeby posłuchać od tego miejsca. Przeciągnij po niej, żeby zaznaczyć fragment.")));
+            s.push_back (T::of (playButton, T::T ("Odtwarzanie i pauza. Ten sam skutek ma spacja.")));
+            s.push_back (T::of (cutButton, T::T ("„Wytnij zaznaczenie” usuwa zaznaczony fragment. Pełne nagranie zostaje w folderze „surowe (oryginały)”.")));
+            s.push_back (T::of (backButton, T::T ("„Popraw fragment”: wybierz miejsce i nagraj je jeszcze raz.")));
+            s.push_back (T::of (saveButton, T::T ("Gdy nagranie jest dobre, „Dalej: miks →” — program wyrówna głośność i brzmienie.")));
+        }
+        else
+        {
+            s.push_back (T::both (styleCards[0], styleCards[2],
+                         T::T ("Trzy brzmienia głosu. Ta sama głośność, więc porównasz je uczciwie. Kliknij, żeby przeliczyć miks.")));
+            s.push_back (T::of (abButton, T::T ("Przełącznik „Przed miksem” i „Po miksie” (klawisz Tab): usłyszysz, co zmienił miks.")));
+            s.push_back (T::of (detailsToggle, T::T ("Zaawansowane ustawienia — dla ciekawych. Zwykle nie trzeba ich ruszać.")));
+            s.push_back (T::of (saveButton, T::T ("Brzmi dobrze? „Zapisz miks” zrobi pliki WAV i MP3.")));
+        }
+        return s;
+    }
+
+    //==========================================================================
     bool keyPressed (const juce::KeyPress& k) override
     {
         const int c = k.getKeyCode();
@@ -1068,6 +1112,8 @@ public:
         flow.setCurrent (4);                         // krok "Miks"
         settingsButton.setBounds (getWidth() - 196, 14, 174, 36);
         settingsButton.setVisible (true);
+        helpButton.setBounds (getWidth() - 296, 14, 96, 36);
+        helpButton.setVisible (true);
         nextButton.setVisible(false); backButton.setVisible(false); detailsToggle.setVisible(true);
         saveButton.setButtonText(review.isPreview() ? PL("Akceptuję — miksuj całość") : PL("Zapisz miks"));
         assessment.setText(reviewSummary, false);
@@ -1205,6 +1251,8 @@ private:
         flow.setCurrent (5);
         settingsButton.setBounds (getWidth() - 196, 14, 174, 36);
         settingsButton.setVisible (true);
+        helpButton.setBounds (getWidth() - 296, 14, 96, 36);
+        helpButton.setVisible (true);
         auto main = doneContent();
         main.removeFromTop (68 + 10 + 18 + 40 + 44 + 8);
         folderButton.setBounds (main.removeFromTop (40).withSizeKeepingCentre (220, 40));
@@ -1443,6 +1491,8 @@ private:
         flow.setBounds (zs::ScreenFrame::stepsArea (getLocalBounds())); flow.setCurrent (3);
         settingsButton.setBounds (getWidth() - 196, 14, 174, 36);
         settingsButton.setVisible (true);
+        helpButton.setBounds (getWidth() - 296, 14, 96, 36);
+        helpButton.setVisible (true);
         namespace L = zs::ui::review;
         abButton.setVisible (false); detailsToggle.setVisible (false); words.setVisible (false);
         auto main = zs::ScreenFrame::mainArea (getLocalBounds()); main.removeFromTop (headH() + waveHeight() + L::strip + 8);
@@ -2630,7 +2680,7 @@ private:
     std::atomic<bool> ready { false };
     bool wasPlaying = false;
 
-    juce::TextButton playButton, saveButton, backButton, settingsButton;
+    juce::TextButton playButton, saveButton, backButton, settingsButton, helpButton;
     MixAbSwitch abButton;
     MixStyleCard styleCards[3];
     bool styleNote = false;                 ///< note to "Miks ... liczy się…" z chooseStyle
