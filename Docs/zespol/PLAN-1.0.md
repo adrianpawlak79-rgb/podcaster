@@ -79,3 +79,11 @@ Start badań po scaleniu fali 2. Badania nie mogą blokować wydania 1.0.
 ### Decyzje Adriana 28.11 (AI)
 - **RNNoise:** dołączamy (licencja BSD-3, darmowa, pozwala sprzedawać program). Wchodzi do instalatora testowego razem z falą 3 jako kafel „Usuwanie tła (AI)”. Gałąź `claude/rnnoise`.
 - **Whisper:** na razie nie. Vosk działa dobrze, a bez automatycznego cięcia zysk jest mały. Wracamy do tematu, jeśli potrzebna będzie transkrypcja odcinka albo opis do publikacji.
+
+## Stan na 28.11, przerwa (limit)
+- **Na main:** #143–#152, czyli fale 1 i 2 oraz prostszy miks z fali 3.
+- **Instalator testowy:** `Zielone-swiatlo-0.9.0-test2.exe`. Adrian testuje według `TEST-0.9.0.md`.
+- **Przerwane w trakcie, zapisane jako WIP na gałęziach:**
+  - `claude/pomoc`: pomoc i przewodnik w dymkach. Trzeba scalić z main (#152 przełącznik Przed/Po) i dokończyć.
+  - `claude/rnnoise`: RNNoise w torze miksu. Do dokończenia: testy, opóźnienie, kafel.
+- **Następnie:** dokończyć te dwie gałęzie, poprawić to, co wyjdzie z testu Adriana, i wydać 1.0.
