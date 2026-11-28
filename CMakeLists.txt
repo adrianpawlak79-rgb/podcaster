@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(ZieloneSwiatlo VERSION 0.4.0 LANGUAGES C CXX)
+project(ZieloneSwiatlo VERSION 0.9.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -34,13 +34,13 @@ if (WIN32)
 endif()
 
 target_include_directories(ZieloneSwiatlo PRIVATE Source)
-target_compile_definitions(ZieloneSwiatlo PRIVATE ZS_FONTS=1)
+target_compile_definitions(ZieloneSwiatlo PRIVATE ZS_FONTS=1 ZS_VERSION="${PROJECT_VERSION}")
 
 target_compile_definitions(ZieloneSwiatlo PUBLIC
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
-    JUCE_DISPLAY_SPLASH_SCREEN=0
-    JUCE_REPORT_APP_USAGE=0
+    JUCE_DISPLAY_SPLASH_SCREEN=1   # licencja JUCE 7 Personal: ekran "Made with JUCE" jest wymagany
+    JUCE_REPORT_APP_USAGE=1
     JUCE_WASAPI=1
     JUCE_DIRECTSOUND=1
     JUCE_ASIO=0

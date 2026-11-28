@@ -7,7 +7,8 @@
     po zawieszeniu ostatnia linijka mowi, na czym program stanal.
 
     Plik: <dane aplikacji>/Zielone swiatlo/slad.txt (Windows: %APPDATA%),
-    obok ustawien. Najwyzej ok. 200 kB — starszy slad jest wtedy kasowany.
+    obok ustawien. Po przekroczeniu 2 MB plik przechodzi do slad.stary.txt
+    (poprzedni stary jest nadpisywany), wiec razem zajmuje najwyzej ok. 4 MB.
 */
 
 #pragma once
@@ -27,7 +28,12 @@ inline void trace (const juce::String& what)
     static juce::CriticalSection lock;
     const juce::ScopedLock sl (lock);
     const auto f = traceFile();
-    if (f.getSize() > 200 * 1024) f.deleteFile();
+    if (f.getSize() > 2 * 1024 * 1024)
+    {
+        const auto old = f.getSiblingFile ("slad.stary.txt");
+        old.deleteFile();
+        if (! f.moveFileTo (old)) f.deleteFile();
+    }
     f.getParentDirectory().createDirectory();
     juce::FileOutputStream out (f);
     if (! out.openedOk()) return;

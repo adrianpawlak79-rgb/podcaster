@@ -19,7 +19,7 @@ Zielone światło: Windows, C++17 + JUCE 7. Lampka nagrania, prompter, miks z g�
 - Jedna gałąź = jeden temat. Małe commity, opis po polsku: co i dlaczego.
 - Przed rozpoczęciem: `git pull` na `main`. Nie zmieniaj tego samego pliku, który ma otwarty PR kogoś innego, bez uzgodnienia w PR.
 - Nie commituj: `.exe`, `.dll`, `.wav`, katalogów `build*`, modeli Vosk. Są w `.gitignore`.
-- Wersja jest w `CMakeLists.txt` i `Source/Main.cpp`. Podbija ją tylko ten, kto scala PR.
+- Wersja jest tylko w `CMakeLists.txt` (`project(... VERSION ...)`); `Source/Version.h` bierze ją stamtąd. Podbija ją tylko ten, kto scala PR.
 
 ## Zadania dla Gemini przez GitHub
 Zgłoszenie (issue) z etykietą `gemini`, nadaną przez właściciela repo, uruchamia `.github/workflows/gemini.yml`: Gemini robi zadanie na maszynie GitHuba, a automat robi commit na gałęzi `gemini/zgloszenie-<nr>`, puszcza `Tests/ci.sh` i otwiera PR z wynikiem. Wymaga sekretu `GEMINI_API_KEY`. Treść zgłoszenia ma być samowystarczalna (przykłady: `Tools/ZADANIA.md`).

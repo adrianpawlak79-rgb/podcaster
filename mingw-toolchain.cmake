@@ -1,10 +1,10 @@
-# Cross-compiling RackRunner for 64-bit Windows from Linux with MinGW-w64.
+# Cross-compiling Zielone swiatlo for 64-bit Windows from Linux with MinGW-w64.
 #
 #   cmake -B build-win -DCMAKE_TOOLCHAIN_FILE=mingw-toolchain.cmake \
-#         -DCMAKE_BUILD_TYPE=Release -DRACK_JUCE_PATH=/path/to/JUCE-7
+#         -DCMAKE_BUILD_TYPE=Release -DZS_JUCE_PATH=/path/to/JUCE-7.0.12
 #
 # NOTE: JUCE 8 dropped MinGW support, so this path needs JUCE 7.0.x.
-# On Windows itself, build with Visual Studio instead - see README.
+# On Windows itself, build with Visual Studio instead.
 
 set(CMAKE_SYSTEM_NAME Windows)
 set(CMAKE_SYSTEM_PROCESSOR x86_64)
@@ -19,11 +19,11 @@ set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 
-# Statically link the GCC runtime so the plug-in needs no MinGW DLLs beside it.
-set(_fet76_static "-static-libgcc -static-libstdc++ -static")
-set(CMAKE_EXE_LINKER_FLAGS_INIT    "${_fet76_static}")
-set(CMAKE_SHARED_LINKER_FLAGS_INIT "${_fet76_static}")
-set(CMAKE_MODULE_LINKER_FLAGS_INIT "${_fet76_static}")
+# Statically link the GCC runtime so the program needs no MinGW DLLs beside it.
+set(_zs_static "-static-libgcc -static-libstdc++ -static")
+set(CMAKE_EXE_LINKER_FLAGS_INIT    "${_zs_static}")
+set(CMAKE_SHARED_LINKER_FLAGS_INIT "${_zs_static}")
+set(CMAKE_MODULE_LINKER_FLAGS_INIT "${_zs_static}")
 
 # CMake's default MinGW library list gets REPLACED by this variable, not
 # appended to - so the whole Win32 set has to be repeated here, plus the extra
