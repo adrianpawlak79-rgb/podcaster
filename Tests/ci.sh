@@ -54,6 +54,7 @@ TESTY=(
   "wersy-test"
   "start-test"
   "odsluch-test /tmp/mowa.wav"
+  "glos-stereo-test /tmp/mowa.wav"
   "powtorz-test"
   "wyglad-test"
   "sledzenie-test"

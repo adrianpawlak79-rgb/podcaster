@@ -21,6 +21,7 @@ $CXX $FLAGS prompter-test.cpp  -o prompter-test
 $CXX $FLAGS wersy-test.cpp     -o wersy-test
 $CXX $FLAGS start-test.cpp     -o start-test
 $CXX $FLAGS odsluch-test.cpp   -o odsluch-test
+$CXX $FLAGS glos-stereo-test.cpp -o glos-stereo-test
 $CXX $FLAGS powtorz-test.cpp   -o powtorz-test
 $CXX $FLAGS wyglad-test.cpp    -o wyglad-test
 $CXX $FLAGS sledzenie-test.cpp -o sledzenie-test
@@ -52,6 +53,7 @@ espeak-ng -v pl -s 150 -w /tmp/mowa.wav \
 ./wersy-test
 ./start-test
 ./odsluch-test /tmp/mowa.wav
+./glos-stereo-test /tmp/mowa.wav
 ./powtorz-test
 ./wyglad-test
 ./sledzenie-test
